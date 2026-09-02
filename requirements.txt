@@ -1,0 +1,10 @@
+pandas
+numpy
+vectorbt
+matplotlib
+pyarrow
+
+# vectorbt 1.1.0 builds its plotly themes using the `scattermapbox` trace type,
+# which plotly 6+ renamed to `scattermap`. Unpinned, pip installs plotly 7.x and
+# `import vectorbt` fails at import time.
+plotly<6

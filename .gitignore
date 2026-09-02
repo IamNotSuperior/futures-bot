@@ -1,0 +1,14 @@
+# Virtual environment
+venv/
+
+# Market data — large, regenerable, and not source.
+# The directory itself is tracked (via .gitkeep) so a fresh clone keeps the
+# documented project structure; everything inside it is ignored.
+data/*
+!data/.gitkeep
+
+# Python bytecode
+__pycache__/
+
+# Parquet data files (anywhere in the tree)
+*.parquet
