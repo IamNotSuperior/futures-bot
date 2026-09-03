@@ -475,3 +475,135 @@ class TestBuildTrades:
         )
         trades = build_trades(signals, self._bars(idx, [5000.0] * 5))
         assert len(trades) == 1
+
+
+class TestEntryPriceColumn:
+    """A strategy entering on a resting order publishes its own fill price.
+
+    Added for ORB-2, whose stop order fills at its own level rather than at the
+    open of the bar that reached it. The fallback must stay exactly as it was
+    for every strategy that publishes no such column.
+    """
+
+    def _bars(self, index, opens):
+        return pd.DataFrame(
+            {"open": opens, "high": opens, "low": opens, "close": opens}, index=index
+        )
+
+    def _signals(self, idx, **extra):
+        base = {
+            "entry_long": [False, True, False, False],
+            "entry_short": [False, False, False, False],
+            "exit_long": [False, False, False, True],
+            "exit_short": [False, False, False, False],
+            "exit_price": [None, None, None, 5010.0],
+            "exit_reason": [None, None, None, "target"],
+        }
+        base.update(extra)
+        return pd.DataFrame(base, index=idx)
+
+    def test_published_entry_price_is_used(self):
+        idx = pd.date_range("2025-07-14 09:45", periods=4, freq="5min", tz=ET)
+        signals = self._signals(idx, entry_price=[None, 5007.5, None, None])
+        trades = build_trades(signals, self._bars(idx, [5000.0, 5001.0, 5002.0, 5003.0]))
+        assert trades.loc[0, "entry_price"] == 5007.5
+
+    def test_absent_column_still_fills_at_the_open(self):
+        idx = pd.date_range("2025-07-14 09:45", periods=4, freq="5min", tz=ET)
+        trades = build_trades(
+            self._signals(idx), self._bars(idx, [5000.0, 5001.0, 5002.0, 5003.0])
+        )
+        assert trades.loc[0, "entry_price"] == 5001.0
+
+    def test_null_entry_price_falls_back_to_the_open(self):
+        idx = pd.date_range("2025-07-14 09:45", periods=4, freq="5min", tz=ET)
+        signals = self._signals(idx, entry_price=[None, None, None, None])
+        trades = build_trades(signals, self._bars(idx, [5000.0, 5001.0, 5002.0, 5003.0]))
+        assert trades.loc[0, "entry_price"] == 5001.0
+
+
+class TestSameBarEntryAndExit:
+    """A trade opened and closed inside one bar must survive.
+
+    ORB-2 can fill a resting stop and be stopped out in the same minute. The
+    engine used to drop such a trade: the exit was consumed while no position
+    was open, then the entry opened and never closed.
+    """
+
+    def _bars(self, index, opens):
+        return pd.DataFrame(
+            {"open": opens, "high": opens, "low": opens, "close": opens}, index=index
+        )
+
+    def test_entry_and_exit_on_one_bar_produces_a_trade(self):
+        idx = pd.date_range("2025-07-14 09:45", periods=3, freq="1min", tz=ET)
+        signals = pd.DataFrame(
+            {
+                "entry_long": [False, True, False],
+                "entry_short": [False, False, False],
+                "exit_long": [False, True, False],
+                "exit_short": [False, False, False],
+                "entry_price": [None, 5003.0, None],
+                "exit_price": [None, 4993.0, None],
+                "exit_reason": [None, "stop", None],
+            },
+            index=idx,
+        )
+        trades = build_trades(signals, self._bars(idx, [5000.0, 5001.0, 5002.0]))
+        assert len(trades) == 1
+        row = trades.loc[0]
+        assert row["entry_time"] == row["exit_time"] == idx[1]
+        assert row["entry_price"] == 5003.0
+        assert row["exit_price"] == 4993.0
+        assert row["exit_reason"] == "stop"
+
+    def test_short_side_mirrors(self):
+        idx = pd.date_range("2025-07-14 09:45", periods=3, freq="1min", tz=ET)
+        signals = pd.DataFrame(
+            {
+                "entry_long": [False, False, False],
+                "entry_short": [False, True, False],
+                "exit_long": [False, False, False],
+                "exit_short": [False, True, False],
+                "entry_price": [None, 4997.0, None],
+                "exit_price": [None, 5007.0, None],
+                "exit_reason": [None, "stop", None],
+            },
+            index=idx,
+        )
+        trades = build_trades(signals, self._bars(idx, [5000.0] * 3))
+        assert len(trades) == 1
+        assert trades.loc[0, "direction"] == "short"
+
+    def test_an_unrelated_exit_flag_does_not_close_a_new_entry(self):
+        """A long entry must not be closed by a short exit mark on the bar."""
+        idx = pd.date_range("2025-07-14 09:45", periods=3, freq="1min", tz=ET)
+        signals = pd.DataFrame(
+            {
+                "entry_long": [False, True, False],
+                "entry_short": [False, False, False],
+                "exit_long": [False, False, True],
+                "exit_short": [False, True, False],
+                "exit_price": [None, 4993.0, 5010.0],
+                "exit_reason": [None, "stop", "target"],
+            },
+            index=idx,
+        )
+        trades = build_trades(signals, self._bars(idx, [5000.0] * 3))
+        assert len(trades) == 1
+        assert trades.loc[0, "exit_time"] == idx[2]
+        assert trades.loc[0, "exit_reason"] == "target"
+
+    def test_unclosed_entry_is_still_dropped(self):
+        """The old guarantee must survive the new one."""
+        idx = pd.date_range("2025-07-14 09:45", periods=3, freq="1min", tz=ET)
+        signals = pd.DataFrame(
+            {
+                "entry_long": [False, True, False],
+                "entry_short": [False, False, False],
+                "exit_long": [False, False, False],
+                "exit_short": [False, False, False],
+            },
+            index=idx,
+        )
+        assert build_trades(signals, self._bars(idx, [1.0, 2.0, 3.0])).empty

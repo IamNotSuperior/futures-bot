@@ -80,12 +80,20 @@ def build_trades(signals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:
     ``exit_price`` when it publishes one (the stop or target level actually
     touched), falling back to the bar open.
 
+    ``entry_price`` is the mirror of that, and exists for strategies entering on
+    a resting order rather than at the open: a stop order fills at its own level,
+    not at the open of the bar that reached it. A strategy that publishes no
+    ``entry_price`` column - or leaves it null on a bar - fills at the open
+    exactly as before, so this is transparent to every strategy that does not
+    use it.
+
     Only one position is tracked at a time; a second entry while a trade is open
     is ignored, which also guards against a strategy that fails to suppress it.
     """
     rows: list[dict] = []
     open_trade: dict | None = None
 
+    has_entry_price = "entry_price" in signals.columns
     has_exit_price = "exit_price" in signals.columns
     has_reason = "exit_reason" in signals.columns
 
@@ -98,28 +106,30 @@ def build_trades(signals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:
     ]
     opens = bars["open"]
 
+    def closes_here(trade: dict, row) -> bool:
+        return bool(row["exit_long"] if trade["direction"] == "long" else row["exit_short"])
+
+    def close_at(trade: dict, ts, row) -> dict:
+        price = None
+        if has_exit_price and pd.notna(row.get("exit_price")):
+            price = float(row["exit_price"])
+        if price is None:
+            price = float(opens.loc[ts])
+        trade["exit_time"] = ts
+        trade["exit_price"] = price
+        trade["exit_reason"] = (
+            str(row["exit_reason"])
+            if has_reason and pd.notna(row.get("exit_reason"))
+            else "signal"
+        )
+        return trade
+
     for ts, row in active.iterrows():
 
         # Exits are processed before entries so a same-bar flip is well defined.
-        if open_trade is not None:
-            closing = (
-                row["exit_long"] if open_trade["direction"] == "long" else row["exit_short"]
-            )
-            if bool(closing):
-                price = None
-                if has_exit_price and pd.notna(row.get("exit_price")):
-                    price = float(row["exit_price"])
-                if price is None:
-                    price = float(opens.loc[ts])
-                open_trade["exit_time"] = ts
-                open_trade["exit_price"] = price
-                open_trade["exit_reason"] = (
-                    str(row["exit_reason"])
-                    if has_reason and pd.notna(row.get("exit_reason"))
-                    else "signal"
-                )
-                rows.append(open_trade)
-                open_trade = None
+        if open_trade is not None and closes_here(open_trade, row):
+            rows.append(close_at(open_trade, ts, row))
+            open_trade = None
 
         if open_trade is None:
             if bool(row["entry_long"]):
@@ -128,14 +138,28 @@ def build_trades(signals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:
                 direction = "short"
             else:
                 continue
+            entry_price = None
+            if has_entry_price and pd.notna(row.get("entry_price")):
+                entry_price = float(row["entry_price"])
+            if entry_price is None:
+                entry_price = float(opens.loc[ts])
             open_trade = {
                 "entry_time": ts,
                 "direction": direction,
-                "entry_price": float(opens.loc[ts]),
+                "entry_price": entry_price,
                 "exit_time": pd.NaT,
                 "exit_price": float("nan"),
                 "exit_reason": "",
             }
+
+            # Opened and closed inside one bar. A strategy filling on a resting
+            # order can be stopped out in the same bar it entered, and the
+            # entry is real, so honour both marks rather than dropping the
+            # trade for want of a later exit. Strategies that enter at the open
+            # never mark an exit on the entry bar, so this cannot fire for them.
+            if closes_here(open_trade, row):
+                rows.append(close_at(open_trade, ts, row))
+                open_trade = None
 
     # An entry with no exit is dropped rather than marked to the last close:
     # the strategy is responsible for closing every position, and inventing an

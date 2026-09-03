@@ -34,6 +34,7 @@ from engine import (  # noqa: E402
     MES, CostModel, build_trades, count_evaluation_blowups, enforce_daily_loss_limit,
     equity_curve_by_day, price_trades, trailing_drawdown_summary,
 )
+import eval_sim  # noqa: E402
 from metrics import compute_metrics  # noqa: E402
 from orb import ORBParams, OpeningRangeBreakout, resample_bars  # noqa: E402
 from scan import MIN_RELIABLE_TRADES, parameter_grid, slice_by_date  # noqa: E402
@@ -46,6 +47,10 @@ DATA_END = date(2026, 8, 31)
 
 #: A fold needs at least this much training history to select on.
 MIN_TRAIN_DAYS = 200
+
+#: Monte Carlo paths used when *selecting* on pass probability. Reporting runs
+#: the full 20,000; selection only needs to rank, and pays this per candidate.
+SELECTION_PATHS = 4_000
 
 
 @dataclass(frozen=True)
@@ -81,20 +86,31 @@ def build_folds(data_start: date = DATA_START, data_end: date = DATA_END) -> lis
     return folds
 
 
-def window_metrics(signals, bars5, costs: CostModel, start: date, end: date) -> dict:
-    """Evaluate one parameter set on one date window."""
+def window_metrics(signals, bars, costs: CostModel, start: date, end: date,
+                   contracts: int = 1, with_pass_probability: bool = False,
+                   sim_paths: int = SELECTION_PATHS) -> dict:
+    """Evaluate one parameter set on one date window.
+
+    ``with_pass_probability`` adds the evaluation Monte Carlo, which is what a
+    pass-probability selection ranks on. It is opt-in because it costs a full
+    simulation per (fold, parameter set) - negligible for a single fixed
+    configuration, material for a 192-cell grid.
+    """
     win_signals = slice_by_date(signals, start, end)
-    win_bars = slice_by_date(bars5, start, end)
-    trades = price_trades(build_trades(win_signals, win_bars), MES, costs, 1)
+    win_bars = slice_by_date(bars, start, end)
+    trades = price_trades(build_trades(win_signals, win_bars), MES, costs, contracts)
     trades, halts = enforce_daily_loss_limit(
-        trades, win_bars, MES, costs, 1, rules.DAILY_LOSS_LIMIT
+        trades, win_bars, MES, costs, contracts, rules.DAILY_LOSS_LIMIT
     )
     m = compute_metrics(trades)
     if not m.get("trade_count"):
-        return {"trades": 0, "net_pnl": 0.0, "profit_factor": np.nan,
-                "sharpe": np.nan, "max_drawdown": 0.0, "win_rate": np.nan,
-                "halts": 0}
-    return {
+        empty = {"trades": 0, "net_pnl": 0.0, "profit_factor": np.nan,
+                 "sharpe": np.nan, "max_drawdown": 0.0, "win_rate": np.nan,
+                 "halts": 0}
+        if with_pass_probability:
+            empty["pass_probability"] = 0.0
+        return empty
+    out = {
         "trades": m["trade_count"],
         "net_pnl": m["net_pnl"],
         "profit_factor": m["profit_factor"],
@@ -103,6 +119,63 @@ def window_metrics(signals, bars5, costs: CostModel, start: date, end: date) -> 
         "win_rate": m["win_rate_pct"],
         "halts": len(halts),
     }
+    if with_pass_probability:
+        out["pass_probability"] = eval_sim.simulate(
+            eval_sim.daily_pnl_from_trades(trades), paths=sim_paths
+        ).pass_probability
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Selection
+#
+# A selector turns one fold's candidate block into the chosen row. The default
+# is the training-Sharpe rule entries 1 and 2 were evaluated under, and it must
+# stay exactly as it was so those results remain reproducible. Entry 4 adds a
+# pass-probability rule alongside it.
+# ---------------------------------------------------------------------------
+
+
+def _pool(block: pd.DataFrame, min_train_trades: int):
+    """Candidates with enough training history, or all of them if none has.
+
+    The fallback is deliberate but dangerous: an eligibility floor set higher
+    than any candidate can reach silently selects from the unfiltered pool. The
+    counts are returned so a report can show when that happened.
+    """
+    eligible = block[block["train_trades"] >= min_train_trades]
+    return (eligible if len(eligible) else block), len(eligible)
+
+
+def select_by_train_sharpe(block: pd.DataFrame, min_train_trades: int):
+    """Highest training Sharpe. The rule entries 1 and 2 were run under."""
+    pool, n_eligible = _pool(block, min_train_trades)
+    return pool.loc[pool["train_sharpe"].idxmax()], len(pool), n_eligible
+
+
+def select_by_pass_probability(block: pd.DataFrame, min_train_trades: int):
+    """Highest training evaluation pass probability.
+
+    Ties are broken in the order entry 4 pre-registers: highest training net
+    P&L, then lowest training maximum drawdown, then the first parameter set in
+    grid order. Many candidates will tie at a pass probability of exactly zero,
+    so the tie-break is not a formality - without one, the choice would fall to
+    whatever ordering the frame happened to have.
+    """
+    pool, n_eligible = _pool(block, min_train_trades)
+    ordered = pool.sort_values(
+        ["train_pass_probability", "train_net_pnl", "train_max_drawdown"],
+        ascending=[False, False, True],
+        kind="mergesort",  # stable, so grid order is the final tie-break
+    )
+    return ordered.iloc[0], len(pool), n_eligible
+
+
+#: name -> (selector, whether it needs the pass-probability simulation)
+SELECTORS = {
+    "train_sharpe": (select_by_train_sharpe, False),
+    "pass_probability": (select_by_pass_probability, True),
+}
 
 
 def _orb_factory(params, roll_dates, early_closes):
@@ -119,22 +192,45 @@ def _orb_describe(params) -> dict:
     }
 
 
-def run_walkforward(bars5, roll_dates, early_closes, costs: CostModel,
+def _generate_resampled(strat, bars):
+    """Default signal generation: the resampled-bar path ORB uses."""
+    return strat.generate_signals_resampled(bars)
+
+
+def run_walkforward(bars, roll_dates, early_closes, costs: CostModel,
                     grid=None, factory=None, describe=None,
                     min_train_trades: int = MIN_RELIABLE_TRADES,
-                    verbose: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+                    verbose: bool = True, contracts: int = 1,
+                    selection: str = "train_sharpe",
+                    generate=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Returns ``(fold_summary, all_pairs)``.
 
     ``all_pairs`` has one row per (fold, parameter set) with both the training
     and test metrics, which is what the pooled rank correlation is computed on.
 
     ``grid``/``factory``/``describe`` default to ORB, so the ORB path is
-    unchanged by construction rather than by re-running it.
+    unchanged by construction rather than by re-running it. ``selection``
+    likewise defaults to the training-Sharpe rule entries 1 and 2 used.
+
+    ``generate`` exists because not every strategy decides on resampled bars:
+    ORB-2 reads 1-minute bars directly, so it overrides this with
+    ``lambda strat, bars: strat.generate_signals(bars)``.
+
+    A strategy with no grid passes a one-element ``grid``. Selection then has a
+    single candidate and cannot express a preference, which is the point - entry
+    4 has nothing to select, and each fold is simply its out-of-sample year.
     """
+    if selection not in SELECTORS:
+        raise ValueError(
+            f"Unknown selection {selection!r}; expected one of {sorted(SELECTORS)}"
+        )
+    selector, needs_pass_prob = SELECTORS[selection]
+
     folds = build_folds()
     grid = parameter_grid() if grid is None else grid
     factory = _orb_factory if factory is None else factory
     describe = _orb_describe if describe is None else describe
+    generate = _generate_resampled if generate is None else generate
     pairs: list[dict] = []
     started = time.time()
 
@@ -142,13 +238,15 @@ def run_walkforward(bars5, roll_dates, early_closes, costs: CostModel,
     # over the whole history and slice per fold.
     for i, params in enumerate(grid, 1):
         strat = factory(params, roll_dates, early_closes)
-        signals = strat.generate_signals_resampled(bars5)
+        signals = generate(strat, bars)
 
         for fold in folds:
-            train = window_metrics(signals, bars5, costs,
-                                   fold.train_start, fold.train_end)
-            test = window_metrics(signals, bars5, costs,
-                                  fold.test_start, fold.test_end)
+            train = window_metrics(signals, bars, costs,
+                                   fold.train_start, fold.train_end,
+                                   contracts, needs_pass_prob)
+            test = window_metrics(signals, bars, costs,
+                                  fold.test_start, fold.test_end,
+                                  contracts, needs_pass_prob)
             pairs.append(
                 {
                     "test_year": fold.test_year,
@@ -169,21 +267,23 @@ def run_walkforward(bars5, roll_dates, early_closes, costs: CostModel,
 
     all_pairs = pd.DataFrame(pairs)
 
-    # Selection: best training Sharpe among sets with enough training trades.
     summary = []
     for fold in folds:
         block = all_pairs[all_pairs["test_year"] == fold.test_year]
-        eligible = block[block["train_trades"] >= min_train_trades]
-        pool = eligible if len(eligible) else block
-        chosen = pool.loc[pool["train_sharpe"].idxmax()]
+        chosen, n_pool, n_eligible = selector(block, min_train_trades)
         param_cols = list(describe(grid[0]).keys())
+        extra = (
+            {"train_pass_probability": chosen["train_pass_probability"],
+             "test_pass_probability": chosen["test_pass_probability"]}
+            if needs_pass_prob else {}
+        )
         summary.append(
             {
                 "test_year": fold.test_year,
                 "train_window": f"{fold.train_start} .. {fold.train_end}",
                 "test_window": f"{fold.test_start} .. {fold.test_end}",
-                "candidates": len(pool),
-                "eligible": len(eligible),
+                "candidates": n_pool,
+                "eligible": n_eligible,
                 **{c: chosen[c] for c in param_cols},
                 "train_sharpe": chosen["train_sharpe"],
                 "train_net_pnl": chosen["train_net_pnl"],
@@ -196,6 +296,7 @@ def run_walkforward(bars5, roll_dates, early_closes, costs: CostModel,
                 "test_halts": int(chosen["test_halts"]),
                 "low_confidence": bool(int(chosen["test_trades"]) < 20),
                 "fold_rank_corr": _corr(block),
+                **extra,
             }
         )
     return pd.DataFrame(summary), all_pairs
@@ -309,14 +410,14 @@ def main() -> int:
     bars = loader.load_bars(args.parquet)
     roll_dates = loader.detect_roll_dates(bars)
     early_closes = loader.detect_early_close_dates(bars)
-    bars5 = resample_bars(bars, 5)
+    bars = resample_bars(bars, 5)
     costs = CostModel(commission_per_side=args.commission,
                       slippage_ticks=args.slippage_ticks)
 
     folds = build_folds()
     print(f"Walk-forward: {len(folds)} folds x {len(parameter_grid())} parameter sets "
           f"at {costs.slippage_ticks:g} tick slippage", flush=True)
-    summary, all_pairs = run_walkforward(bars5, roll_dates, early_closes, costs)
+    summary, all_pairs = run_walkforward(bars, roll_dates, early_closes, costs)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     tag = f"slip{args.slippage_ticks:g}"
@@ -326,7 +427,7 @@ def main() -> int:
     print()
     print(format_report(summary, all_pairs, costs))
 
-    stream = oos_trade_stream(bars5, roll_dates, early_closes, costs, summary)
+    stream = oos_trade_stream(bars, roll_dates, early_closes, costs, summary)
     print()
     print(format_drawdown_report(stream, "ORB, stitched out-of-sample stream"))
     if not stream.empty:
@@ -352,8 +453,9 @@ def _orb_rebuild(row) -> ORBParams:
     )
 
 
-def oos_trade_stream(bars5, roll_dates, early_closes, costs, summary,
-                     factory=None, rebuild=None) -> pd.DataFrame:
+def oos_trade_stream(bars, roll_dates, early_closes, costs, summary,
+                     factory=None, rebuild=None, contracts: int = 1,
+                     generate=None) -> pd.DataFrame:
     """The trades actually taken out-of-sample, stitched across folds.
 
     Each fold contributes its test year traded with the parameters that fold
@@ -363,18 +465,19 @@ def oos_trade_stream(bars5, roll_dates, early_closes, costs, summary,
     """
     factory = _orb_factory if factory is None else factory
     rebuild = _orb_rebuild if rebuild is None else rebuild
+    generate = _generate_resampled if generate is None else generate
     folds = {f.test_year: f for f in build_folds()}
 
     frames = []
     for _, row in summary.iterrows():
         fold = folds[int(row["test_year"])]
         strat = factory(rebuild(row), roll_dates, early_closes)
-        signals = strat.generate_signals_resampled(bars5)
+        signals = generate(strat, bars)
         win_signals = slice_by_date(signals, fold.test_start, fold.test_end)
-        win_bars = slice_by_date(bars5, fold.test_start, fold.test_end)
-        trades = price_trades(build_trades(win_signals, win_bars), MES, costs, 1)
+        win_bars = slice_by_date(bars, fold.test_start, fold.test_end)
+        trades = price_trades(build_trades(win_signals, win_bars), MES, costs, contracts)
         trades, _ = enforce_daily_loss_limit(
-            trades, win_bars, MES, costs, 1, rules.DAILY_LOSS_LIMIT
+            trades, win_bars, MES, costs, contracts, rules.DAILY_LOSS_LIMIT
         )
         if not trades.empty:
             frames.append(trades)

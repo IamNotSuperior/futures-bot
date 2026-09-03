@@ -541,7 +541,7 @@ commit hash recorded in a follow-up commit.
 
 ---
 
-## 4. ORB-2, fixed-bracket trend-filtered opening-range break — PROPOSED
+## 4. ORB-2, fixed-bracket trend-filtered opening-range break — REJECTED
 
 **Date:** 2026-09-03
 **Spec frozen at:** the commit adding this entry
@@ -985,11 +985,287 @@ This interacts badly with the fixed 10-point stop. Nine consecutive stop-outs pu
 a 4-contract account $20 from the firm's trailing line — **on every copied
 account at once, on the same date.**
 
-### Verdict
+### Walk-forward verdict: REJECTED
 
-Not yet run. To be filled in after the out-of-sample runs, with the commit hash
-recorded in a follow-up commit. Per this log's standing rule, the verdict is not
-revised afterwards.
+**Date:** 2026-09-03
+**Spec frozen at:** `17338c5` (nothing below was decided after seeing results)
+**Verdict commit:** recorded in the one-line follow-up commit to this one
+**Code:** `strategies/orb2.py`, `strategies/trend.py`, `backtests/run_orb2.py`
+**Reports:** `backtests/results/orb2_report_slip1.txt`, `..._slip2.txt`
+
+Seven out-of-sample years, 2020–2026. Nothing was selected — the configuration
+is fixed, so every fold is a genuine out-of-sample observation of one rule.
+
+#### Fold table, filter ON, 4 contracts, 1 tick slippage
+
+| Test year | Trades | Net P&L | Sharpe | PF | Hit % | Max DD | Pass p | |
+|---|---|---|---|---|---|---|---|---|
+| 2020 | 73 | −$1,475 | −1.35 | 0.83 | 42.5 | −$2,035 | 6.05% | |
+| 2021 | 81 | +$1,210 | 1.04 | 1.15 | 48.1 | −$1,200 | 50.05% | |
+| 2022 | 10 | −$1,035 | −9.47 | 0.25 | 10.0 | −$1,035 | 0.00% | low-confidence |
+| 2023 | 70 | −$790 | −0.71 | 0.91 | 40.0 | −$1,980 | 13.20% | |
+| 2024 | 88 | −$2,030 | −1.44 | 0.83 | 35.2 | −$2,550 | 5.53% | |
+| 2025 | 37 | +$565 | 0.94 | 1.14 | 43.2 | −$1,100 | 46.00% | |
+| 2026 | 12 | +$860 | 4.02 | 1.73 | 50.0 | −$520 | 93.40% | low-confidence |
+
+**Total −$2,695.00 over 371 trades. 3 of 7 folds profitable. Median fold
+Sharpe −0.706.**
+
+#### Fold table, filter OFF, 4 contracts, 1 tick slippage
+
+| Test year | Trades | Net P&L | Sharpe | PF | Hit % | Max DD | |
+|---|---|---|---|---|---|---|---|
+| 2020 | 100 | −$3,245 | −2.21 | 0.74 | 38.0 | −$3,730 | |
+| 2021 | 117 | +$2,000 | 1.17 | 1.18 | 47.0 | −$1,450 | |
+| 2022 | 14 | +$260 | 1.30 | 1.23 | 42.9 | −$785 | low-confidence |
+| 2023 | 93 | −$690 | −0.47 | 0.94 | 39.8 | −$1,845 | |
+| 2024 | 120 | −$1,435 | −0.73 | 0.91 | 36.7 | −$4,535 | |
+| 2025 | 47 | −$1,320 | −1.82 | 0.78 | 34.0 | −$2,695 | |
+| 2026 | 13 | +$500 | 2.10 | 1.32 | 46.2 | −$660 | low-confidence |
+
+**Total −$3,930.00 over 504 trades. 3 of 7 folds profitable.**
+
+#### Pooled out-of-sample, 4 contracts
+
+| | ON, 1 tick | OFF, 1 tick | ON, 2 ticks | OFF, 2 ticks |
+|---|---|---|---|---|
+| Trades | 371 | 504 | 371 | 504 |
+| Net P&L | −$2,695 | −$3,930 | −$6,405 | −$8,970 |
+| Mean per trade, per contract | −$1.82 | −$1.95 | −$4.32 | −$4.45 |
+| Hit rate | 40.97% | 40.08% | 40.43% | 39.29% |
+| Mean day / sd | −$7.26 / $244 | −$7.80 / $245 | −$17.26 / $244 | −$17.80 / $245 |
+| Worst drawdown | $4,740 | $6,210 | $7,765 | $10,115 |
+| **Evaluations blown** | **3** | **6** | **6** | **9** |
+| **Pass probability** | **16.11%** | 15.86% | **8.40%** | 8.36% |
+| Blow-up / timeout | 83.8% / 0.1% | 84.1% / 0.1% | 91.6% / 0.0% | 91.6% / 0.0% |
+| Expected attempts | 6.21 | 6.31 | 11.90 | 11.97 |
+
+#### The 2026 fold on its own
+
+Reported separately as pre-registered. Partial year, ends 2026-08-31.
+**ON: 12 trades, +$860, Sharpe 4.02, PF 1.73. OFF: 13 trades, +$500, Sharpe
+2.10, PF 1.32.** Both are flagged low-confidence at well under 20 trades, and
+both sit inside the seven-fold totals above, which are negative. A twelve-trade
+year with a Sharpe of 4.02 is not a measurement, and the pre-registered
+low-confidence flag exists precisely so this number cannot be read as a
+turnaround.
+
+#### Kill criteria
+
+Measured at 4 contracts, pooled out-of-sample 2020–2026, as pre-registered.
+
+| # | Criterion | 1 tick | 2 ticks | |
+|---|---|---|---|---|
+| 1 | Pooled OOS pass probability ≥ 25% | 16.11% | 8.40% | **FAIL** |
+| 2 | Evaluations blown ≤ 1 | 3 | 6 | **FAIL** |
+| 3 | ≥ 4 folds profitable **and** P&L > 0 | 3 of 7, −$2,695 | 3 of 7, −$6,405 | **FAIL** |
+
+**All three failed, at both slippage assumptions. Any one is fatal. Rejected.**
+
+Criterion 3's conjunction did no work here — the strategy failed both halves —
+but it would have mattered had the folds landed differently, and it is recorded
+as having been tested rather than merely carried over.
+
+#### Criterion 4: is the bracket or the filter carrying the result?
+
+Entry 4 obliges this attribution in the verdict whatever the outcome, so it is
+stated plainly: **the bracket is carrying the result, the result is negative,
+and the filter contributes nothing distinguishable from zero.**
+
+| | ON | OFF |
+|---|---|---|
+| Trades | 371 | 504 |
+| Mean per trade, per contract | −$1.82 | −$1.95 |
+| Hit rate | 40.97% | 40.08% |
+
+`dE = E_on − E_off = **+$0.13 per contract**` (SE $4.18, t = +0.03). The
+threshold to survive was one round turn, $5.00. **The filter claim is
+rejected** — and not narrowly. A t-statistic of 0.03 means the two arms are
+indistinguishable; the filter is neither helping nor hurting at the portfolio
+level. It removed 133 of 504 trades and moved expectancy by thirteen cents.
+
+The same figure at 2 ticks is **+$0.13 per contract**, identically rejected.
+
+**The long-only diagnostic is the part worth keeping.** As predicted, the filter
+is overwhelmingly a long-only switch: **ON is 94.6% long (351 of 371), OFF is
+53.4% long (269 of 504).** Comparing like with like:
+
+| | ON longs | OFF longs |
+|---|---|---|
+| n | 351 | 269 |
+| Mean per trade, per contract | −$2.57 | **+$3.40** |
+
+`dE_long = **−$5.97 per contract**` (SE $4.92). **On longs against longs the
+filter is worse than no filter at all.** The pre-registered reading applies: the
+advantage does not survive like-for-like, so the filter is acting as a long-only
+switch rather than a trend filter. The small headline edge it appeared to have
+came from changing the long/short mix on a rising index, not from selecting
+better breakouts — and once the mix is held fixed, even that reverses.
+
+This is the entry's one genuinely new claim, and it is dead.
+
+#### Predictions scored
+
+Six predictions were recorded before the run. Four held, one was half wrong, and
+one was wrong in a way that matters.
+
+**1. Filter raises hit rate by under 3 points — CORRECT.** +0.89 points at
+1 tick, +1.15 at 2 ticks.
+
+**2. `dE` does not exceed $5.00 per contract — CORRECT.** +$0.13.
+
+**3. Any ON advantage is concentrated in longs and vanishes like-for-like —
+CORRECT, and stronger than predicted.** It does not merely vanish; it reverses
+to −$5.97.
+
+**4. Trade count lowest in 2020 and 2022 — HALF WRONG.** 2022 was lowest by a
+wide margin (14 trades OFF, 10 ON, against 242 sessions skipped by the range
+ceiling). **2020 was not low at all** — 100 trades OFF, among the highest years.
+The reasoning behind the prediction was too coarse: 2020's volatility was
+concentrated in March and April, so most of the year cleared a 10-point opening
+range comfortably, whereas 2022 was persistently elevated and skipped 242
+sessions. Volatility's *distribution through the year* drives the ceiling, not
+the year's average. The unpredicted low year was 2025 at 47 trades.
+
+**5. Realised hit rate falls below 39.3% — WRONG as stated, and the reason is
+instructive.** The pooled hit rate is **40.97% (ON)** and **40.08% (OFF)**,
+both *above* the 39.29% break-even, yet both arms lose money. The break-even
+identity written into this entry was derived from target-versus-stop outcomes
+only, and roughly a quarter of trades exit at the 15:55 flatten instead. On the
+population the identity actually governs:
+
+| | Targets | Stops | Target share | Break-even needed |
+|---|---|---|---|---|
+| ON | 97 | 188 | **34.04%** | 39.29% |
+| OFF | 139 | 253 | **35.46%** | 39.29% |
+
+**On the bracket alone the strategy misses break-even by more than five
+percentage points**, which is the substance of prediction 5; the metric named in
+the prediction was simply the wrong one, because a "win" counted by net P&L
+includes small time exits. Stops came in at exactly −$220.00 and targets at
+exactly +$340.00 per trade at 4 contracts, matching the pre-computed arithmetic
+to the cent. Time exits averaged +$66.10 (ON) and were 64% positive, which
+flatters the naive hit rate without covering the bracket's shortfall.
+
+Recorded as a defect in the entry's own instrumentation, not a rescue: a hit
+rate quoted against a target/stop break-even must be computed on target/stop
+trades. Future entries should define the ratio and the population together.
+
+**6. Pooled pass probability does not clear 25% — CORRECT.** 16.11% at 1 tick,
+8.40% at 2.
+
+#### Other pre-registered reporting
+
+**The range ceiling skips more than it trades.** Across 2020–2026, **1,196
+sessions were skipped for an opening range wider than 10 points** against 504
+traded (OFF). Skipped sessions had a median opening range of **16.75 points**
+(mean 19.51, max 88.00); traded sessions a median of **7.75 points**. The
+strategy is therefore a low-volatility strategy by construction, and it
+systematically excludes the sessions on which breakout continuation is most
+often claimed to work. The entry flagged this in advance as the case where the
+ceiling would be "the thing removing the edge" rather than a safety filter;
+nothing here settles which, because the excluded days were never traded — but
+the exclusion is large enough that the question is not marginal.
+
+**Exit reasons**, 4 contracts, 1 tick: ON stop 50.7% / target 26.1% /
+session_end 23.2%; OFF stop 50.2% / target 27.6% / session_end 22.2%. The
+prediction of a low target share held; the flatten share at ~23% was moderate
+rather than the high figure predicted.
+
+**Rule 6 measurability.** **6 of 371 ON trades (1.62%)** and **1 of 504 OFF
+trades (0.20%)** entered and exited inside one 1-minute bar and therefore cannot
+be checked against the 30-second minimum-hold floor at this resolution. The
+population at risk is small but non-zero. It is real: without the engine change
+that lets a trade open and close on one bar, these seven trades would have been
+silently dropped from the sample — and being same-bar stop-outs, they are
+losers, so dropping them would have flattered the result.
+
+**Both entry stops inside one bar** happened on exactly **1 session** across
+seven years (OFF arm), resolved pessimistically as pre-registered. The
+convention was worth fixing in advance and turned out not to matter.
+
+**Size linearity confirmed on the real streams.** The 1-contract series equals
+the 4-contract series divided by four, trade for trade, in both arms — checked
+at runtime, not only in the unit tests. The 1-contract run accordingly carries
+no independent evidence: it differs only in geometry against fixed-dollar
+limits, and there it behaves as predicted, **timing out rather than passing**
+(86.1% timeout, 0.03% pass, 0 evaluations blown at 1 tick). At 4 contracts the
+same trades blow up 83.8% of the time. The two sizes are the same negative edge
+read against a fixed target and a fixed trailing line.
+
+**Roll contamination measured, and the first measurement was wrong.** The
+initial figure — 327.50 points on 2020-03-16 — is the crash day's move, not a
+roll artefact, and a second attempt keyed on roll *dates* missed that 12 of the
+29 rolls are detected on a Sunday Globex reopen with no RTH session, leaving the
+contaminated step on the following Monday counted as ordinary. Reading the
+contract change off `instrument_id` finds all 29: **median step across a
+contract change 38.75 points against 25.25 points on an ordinary session.** The
+13.5-point excess enters a 50-day EMA at α = 2/51, so the immediate distortion
+is about **0.53 points** — small against the EMA-to-price distance the filter
+keys on, as the entry assumed but had not measured.
+
+### What was learned
+
+**A borrowed configuration bought nothing, and the provenance discount was the
+right call.** The entry recorded in advance that inherited parameters are not
+unsearched parameters, and that a clean out-of-sample result on them would be
+weaker evidence than the same result on parameters we fitted and could discount.
+That caution cost nothing here, because there was no result to discount: the
+configuration loses money in five of seven years and destroys three to six
+evaluations depending on slippage.
+
+**The trend filter is the clearest negative in this log.** Entries 1 and 2
+rejected mechanisms that might have existed and did not survive costs. This one
+is different: the filter was measured directly against its own control, and the
+measured effect is thirteen cents per contract with a t-statistic of 0.03. There
+is no seam to widen and no ambiguity to revisit. The like-for-like comparison
+being *negative* closes it further.
+
+**Fixing the bracket in points made the failure legible.** Because stops and
+targets are fixed distances, the arithmetic was determined before any data was
+touched, and the realised figures matched it exactly — −$220.00 and +$340.00 per
+trade at 4 contracts. That turned a vague question ("is this profitable?") into
+an arithmetic one ("does the target share clear 39.29%?"), answered at 34.04%.
+Entries that fix their bracket in advance should state the break-even ratio *and
+the population it governs* the same way, which this entry did only half of.
+
+**Selection was not the failure, because there was no selection.** Entry 1's
++0.398 rank correlation and entry 2's −0.457 both described selection
+transferring or not. Here nothing was selected: every fold is the same rule
+observed out of sample, and it lost in five of seven years. That removes the
+last available explanation. The rule does not work.
+
+**One trade a day and a volatility ceiling did reduce variance, and it did not
+help.** The daily standard deviation is $244 at 4 contracts, against ORB's
+$120.50 at one contract — roughly $61 per contract, half of ORB's. The mean day
+is −$7.26, or −$1.82 per contract, against ORB's −$1.50. So the pre-registered
+mechanism worked exactly as described and produced no benefit: a distribution
+with less variance and a slightly worse centre is still a losing distribution,
+and at 1 contract it converts blow-ups into timeouts rather than passes (86.1%
+timeout) exactly as the entry predicted. Variance reduction cannot rescue
+negative drift. That prediction is now measured rather than argued.
+
+### Next
+
+Do not re-test ORB-2 with a different stop, target, offset, range ceiling, EMA
+period, or entry window. The configuration was inherited whole and tested whole;
+tuning any constant now would be searching a grid that this entry deliberately
+did not have, and would convert a clean negative into a fitted positive by the
+exact route entries 1 and 2 forbid.
+
+Do not test a third opening-range variant. Three entries in this log now rest on
+the same unestablished claim — that a break of an early range predicts
+continuation — and all three are rejected. The claim has never been measured
+independently of backtest P&L, and until it is, another variant is another
+draw from the same empty urn.
+
+The one thing that would justify revisiting any of this is what entry 1 asked
+for and never got: **direct evidence about the counterparty.** For a breakout
+that means order-flow data showing who is on the other side of a range break and
+under what constraint — not another price backtest. That is a data problem, and
+an expensive one, and it should be priced before it is started rather than
+approached through another parameter set.
+
 
 ---
 

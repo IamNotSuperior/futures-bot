@@ -79,3 +79,111 @@ class TestNoLookahead:
                     assert not (
                         fold.train_start <= other.test_start <= fold.train_end
                     )
+
+
+class TestSelectors:
+    """The pass-probability selector added for entry 4.
+
+    The training-Sharpe rule must keep behaving exactly as it did, because
+    entries 1 and 2 were evaluated under it and their recorded results have to
+    stay reproducible.
+    """
+
+    def _block(self, rows):
+        import pandas as pd
+        return pd.DataFrame(rows)
+
+    def test_registry_exposes_both_rules(self):
+        assert set(wf.SELECTORS) == {"train_sharpe", "pass_probability"}
+
+    def test_default_is_still_train_sharpe(self):
+        selector, needs = wf.SELECTORS["train_sharpe"]
+        assert selector is wf.select_by_train_sharpe
+        assert needs is False
+
+    def test_train_sharpe_picks_the_highest(self):
+        block = self._block([
+            {"train_trades": 50, "train_sharpe": 0.1, "tag": "a"},
+            {"train_trades": 50, "train_sharpe": 0.9, "tag": "b"},
+            {"train_trades": 50, "train_sharpe": 0.4, "tag": "c"},
+        ])
+        chosen, pool, eligible = wf.select_by_train_sharpe(block, 30)
+        assert chosen["tag"] == "b"
+        assert (pool, eligible) == (3, 3)
+
+    def test_eligibility_floor_filters(self):
+        block = self._block([
+            {"train_trades": 10, "train_sharpe": 9.0, "tag": "thin"},
+            {"train_trades": 50, "train_sharpe": 0.2, "tag": "thick"},
+        ])
+        chosen, pool, eligible = wf.select_by_train_sharpe(block, 30)
+        assert chosen["tag"] == "thick"
+        assert (pool, eligible) == (1, 1)
+
+    def test_unreachable_floor_falls_back_to_everything(self):
+        """The trap the handoff records: it must be visible, not silent."""
+        block = self._block([
+            {"train_trades": 5, "train_sharpe": 0.2, "tag": "a"},
+            {"train_trades": 7, "train_sharpe": 0.8, "tag": "b"},
+        ])
+        chosen, pool, eligible = wf.select_by_train_sharpe(block, 1000)
+        assert chosen["tag"] == "b"
+        assert pool == 2 and eligible == 0
+
+    def test_pass_probability_picks_the_highest(self):
+        block = self._block([
+            {"train_trades": 50, "train_pass_probability": 0.10,
+             "train_net_pnl": 900.0, "train_max_drawdown": 100.0, "tag": "a"},
+            {"train_trades": 50, "train_pass_probability": 0.30,
+             "train_net_pnl": 100.0, "train_max_drawdown": 500.0, "tag": "b"},
+        ])
+        chosen, _, _ = wf.select_by_pass_probability(block, 30)
+        assert chosen["tag"] == "b"
+
+    def test_ties_break_on_net_pnl(self):
+        block = self._block([
+            {"train_trades": 50, "train_pass_probability": 0.0,
+             "train_net_pnl": -500.0, "train_max_drawdown": 10.0, "tag": "a"},
+            {"train_trades": 50, "train_pass_probability": 0.0,
+             "train_net_pnl": 250.0, "train_max_drawdown": 900.0, "tag": "b"},
+        ])
+        chosen, _, _ = wf.select_by_pass_probability(block, 30)
+        assert chosen["tag"] == "b"
+
+    def test_then_on_drawdown(self):
+        block = self._block([
+            {"train_trades": 50, "train_pass_probability": 0.0,
+             "train_net_pnl": 100.0, "train_max_drawdown": 900.0, "tag": "a"},
+            {"train_trades": 50, "train_pass_probability": 0.0,
+             "train_net_pnl": 100.0, "train_max_drawdown": 50.0, "tag": "b"},
+        ])
+        chosen, _, _ = wf.select_by_pass_probability(block, 30)
+        assert chosen["tag"] == "b"
+
+    def test_final_tie_break_is_grid_order(self):
+        """All three keys equal: the first candidate in grid order wins."""
+        block = self._block([
+            {"train_trades": 50, "train_pass_probability": 0.0,
+             "train_net_pnl": 100.0, "train_max_drawdown": 50.0, "tag": "first"},
+            {"train_trades": 50, "train_pass_probability": 0.0,
+             "train_net_pnl": 100.0, "train_max_drawdown": 50.0, "tag": "second"},
+        ])
+        chosen, _, _ = wf.select_by_pass_probability(block, 30)
+        assert chosen["tag"] == "first"
+
+    def test_single_candidate_selection_is_a_no_op(self):
+        """Entry 4 has no grid: selection must simply return the one row."""
+        block = self._block([
+            {"train_trades": 4, "train_pass_probability": 0.0,
+             "train_net_pnl": -10.0, "train_max_drawdown": 5.0, "tag": "only"},
+        ])
+        for selector, _ in wf.SELECTORS.values():
+            if selector is wf.select_by_train_sharpe:
+                block = block.assign(train_sharpe=-2.0)
+            chosen, pool, _ = selector(block, 30)
+            assert chosen["tag"] == "only"
+            assert pool == 1
+
+    def test_unknown_selection_is_rejected(self):
+        with pytest.raises(ValueError, match="Unknown selection"):
+            wf.run_walkforward(None, set(), set(), None, selection="nope")
