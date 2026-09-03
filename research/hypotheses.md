@@ -106,11 +106,12 @@ independently of backtest results.
 
 ---
 
-## 2. Leveraged ETF end-of-day rebalance drift — PROPOSED
+## 2. Leveraged ETF end-of-day rebalance drift — REJECTED
 
 **Date:** 2026-09-03
-**Commit:** pending (entry written before any code exists)
-**Code:** not yet written
+**Spec frozen at:** `43aa4e1` (entry written before any code existed)
+**Verdict commit:** `4b2a90c`
+**Code:** `strategies/eod_rebalance.py`
 **Instrument:** MES, 5-minute bars, RTH only
 
 ### Mechanism claimed
@@ -293,6 +294,120 @@ flatten; the ~24-minute hold clears the 30-second floor with room to spare. A
 the $300 daily loss limit should bind only on a gap through the stop. With at
 most one trade per session, the limit has little to cut — the same structural
 reason it barely bound for ORB.
+
+### Walk-forward verdict: REJECTED
+
+Seven yearly folds, 2020–2026, 12 parameter sets, selection on prior years only,
+$1.25/side commission and 1 tick/side slippage.
+
+| Test year | Chosen (thr/stop) | Train Shp | OOS P&L | OOS Shp | OOS PF | OOS n |
+|---|---|---|---|---|---|---|
+| 2020 | 0.50% / 0.50% | −3.26 | +$114 | 0.20 | 1.04 | 122 |
+| 2021 | 1.00% / 0.25% | 1.14 | −$746 | −11.82 | 0.23 | 24 |
+| 2022 | 1.00% / 0.50% | −0.52 | +$102 | 0.24 | 1.04 | 97 |
+| 2023 | 1.50% / 0.25% | 0.27 | −$109 | −5.39 | 0.44 | 8 |
+| 2024 | 1.50% / 0.25% | −0.01 | +$43 | 2.85 | 1.59 | 5 |
+| 2025 | 1.50% / 0.25% | 0.09 | +$118 | 0.94 | 1.17 | 16 |
+| 2026 | 1.50% / 0.25% | 0.27 | −$170 | −6.48 | 0.37 | 6 |
+
+**Total: −$648.05 over 278 trades.**
+
+#### Kill criteria
+
+| # | Criterion | Result | |
+|---|---|---|---|
+| 1 | ≥ 4 of 7 folds profitable | 4 of 7 | **PASS** |
+| 2 | Median fold OOS Sharpe ≥ 0.30 | +0.201 | **FAIL** |
+| 3 | Effect size increases with threshold | Spearman −1.000 | **FAIL** |
+
+Two of three failed. **Rejected.**
+
+#### Pooled out-of-sample effect size
+
+Raw returns before costs, 2020–2026. All four thresholds cleared the 30-trade
+floor, so criterion 3 was fully testable.
+
+| Threshold | n | E (bps) | H (%) | t-stat |
+|---|---|---|---|---|
+| 0.50% | 736 | −0.64 | 48.1 | −0.39 |
+| 0.75% | 470 | −1.37 | 49.6 | −0.56 |
+| 1.00% | 287 | −1.59 | 50.9 | −0.42 |
+| 1.50% | 121 | −4.11 | 54.5 | −0.50 |
+
+The drift is **absent, and what little sign there is runs backwards**. E is
+negative at every threshold and becomes *more* negative as the threshold rises —
+a perfect −1.000 rank correlation, the exact opposite of the prediction. No
+t-statistic exceeds 0.6 in magnitude, so the honest reading is that E is
+indistinguishable from zero everywhere and the monotonic ordering is itself
+noise.
+
+The hit rate H tells the same story from another angle: it rises with threshold
+(48.1% → 54.5%) while E falls. Direction continues slightly more often on big
+days, but the continuations are smaller than the reversals. A strategy can be
+right more than half the time and still lose, and here it does.
+
+#### Early vs late, volatility-normalised
+
+| Year | n | E (bps) | vol (bps) | E/vol | Fold P&L |
+|---|---|---|---|---|---|
+| 2020 | 122 | −2.19 | 69.41 | −0.032 | +$114 |
+| 2021 | 85 | −2.38 | 22.16 | −0.107 | −$746 |
+| 2022 | 165 | +3.11 | 33.13 | +0.094 | +$102 |
+| 2023 | 112 | +1.86 | 19.02 | +0.098 | −$109 |
+| 2024 | 74 | −2.47 | 19.23 | −0.128 | +$43 |
+| 2025 | 114 | −3.27 | 23.67 | −0.138 | +$118 |
+| 2026 | 64 | −2.62 | 14.98 | −0.175 | −$170 |
+
+Early folds (2020–2022) mean E/vol −0.0150; late folds (2023–2026) −0.0859.
+Early exceeds late, which is the direction the pre-registered decay expectation
+predicted — so no investigation flag is raised. But this must not be read as
+confirmation: both halves are negative, the year-to-year sign flips twice, and
+the effect being compared is not statistically distinguishable from zero in
+either half. A decay from "no effect" to "no effect" is not evidence of decay.
+The 2020 volatility confound recorded in advance did not need to be untangled,
+because there was no positive effect in 2020 to attribute to anything.
+
+### What was learned
+
+**The mechanism is real; the tradeable residue is not.** Nothing here disputes
+that leveraged funds must rebalance, or that the flow is mechanical and
+direction-predictable. What the data says is that by 2020 the flow was already
+fully absorbed at the five-minute horizon — which is exactly what the
+pre-registered scepticism predicted for a sample that begins entirely
+post-decay. Recording that expectation in advance is what makes this a clean
+negative result rather than a puzzle.
+
+**Selection actively hurt, and the fold table shows why.** Pooled rank
+correlation between training and test Sharpe was **−0.457**, negative in five of
+seven folds, and the chosen set landed at the **39th percentile** of its own test
+year — worse than picking at random. From 2023 onward selection locked onto
+threshold 1.50% / stop 0.25%, which produced test-year samples of 8, 5, 16 and 6
+trades. Four of the seven folds are flagged low-confidence for this reason. A
+fold Sharpe of +2.85 on five trades (2024) is not a measurement, and the median
+fold Sharpe that criterion 2 turns on is partly built from such numbers. The
+pre-registered 20-trade low-confidence flag did its job: it made this visible
+rather than letting +2.85 read as a success.
+
+**Criterion 1 passed and should be distrusted.** 4 of 7 folds profitable looks
+like a near miss. It is not: total P&L is negative, the profitable folds are
+small (+$114, +$102, +$43, +$118) and the losing ones are large (−$746, −$170,
+−$109). Counting folds ignores magnitude, and a majority of small wins against a
+minority of large losses is a losing strategy. Worth noting as a weakness in the
+criterion itself for future entries — a fold-count test should be paired with a
+magnitude test.
+
+### Next
+
+Do not re-test with a longer horizon, a different entry time, or ES data unless
+a *new* entry is written first. The tempting next move — "the flow is real, so
+try 15:50 entry or a 3-minute horizon" — is precisely the search that turns a
+clean negative into a fitted positive. The effect is negative at every threshold
+tested; there is no seam here to widen.
+
+If the idea is ever revisited, the one thing that would justify it is
+independent evidence of the flow's *size* relative to ES volume on a given day —
+measuring the cause directly rather than inferring it from price. That is a data
+problem (fund AUM and daily creation/redemption), not a backtest problem.
 
 ---
 

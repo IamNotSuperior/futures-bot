@@ -102,23 +102,43 @@ def window_metrics(signals, bars5, costs: CostModel, start: date, end: date) -> 
     }
 
 
+def _orb_factory(params, roll_dates, early_closes):
+    return OpeningRangeBreakout(params, roll_dates=roll_dates,
+                                early_close_dates=early_closes)
+
+
+def _orb_describe(params) -> dict:
+    return {
+        "opening_range_minutes": params.opening_range_minutes,
+        "trade_window_end": params.trade_window_end.strftime("%H:%M"),
+        "stop_multiple": params.stop_multiple,
+        "target_multiple": params.target_multiple,
+    }
+
+
 def run_walkforward(bars5, roll_dates, early_closes, costs: CostModel,
+                    grid=None, factory=None, describe=None,
+                    min_train_trades: int = MIN_RELIABLE_TRADES,
                     verbose: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Returns ``(fold_summary, all_pairs)``.
 
     ``all_pairs`` has one row per (fold, parameter set) with both the training
     and test metrics, which is what the pooled rank correlation is computed on.
+
+    ``grid``/``factory``/``describe`` default to ORB, so the ORB path is
+    unchanged by construction rather than by re-running it.
     """
     folds = build_folds()
-    grid = parameter_grid()
+    grid = parameter_grid() if grid is None else grid
+    factory = _orb_factory if factory is None else factory
+    describe = _orb_describe if describe is None else describe
     pairs: list[dict] = []
     started = time.time()
 
     # Signals depend only on the parameters, so generate once per combination
     # over the whole history and slice per fold.
     for i, params in enumerate(grid, 1):
-        strat = OpeningRangeBreakout(params, roll_dates=roll_dates,
-                                     early_close_dates=early_closes)
+        strat = factory(params, roll_dates, early_closes)
         signals = strat.generate_signals_resampled(bars5)
 
         for fold in folds:
@@ -133,10 +153,7 @@ def run_walkforward(bars5, roll_dates, early_closes, costs: CostModel,
                     "train_end": fold.train_end,
                     "test_start": fold.test_start,
                     "test_end": fold.test_end,
-                    "opening_range_minutes": params.opening_range_minutes,
-                    "trade_window_end": params.trade_window_end.strftime("%H:%M"),
-                    "stop_multiple": params.stop_multiple,
-                    "target_multiple": params.target_multiple,
+                    **describe(params),
                     **{f"train_{k}": v for k, v in train.items()},
                     **{f"test_{k}": v for k, v in test.items()},
                 }
@@ -153,19 +170,18 @@ def run_walkforward(bars5, roll_dates, early_closes, costs: CostModel,
     summary = []
     for fold in folds:
         block = all_pairs[all_pairs["test_year"] == fold.test_year]
-        eligible = block[block["train_trades"] >= MIN_RELIABLE_TRADES]
+        eligible = block[block["train_trades"] >= min_train_trades]
         pool = eligible if len(eligible) else block
         chosen = pool.loc[pool["train_sharpe"].idxmax()]
+        param_cols = list(describe(grid[0]).keys())
         summary.append(
             {
                 "test_year": fold.test_year,
                 "train_window": f"{fold.train_start} .. {fold.train_end}",
                 "test_window": f"{fold.test_start} .. {fold.test_end}",
                 "candidates": len(pool),
-                "opening_range_minutes": int(chosen["opening_range_minutes"]),
-                "trade_window_end": chosen["trade_window_end"],
-                "stop_multiple": chosen["stop_multiple"],
-                "target_multiple": chosen["target_multiple"],
+                "eligible": len(eligible),
+                **{c: chosen[c] for c in param_cols},
                 "train_sharpe": chosen["train_sharpe"],
                 "train_net_pnl": chosen["train_net_pnl"],
                 "train_trades": int(chosen["train_trades"]),
@@ -175,6 +191,7 @@ def run_walkforward(bars5, roll_dates, early_closes, costs: CostModel,
                 "test_trades": int(chosen["test_trades"]),
                 "test_max_drawdown": chosen["test_max_drawdown"],
                 "test_halts": int(chosen["test_halts"]),
+                "low_confidence": bool(int(chosen["test_trades"]) < 20),
                 "fold_rank_corr": _corr(block),
             }
         )
@@ -197,26 +214,32 @@ def pooled_rank_correlation(all_pairs: pd.DataFrame) -> float:
 
 
 def format_report(summary: pd.DataFrame, all_pairs: pd.DataFrame,
-                  costs: CostModel) -> str:
+                  costs: CostModel, param_cols=None, title: str = "ORB") -> str:
     line = "=" * 104
     out = [line]
+    per_fold = len(all_pairs) // max(len(summary), 1)
     out.append(
-        f"ORB WALK-FORWARD  |  {len(summary)} yearly folds  |  "
-        f"{all_pairs['opening_range_minutes'].nunique() * 4 * 4 * 3} parameter sets per fold  |  "
+        f"{title} WALK-FORWARD  |  {len(summary)} yearly folds  |  "
+        f"{per_fold} parameter sets per fold  |  "
         f"slippage {costs.slippage_ticks:g} tick/side"
     )
     out.append("Parameters chosen on prior years only; each test year seen once.")
     out.append(line)
 
+    if param_cols is None:
+        param_cols = ["opening_range_minutes", "trade_window_end",
+                      "stop_multiple", "target_multiple"]
     header = (
-        f"\n{'year':>5} {'train window':>26} {'params (OR/win/stop/tgt)':>26} "
+        f"\n{'year':>5} {'train window':>26} {'chosen params':>26} "
         f"{'trainShp':>9} | {'OOS PnL':>10}{'OOS Shp':>9}{'OOS PF':>8}{'OOS n':>7}{'OOS DD':>9}"
     )
     out.append(header)
     out.append("-" * (len(header) - 1))
     for _, r in summary.iterrows():
-        params = (f"{int(r['opening_range_minutes'])}m/{r['trade_window_end']}/"
-                  f"{r['stop_multiple']:g}/{r['target_multiple']:g}")
+        params = "/".join(
+            f"{r[c]:g}" if isinstance(r[c], (int, float, np.floating)) else str(r[c])
+            for c in param_cols
+        )
         out.append(
             f"{int(r['test_year']):>5} {r['train_window']:>26} {params:>26} "
             f"{r['train_sharpe']:>9.2f} | {r['test_net_pnl']:>10,.0f}"
