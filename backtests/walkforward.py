@@ -325,6 +325,14 @@ def main() -> int:
 
     print()
     print(format_report(summary, all_pairs, costs))
+
+    stream = oos_trade_stream(bars5, roll_dates, early_closes, costs, summary)
+    print()
+    print(format_drawdown_report(stream, "ORB, stitched out-of-sample stream"))
+    if not stream.empty:
+        stream.to_csv(RESULTS_DIR / f"orb_oos_stream_{tag}.csv", index=False)
+        equity_curve_by_day(stream).to_csv(
+            RESULTS_DIR / f"orb_oos_equity_{tag}.csv", index=False)
     print(f"\nFold summary -> backtests/results/orb_walkforward_{tag}.csv")
     print(f"All pairs    -> backtests/results/orb_walkforward_pairs_{tag}.csv")
     return 0
