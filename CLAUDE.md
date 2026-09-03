@@ -99,6 +99,21 @@ rules, flag the conflict instead of silently working around it.
     These are required outputs of every backtest run, not optional/nice-to-have
     metrics.
 
+12. **Every strategy gets a hypothesis entry before any code is written.**
+    Add the entry to `research/hypotheses.md` first, stating the mechanism and
+    naming who is on the other side of the trade. An idea that cannot name its
+    counterparty is a pattern, not a hypothesis. The verdict is filled in after
+    walk-forward evaluation and is not revised afterwards — a rejected entry
+    stays in the log so the same idea cannot be quietly re-tested until it
+    passes.
+
+13. **Evidence standard: walk-forward or nothing.** A strategy is accepted only
+    if it is profitable in a majority of yearly walk-forward folds, has positive
+    total walk-forward P&L after commission and slippage, and survives at 2
+    ticks of slippage per side. In-sample results are never evidence, and a
+    single in-sample/out-of-sample split is not enough — ORB passed a favourable
+    two-year window at +$2,250 and lost $6,073 across seven folds.
+
 ## Project scope note
 
 Do not write strategy or execution code without an explicit request — this
