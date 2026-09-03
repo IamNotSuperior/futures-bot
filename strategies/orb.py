@@ -234,8 +234,19 @@ class OpeningRangeBreakout(Strategy):
     # -- interface ---------------------------------------------------------
 
     def generate_signals(self, bars: pd.DataFrame) -> pd.DataFrame:
-        p = self.params
-        resampled = resample_bars(bars, p.bar_minutes)
+        return self.generate_signals_resampled(
+            resample_bars(bars, self.params.bar_minutes)
+        )
+
+    def generate_signals_resampled(self, resampled: pd.DataFrame) -> pd.DataFrame:
+        """Signals from bars already at ``bar_minutes`` resolution.
+
+        Each session is evaluated independently - the opening range, the
+        breakout and the exit all come from bars inside that session - so
+        generating over a long span and slicing the result by date gives
+        exactly the same signals as generating over each slice separately.
+        A parameter scan relies on that to resample and generate once.
+        """
         if resampled.empty:
             return validate_signals(empty_signals(resampled.index))
 
