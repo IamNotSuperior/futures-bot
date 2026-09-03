@@ -541,6 +541,458 @@ commit hash recorded in a follow-up commit.
 
 ---
 
+## 4. ORB-2, fixed-bracket trend-filtered opening-range break — PROPOSED
+
+**Date:** 2026-09-03
+**Spec frozen at:** the commit adding this entry
+**Code:** not yet written
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES, 15-minute opening range, 1-minute bars for fills, RTH only
+**Provenance:** transcribed from a Pine Script supplied to the operator. See
+*Provenance and its cost*, below — this is the entry's largest weakness.
+
+### Relationship to entry 1
+
+This is a new hypothesis with its own signal definition, objective and kill
+criteria, pre-registered here before any code exists. It is **not** a re-test of
+entry 1 and does not reopen entry 1's verdict.
+
+Entry 1 is rejected and its prohibition stands: **its grid must not be re-run
+wider, and its exits must not be varied.** ORB-2 differs from it on every axis
+that prohibition covers:
+
+| | Entry 1 | ORB-2 |
+|---|---|---|
+| Trigger | 5-minute close beyond range | Resting stop order 1.0 pt beyond range |
+| Opening range | 5/10/15/30 min, searched | Fixed: the 09:30–09:45 candle |
+| Direction | Both, one trade per direction | One, chosen by a daily trend filter |
+| Stop / target | Multiples of range height, searched | Fixed: 10.0 pts / 18.0 pts |
+| Day filter | None | Skip if range height > 10 pts |
+| Fills | 5-minute bars | 1-minute bars |
+| Parameters searched | 192 combinations | **None** |
+| Selection | Highest training Sharpe | **No selection step exists** |
+
+The handoff's warning is recorded and accepted: *"new hypothesis" is also
+exactly what a re-test would call itself.* What makes this one different is not
+the paperwork but that **there is no search** — there is a single fixed
+configuration and one pre-registered A/B comparison. If ORB-2's results are ever
+used to argue entry 1 deserves another look, that is a violation of entry 1's
+Next section regardless of what ORB-2 returns.
+
+### Mechanism claimed
+
+**No new edge is claimed for the breakout itself.**
+
+Entry 1 claimed that a decisive break of the opening range indicates one side of
+the book has been exhausted, with continuation as remaining liquidity is taken.
+That claim was **never established** — it was assumed from the pattern's
+popularity rather than measured from order flow, and entry 1 records this as its
+weakest point in hindsight. **Nothing since has established it.** No order flow
+has been measured and no counterparty has been identified.
+
+**Who is on the other side:** unknown, and unchanged from entry 1. Under this
+project's own standard, an idea that cannot name its counterparty is a pattern,
+not a hypothesis — so on the mechanism test ORB-2 fails exactly as entry 1 did.
+
+The one genuinely new claim is narrower and is the only thing the A/B test
+below is designed to isolate:
+
+> **The trend-filter claim.** Breakouts taken *against* the prevailing daily
+> trend fail more often than breakouts taken *with* it, by enough to pay for the
+> trades the filter discards.
+
+Even this has no identified counterparty. The nearest thing to a mechanism is
+that a break against the daily trend is more likely to be a liquidity sweep into
+resting orders that then reverts, while a break with the trend is more likely to
+attract continuation flow. **That is a story, not a measurement**, and it is
+recorded as such. The A/B test measures whether the filter pays; it does not
+establish why, and a positive result would not license claiming it does.
+
+**The honest prior is that neither the breakout nor the filter has an edge, and
+a null result is expected.** This is written down before the run so a marginal
+positive cannot later be read as confirmation.
+
+### Provenance and its cost
+
+The specification below arrived as a finished Pine Script with tuned constants:
+a 10-point stop, an 18-point target, a 1.0-point entry offset, a 10-point range
+ceiling, a 50-period EMA. **Those numbers came from somewhere, and this project
+does not know where.**
+
+This matters more than it first appears, and it cuts against the entry:
+
+**A borrowed configuration is not an unsearched one.** Having no grid of our own
+removes *our* selection overfitting. It does not remove the original author's.
+Somebody chose 10 and 18 rather than 12 and 20, and 50 rather than 20 or 200.
+Whatever search produced them is invisible, of unknown size, and probably ran on
+overlapping data — most published intraday ES/MES scripts are tuned on recent
+years, which are precisely this project's test years.
+
+**This is in one respect worse than entry 1.** Entry 1's overfitting was
+measurable: 192 combinations, a known grid, a computable rank correlation
+between training and test. Here the search size is unknown and unbounded, so the
+usual correction cannot be applied even in principle. **A clean out-of-sample
+result on inherited parameters is weaker evidence than the same result on
+parameters we fitted ourselves and can discount.**
+
+Recorded now so that a good result is read with this discount already applied
+rather than discovered afterwards.
+
+### Signal definition
+
+Fixed here. Nothing below may be changed after results are seen; a change means
+a new entry, not an edit to this one.
+
+**Opening range.** The high and low of the single 15-minute candle covering
+**09:30–09:45 ET**, resampled from 1-minute data, labelled by opening minute and
+left-closed, sessions resampled independently so no candle straddles the
+overnight break or the open.
+
+**Trend filter.** A **50-period EMA of completed daily closes**. The most recent
+input is **yesterday's** close; today's forming bar is never an input.
+Seeded with a 50-day simple moving average of the first 50 completed daily
+closes, then the standard recursion with α = 2/51. This makes the value used at
+09:45 today knowable at yesterday's close — **the source script repaints, this
+does not.**
+
+**Direction, decided once at 09:45.** Compare the **open of the 09:45 candle**
+with the EMA:
+
+- open **above** EMA → a **buy stop** at `range_high + 1.0`
+- open **below** EMA → a **sell stop** at `range_low − 1.0`
+- open exactly equal to the EMA → **no trade** (pre-registered so the boundary
+  is not decided later)
+
+One direction only, **one trade per day maximum**, no re-entry after an exit.
+
+**Day filter.** **Skip the session entirely if the opening-range height exceeds
+10.0 points**, because a fixed 10-point stop would then sit inside the opening
+range, where an ordinary retrace back through the range stops the trade out for
+reasons unrelated to the signal.
+
+**Bracket.** From the fill price: **stop 10.0 points**, **target 18.0 points**.
+Both fixed, neither scaled to volatility.
+
+**Fills.** Entry, stop and target are all resolved on **1-minute bars**.
+
+- A buy stop fills when a 1-minute bar's high reaches the level; the fill price
+  is the stop level, **or the bar's open if the bar opened through it** (gaps
+  fill at the open, never at the better price). Sell stops mirror this.
+- The conservative rule from entry 1 carries over unchanged: **if a single
+  1-minute bar touches both the stop and the target, the stop is assumed
+  filled.**
+
+**Timing.** An unfilled entry stop is **cancelled at 11:30 ET**. An open position
+is **flattened at 15:55 ET**.
+
+**No entries on roll days.** Prices are not back-adjusted across the contract
+boundary in MES.v.0, so a position held over it sees an artificial jump.
+
+**Sizing. 4 MES contracts**, which is $200 of risk at the 10-point stop. **Also
+run at 1 contract** — see *Why the 1-contract run is not a second test*, below.
+
+**Costs and limits as entry 1:** $1.25/side commission, 1 tick/side slippage,
+repeated at 2 ticks; RTH only; internal limits from `strategies/rules.py`
+(16:20 entry cutoff, 16:30 forced flatten, 5-contract cap, $400 daily loss
+limit, 30-second minimum hold).
+
+**No parameter grid. Nothing is selected.** There is no training step, so folds
+2020–2026 are seven disjoint out-of-sample years rather than a walk-forward, and
+no eligibility filter or tie-break rule is needed because no ranking is ever
+performed.
+
+### The arithmetic this fixes in advance
+
+Because the bracket is fixed in points and costs are per-contract, several
+figures are determined before any data is touched. They are recorded here so
+that the results can be checked against them rather than interpreted freely.
+
+**Per contract, after $1.25/side commission and 1 tick/side slippage:**
+
+| | Gross points | Net per contract |
+|---|---|---|
+| Target hit | +18.0 | **+$85.00** |
+| Stop hit | −10.0 | **−$55.00** |
+
+**Break-even hit rate: 39.3%** (55 ÷ 140). Frictionless it would be 35.7%
+(10 ÷ 28), so **costs raise the required hit rate by 3.6 percentage points** and
+cut the effective reward-to-risk from 1.80 to 1.55. Time-based exits at 15:55
+land between these two outcomes and are excluded from this identity; the realised
+break-even will differ once they are counted, and both figures are reported.
+
+**At 4 contracts:** a target is +$340, a stop is −$220.
+
+- The **$400 internal daily loss limit cannot bind**, because the day's only
+  trade risks $220. This is structural, not a coincidence, and it means rule 5
+  does no work here.
+- **4 of the 5-contract internal cap is used**, leaving no room to add — which
+  the one-trade-per-day rule forbids anyway.
+- Against the firm's $2,000 trailing line, **nine consecutive full stop-outs is
+  −$1,980, twenty dollars short; the tenth ends the account.** Five consecutive
+  reach the internal $1,000 warning line.
+
+**The 30-second minimum hold cannot be verified at this resolution.** Entry and
+stop can both fall inside the same 1-minute bar, and a backtest on 1-minute data
+cannot see whether the exit came 8 seconds or 50 seconds after the fill. The
+live guard enforces rule 6; the backtest simply cannot measure it. **Report the
+count of trades whose entry and exit share a 1-minute bar** — that is the
+population at risk, and if it is large the live strategy will behave differently
+from the backtest.
+
+### Why the 1-contract run is not a second test
+
+`backtests/engine.py` computes `net_pnl = contracts × (net_points × 5 − 2.5)`.
+Commission and slippage are both strictly per-contract, so **P&L is exactly
+linear in size**: the 1-contract series is the 4-contract series divided by four,
+trade for trade.
+
+Therefore hit rate, per-contract expectancy, profit factor, fold-level sign and
+rank correlation are **identical at both sizes**, and the 1-contract run
+contributes no independent evidence about the strategy. The only thing it changes
+is the **geometry against fixed-dollar limits** — a $3,000 target and a $2,000
+trailing drawdown that do not scale with position size.
+
+The one condition that would break the linearity is the $400 daily loss limit
+binding at 4 contracts but not at 1. As shown above, it cannot bind with a single
+$220 trade, so linearity holds exactly. **If the two runs disagree on anything
+other than eval geometry, that is a bug, not a finding.** This is a cheap and
+worthwhile assertion for the test suite.
+
+Recorded consequence: at 1 contract, reaching a $3,000 target requires roughly
+four times as many winning days inside the same 250-day horizon, so the
+1-contract configuration is expected to **time out rather than pass**, almost
+regardless of edge. It is a risk-geometry reference, not an evaluation
+candidate. The kill criteria therefore key on the 4-contract run, as specified.
+
+### The pre-registered comparison: filter ON versus OFF
+
+**This is the only variation in the entry, and it exists to isolate the
+trend-filter claim.**
+
+- **ON** — the specification above. Direction chosen by the EMA at 09:45.
+- **OFF** — identical in every other respect, but **both** brackets are placed at
+  09:45: a buy stop at `range_high + 1.0` and a sell stop at `range_low − 1.0`.
+  **First fill wins**; the opposite stop is cancelled on that fill. Still one
+  trade per day, still no re-entry, still cancelled unfilled at 11:30.
+
+**Ambiguity rule, fixed now.** If a single 1-minute bar reaches *both* entry
+stops, the resolution is unobservable at this resolution. Consistent with the
+stop-first convention — which resolves an ambiguous bar pessimistically — **the
+direction that produces the worse outcome for that day is assumed to have filled
+first.** The count of such days is reported, so it is visible whether the
+convention mattered.
+
+**Measurement.** Pooled out-of-sample 2020–2026, per contract:
+
+```
+E_on  = mean net P&L per trade, filter ON
+E_off = mean net P&L per trade, filter OFF
+dE    = E_on - E_off
+```
+
+Report `dE` with its standard error and t-statistic, alongside hit rate and trade
+count for each arm.
+
+**Filter claim verdict.** The trend-filter claim is **rejected unless
+`dE` exceeds $5.00 per contract** — one full round turn. Beating OFF by less than
+the cost of a trade is not evidence that the filter earns its exclusions.
+
+### Prediction on record
+
+Falsifiable, stated before the run, so that being wrong is visible.
+
+**On the trend filter — the main claim:**
+
+1. **The filter raises the hit rate by less than 3 percentage points.** ON minus
+   OFF, pooled out-of-sample.
+2. **`dE` does not exceed $5.00 per contract**, so the filter claim is rejected
+   by its own criterion.
+3. **Whatever advantage ON shows is concentrated in long trades**, and this is
+   the confound that matters. MES rose over 2020–2026, so a 50-day EMA filter
+   resolves to "be long" on a clear majority of sessions — expected to be
+   **60–75% of qualifying days**. A long-biased rule tested on a rising index
+   captures drift, not trend-following skill. **The diagnostic, pre-registered
+   now: compare ON's long trades against OFF's long trades only.** If ON's
+   advantage disappears in that like-for-like comparison, the filter is a
+   long-only switch and the trend claim is unsupported. Report the ON long/short
+   split so the base rate is visible.
+
+**On the strategy overall:**
+
+4. **Trade count is lowest in 2020 and 2022.** The 10-point range ceiling is a
+   volatility filter in disguise: on high-volatility days the 09:30–09:45 range
+   routinely exceeds 10 points, so those sessions are skipped. This is worth
+   flagging beyond the trade count, because it means the strategy
+   **systematically excludes the days on which breakout continuation is most
+   often claimed to work.** If the skipped days would have been the profitable
+   ones, the ceiling is not a safety filter but the thing removing the edge —
+   report the skipped-day count per year and their opening-range distribution.
+5. **The realised hit rate falls below 39.3%**, so per-trade expectancy is
+   negative before the eval question is even reached.
+6. **Pooled out-of-sample `eval_sim` pass probability does not clear 25%** at 4
+   contracts, killing the entry on criterion 1.
+
+**What would falsify the pessimism:** a hit rate durably above 39.3% across a
+majority of the seven years, with `dE` above $5.00 per contract *and* surviving
+the long-only diagnostic in prediction 3. That is a high bar and it is meant to
+be.
+
+### A methodological difference that must not be misread
+
+**Moving fill checking from 5-minute bars to 1-minute bars makes ORB-2's P&L
+numbers not directly comparable to entry 1's, in a direction that flatters
+ORB-2.**
+
+Entry 1 resolved stops and targets on the same 5-minute bars it generated
+signals from, and assumed the stop filled whenever one bar contained both
+levels. At 1-minute resolution, far fewer bars contain both, so the pessimistic
+assumption fires much less often. Some of any improvement ORB-2 shows over entry
+1 will come from this alone and has nothing to do with the trend filter or the
+fixed bracket.
+
+The 1-minute model is the more accurate one and is the right choice. But the
+comparison it invites is invalid, and the temptation to make it is exactly how a
+rejected strategy gets quietly resurrected. **ORB-2 is judged against its own
+kill criteria below, not against entry 1's P&L.**
+
+### Pre-registered tests
+
+1. **Yearly out-of-sample folds 2020–2026**, seven of them. Data spans
+   2019-05-06 to 2026-08-31; 2026 is a partial year ending 2026-08-31. Because
+   nothing is selected, every fold is out-of-sample and no training window
+   exists. 2019 is additionally reportable once the EMA has seeded (roughly
+   mid-July 2019) and is *not* part of the kill criteria, which stay on
+   2020–2026 as specified.
+2. **The 2026 fold reported separately and alongside all seven.** Separately
+   because it is eight months rather than twelve and is the most recent regime;
+   alongside because a single recent fold is not evidence and must not be read
+   as the headline.
+3. **`eval_sim` pass probability, per fold and pooled out-of-sample**, at 4
+   contracts and at 1, against the firm's $3,000 target and $2,000 end-of-day
+   trailing drawdown — the deliberate exception where the firm number is used,
+   because the question is whether the account survives, not whether the internal
+   guard fires.
+4. **Trailing-drawdown blow-up count across the seven years** at 4 contracts, on
+   the stitched out-of-sample stream. Entry 1's comparable figures are 5 on the
+   baseline and 4 on the walk-forward stream.
+5. **Trade count per fold**, with any fold under **20 trades** flagged
+   low-confidence. Entry 2's experience is the reason: four of its seven folds
+   fell under that line, and a fold Sharpe of +2.85 on five trades is not a
+   measurement. Report alongside it the count of days skipped by the 10-point
+   range ceiling and the count of days where the entry stop never filled.
+6. **Both arms, ON and OFF**, through every test above, plus `dE`, its standard
+   error, the long/short split, and the long-only diagnostic from prediction 3.
+7. **Exit-reason breakdown** — target, stop, 15:55 flatten — per year and per
+   arm, because the fixed bracket makes the time-exit share the main thing the
+   break-even identity above does not capture.
+8. **Count of trades entering and exiting within one 1-minute bar**, per the
+   rule 6 measurability gap noted above.
+9. Repeat at **2 ticks of slippage per side**, per the project standard of
+   evidence.
+
+### Kill criteria — decided now
+
+Any **one** of these kills the hypothesis. All are measured on the **4-contract**
+run, pooled out-of-sample 2020–2026.
+
+1. **Pooled out-of-sample `eval_sim` pass probability below 25%.**
+2. **More than 1 evaluation blown across the seven years.**
+3. **Fewer than 4 of 7 folds profitable, or total P&L negative.** Survival
+   requires **both**: at least 4 profitable folds **and** positive total P&L.
+
+Separately, and not a kill for the strategy as a whole:
+
+4. **The trend-filter claim is rejected if `dE` does not exceed $5.00 per
+   contract** — ON must beat OFF by more than one round turn. If ON survives
+   criteria 1–3 while the filter claim is rejected, the honest reading is that
+   the *breakout bracket* is carrying the result and the filter is decoration.
+
+   **This criterion is deliberately non-fatal to the strategy as a whole**, and
+   it carries a reporting obligation that is not optional: **the verdict must
+   state explicitly whether the bracket or the filter is carrying any result**,
+   in those terms, whatever the outcome. A verdict that reports a combined
+   figure without attributing it to one or the other does not satisfy this
+   entry, because the whole purpose of running two arms is to make that
+   attribution rather than leave it to be assumed.
+
+No appeal, no re-grid, no "but with a different stop". A kill is recorded here
+and the idea is closed.
+
+Criterion 3 is written as a conjunction on purpose. Entry 2 recorded that its own
+fold-count criterion passed at 4 of 7 while total P&L was −$648, because counting
+folds ignores magnitude and a majority of small wins against a minority of large
+losses is still a losing strategy. That weakness is fixed here by requiring the
+magnitude test alongside the count.
+
+Criterion 1's threshold sits below the 50% gate entry 3 applies to manual trading
+and above entry 1's 7.67% baseline. It is not a standard of profitability — a 25%
+pass probability still means about four paid attempts per pass. It is the minimum
+at which the question is worth asking again.
+
+### Recorded expectations, before any run
+
+**The baseline is discouraging.** ORB at entry 1's defaults returned 7.67% pass
+probability, 57.60% blow-up, and about 13 attempts (~$1,499) per pass, from a
+daily distribution with **mean −$1.50 against σ $120.50**. Fixing the bracket and
+adding a trend filter changes the shape of that distribution; it does not
+manufacture drift that is not there.
+
+**Fixed brackets change the failure mode, not the expectancy.** A 10-point stop
+that ignores volatility is too tight on active days and too wide on quiet ones.
+The 10-point range ceiling suppresses the first case by skipping the day, which
+means the strategy's remaining exposure is concentrated in low-volatility
+sessions where an 18-point target is proportionally harder to reach. **Expect a
+low target-hit share and a high 15:55-flatten share**; test 7 exists to make that
+visible.
+
+**Selection is not a risk here, and that is the entry's one real strength.** With
+no grid there is no in-sample ranking to transfer, so entry 1's +0.398 and entry
+2's −0.457 rank correlations have no analogue. Every one of the seven years is a
+genuine out-of-sample observation of a fixed rule. **That strength is bounded by
+the provenance problem above** — the parameters were selected, just not by us, on
+data we cannot see and probably overlapping our test years.
+
+**Roll gaps contaminate the EMA slightly.** The daily close series is the
+unadjusted MES.v.0 continuous contract, so each roll injects a small artificial
+step that propagates through the 50-day EMA for roughly fifty sessions. Using the
+unadjusted series is consistent with the rest of the project and is the right
+choice; the effect is expected to be small relative to the EMA-to-price distance
+that the filter actually keys on. **Report the largest roll gap in the period**
+so its size is on record rather than assumed negligible.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Recorded here because it changes how any accepted result would be used.
+
+The operator intends eventually to copy the same trade across several funded
+accounts. **This multiplies outcomes in both directions. It is not risk reduction
+and must not be described as diversification.**
+
+Identical trades on N accounts are perfectly correlated. The same losing day
+draws down every account simultaneously, and a trailing-drawdown breach
+terminates all of them on the same date. N accounts running one strategy is one
+bet at N times the size, with N times the fees — not N independent bets.
+
+The only thing it diversifies is the *evaluation attempt*, and only while
+accounts are started at different times on different price paths. Once they are
+funded and trading in lockstep, the correlation is 1. A pass probability measured
+for one account does not compound across N; the probability that *all* N pass is
+not the product of independent draws, and the probability that all N die together
+is far higher than independence would suggest.
+
+This interacts badly with the fixed 10-point stop. Nine consecutive stop-outs put
+a 4-contract account $20 from the firm's trailing line — **on every copied
+account at once, on the same date.**
+
+### Verdict
+
+Not yet run. To be filled in after the out-of-sample runs, with the commit hash
+recorded in a follow-up commit. Per this log's standing rule, the verdict is not
+revised afterwards.
+
+---
+
 ## Template for new entries
 
 ```
