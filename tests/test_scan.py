@@ -13,7 +13,7 @@ from orb import ORBParams, OpeningRangeBreakout, resample_bars
 from test_orb import OPENING, bars_from_closes, flat
 
 ET = "America/New_York"
-PARQUET = scan.PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2024-09_2026-08.parquet"
+PARQUET = scan.PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2019-05_2026-08.parquet"
 needs_data = pytest.mark.skipif(
     not PARQUET.exists(), reason="cached bars not present"
 )

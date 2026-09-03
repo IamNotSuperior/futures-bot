@@ -23,7 +23,7 @@ import loader  # noqa: E402
 import rules  # noqa: E402
 from orb import ORBParams, OpeningRangeBreakout  # noqa: E402
 
-PARQUET = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2024-09_2026-08.parquet"
+PARQUET = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2019-05_2026-08.parquet"
 
 DEFAULT_START = "2026-08-24"
 DEFAULT_END = "2026-08-28"

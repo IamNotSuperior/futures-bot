@@ -22,7 +22,7 @@ from engine import MES, CostModel, run_backtest  # noqa: E402
 from metrics import compute_metrics, format_report  # noqa: E402
 from orb import ORBParams, OpeningRangeBreakout  # noqa: E402
 
-PARQUET = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2024-09_2026-08.parquet"
+PARQUET = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2019-05_2026-08.parquet"
 RESULTS_DIR = PROJECT_ROOT / "backtests" / "results"
 
 
