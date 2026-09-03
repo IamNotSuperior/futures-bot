@@ -349,3 +349,87 @@ class TestJournalRoundTrip:
         state = AccountState.from_journal(date(2025, 7, 16), path)
         assert state.today_realised_pnl < -rules.DAILY_LOSS_LIMIT
         assert evaluate(req(), state, et(f"{SUMMER_DAY} 14:00")).allowed is False
+
+
+class TestJournalGitCommit:
+    """The journal is tracked so its history is tamper-evident.
+
+    Exercised against a throwaway repository rather than this one, so the tests
+    never write to the project's real history.
+    """
+
+    def _repo(self, tmp_path):
+        import subprocess
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"],
+                       cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       cwd=tmp_path, check=True)
+        journal = tmp_path / "journal"
+        journal.mkdir()
+        return tmp_path, journal / "trades.jsonl"
+
+    def _seed(self, path):
+        now = et(f"{SUMMER_DAY} 10:00")
+        request = req()
+        ticket = build_ticket(request, evaluate(request, flat(), now), now)
+        store.append(ticket, path)
+        store.append(
+            close_ticket(ticket, 6810.0, now + pd.Timedelta(minutes=20), "target"),
+            path,
+        )
+        return ticket
+
+    def test_commit_succeeds_and_returns_a_sha(self, tmp_path):
+        root, path = self._repo(tmp_path)
+        self._seed(path)
+        ok, detail = store.git_commit_journal(path, "journal: test", repo_root=root)
+        assert ok is True
+        assert len(detail) >= 7
+
+    def test_the_journal_is_actually_in_the_commit(self, tmp_path):
+        import subprocess
+        root, path = self._repo(tmp_path)
+        self._seed(path)
+        store.git_commit_journal(path, "journal: test", repo_root=root)
+        listed = subprocess.run(
+            ["git", "show", "--name-only", "--format=", "HEAD"],
+            cwd=root, capture_output=True, text=True,
+        ).stdout
+        assert "journal/trades.jsonl" in listed.replace("\\", "/")
+
+    def test_second_commit_with_no_change_is_a_no_op(self, tmp_path):
+        root, path = self._repo(tmp_path)
+        self._seed(path)
+        store.git_commit_journal(path, "journal: first", repo_root=root)
+        ok, detail = store.git_commit_journal(path, "journal: second", repo_root=root)
+        assert ok is False
+        assert "no journal change" in detail
+
+    def test_each_close_adds_a_commit(self, tmp_path):
+        import subprocess
+        root, path = self._repo(tmp_path)
+        for _ in range(3):
+            self._seed(path)
+            store.git_commit_journal(path, "journal: close", repo_root=root)
+        count = subprocess.run(["git", "rev-list", "--count", "HEAD"],
+                               cwd=root, capture_output=True, text=True).stdout.strip()
+        assert int(count) == 3
+
+    def test_outside_the_repo_is_reported_not_raised(self, tmp_path):
+        root, path = self._repo(tmp_path)
+        outside = tmp_path.parent / "elsewhere.jsonl"
+        outside.write_text("{}\n", encoding="utf-8")
+        ok, detail = store.git_commit_journal(outside, "x", repo_root=root)
+        assert ok is False
+        assert "outside the repository" in detail
+
+    def test_a_non_repo_is_reported_not_raised(self, tmp_path):
+        """A git failure must never lose the trade - it is already on disk."""
+        plain = tmp_path / "plain"
+        (plain / "journal").mkdir(parents=True)
+        path = plain / "journal" / "trades.jsonl"
+        self._seed(path)
+        ok, detail = store.git_commit_journal(path, "x", repo_root=plain)
+        assert ok is False
+        assert path.exists()  # the record survived the failed commit

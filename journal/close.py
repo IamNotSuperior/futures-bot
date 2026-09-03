@@ -6,7 +6,9 @@ P&L comes from :func:`engine.price_trades` - the same function, cost model and
 slippage the backtests use - so a paper result sits on the same scale as a
 backtest result rather than merely near it.
 
-Closing appends a new record; the original open ticket stays on disk.
+Closing appends a new record; the original open ticket stays on disk, and the
+journal file is committed to git so the history of outcomes is tamper-evident.
+Pass ``--no-commit`` to skip that.
 """
 
 from __future__ import annotations
@@ -138,6 +140,8 @@ def main(argv=None) -> int:
                     help="actual fill, if it differed from the planned entry")
     ap.add_argument("--entry-time", default=None)
     ap.add_argument("--journal", default=str(store.TRADES_PATH))
+    ap.add_argument("--no-commit", action="store_true",
+                    help="skip the git commit of the journal file")
     args = ap.parse_args(argv)
 
     journal_path = Path(args.journal)
@@ -159,6 +163,15 @@ def main(argv=None) -> int:
     )
     store.append(closed, journal_path)
     print(format_close(closed))
+
+    if not args.no_commit:
+        message = (
+            f"journal: close {closed.ticket_id} "
+            f"{closed.direction} {closed.contracts} {closed.instrument} "
+            f"{closed.exit_reason} ${closed.net_pnl:,.2f}"
+        )
+        ok, detail = store.git_commit_journal(journal_path, message)
+        print(f"\n  {'Committed ' + detail if ok else 'Not committed: ' + detail}")
     return 0
 
 

@@ -253,3 +253,59 @@ def risk_dollars(
     return points * spec.point_value * int(contracts) + COSTS.commission_round_turn(
         int(contracts)
     )
+
+
+# ---------------------------------------------------------------------------
+# Git: the journal is tracked so its history is tamper-evident
+# ---------------------------------------------------------------------------
+
+
+def git_commit_journal(
+    path: Path, message: str, repo_root: Path | None = None
+) -> tuple[bool, str]:
+    """Stage and commit just the journal file.
+
+    Committing after every close puts each outcome into git history at the time
+    it happened. Editing a past result later then shows up as a rewrite of a
+    committed file rather than a silent change to an untracked one - which is
+    the entire reason the journal is tracked.
+
+    Failure here must never lose a trade: the record is already on disk before
+    this runs, so any git problem is reported and swallowed.
+    """
+    import subprocess  # noqa: PLC0415 - only needed on this path
+
+    root = Path(repo_root) if repo_root is not None else PROJECT_ROOT
+    try:
+        rel = path.resolve().relative_to(Path(root).resolve())
+    except ValueError:
+        return False, f"{path} is outside the repository; not committed"
+
+    def run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True
+        )
+
+    try:
+        inside = run("rev-parse", "--is-inside-work-tree")
+        if inside.returncode != 0:
+            return False, "not a git repository; journal not committed"
+
+        staged = run("add", "--", str(rel))
+        if staged.returncode != 0:
+            return False, f"git add failed: {staged.stderr.strip()}"
+
+        # Nothing staged means the file was already committed unchanged.
+        if run("diff", "--cached", "--quiet", "--", str(rel)).returncode == 0:
+            return False, "no journal change to commit"
+
+        committed = run("commit", "-m", message, "--only", "--", str(rel))
+        if committed.returncode != 0:
+            return False, f"git commit failed: {committed.stderr.strip()}"
+
+        sha = run("rev-parse", "--short", "HEAD").stdout.strip()
+        return True, sha
+    except FileNotFoundError:
+        return False, "git not found on PATH; journal not committed"
+    except Exception as exc:  # noqa: BLE001 - never lose the trade over this
+        return False, f"git error: {exc}"

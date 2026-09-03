@@ -86,6 +86,7 @@ def evaluate(
     now: pd.Timestamp,
     early_close_dates: Collection[date_type] = (),
     roll_dates: Collection[date_type] = (),
+    closed_dates: Collection[date_type] = (),
 ) -> Decision:
     """Run every rule against a proposed trade. Pure: no I/O, no clock.
 
@@ -95,6 +96,12 @@ def evaluate(
     decision = Decision()
     now = rules.to_et(now)
     day = now.date()
+
+    if day in set(closed_dates):
+        decision.block(f"{day} is an exchange holiday - there is no session to trade")
+        decision.checks["exchange_open"] = "BLOCK"
+        return decision
+    decision.checks["exchange_open"] = "ok"
 
     # --- shape of the request itself ---------------------------------------
     if not rules.is_allowed_instrument(request.instrument):
@@ -279,26 +286,47 @@ def build_ticket(request: TicketRequest, decision: Decision,
 
 
 def calendar_dates(early_close_flag: bool, day: date_type):
-    """Early-close and roll dates, derived from the cached bars where possible.
+    """Early-close, roll and closed dates from every source available.
 
-    The cached parquet cannot know about a half-day in the future, so
-    ``--early-close`` exists for the operator to declare one. If today is a
-    half-day and the flag is not passed, the 16:20 cutoff will be used and an
-    entry at 12:55 will be allowed that should not be.
+    Three sources, unioned:
+
+    * ``data/cme_calendar.py`` for future dates - the published holiday rules;
+    * the cached bars, for historical half-days actually observed in the data;
+    * ``--early-close``, the operator's manual override, which still works when
+      the calendar is stale or the date is past its coverage.
+
+    Returns ``(early_closes, roll_dates, closed_dates, warnings)``.
     """
     early: set = {day} if early_close_flag else set()
     rolls: set = set()
+    closed: set = set()
+    warnings: list[str] = []
+
+    sys.path.insert(0, str(PROJECT_ROOT / "data"))
+    try:
+        import cme_calendar  # noqa: PLC0415
+        early |= cme_calendar.early_close_dates()
+        closed |= cme_calendar.closed_dates()
+        note = cme_calendar.coverage_warning(day)
+        if note:
+            warnings.append(note)
+        label = cme_calendar.describe(day)
+        if label:
+            warnings.append(f"Calendar says today is an {label}")
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"CME calendar unavailable ({exc}); using --early-close only")
+
     parquet = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2019-05_2026-08.parquet"
     if parquet.exists():
         try:
-            sys.path.insert(0, str(PROJECT_ROOT / "data"))
             import loader  # noqa: PLC0415
             bars = loader.load_bars(parquet)
             early |= loader.detect_early_close_dates(bars)
             rolls |= loader.detect_roll_dates(bars)
-        except Exception:  # noqa: BLE001 - the flag still works without it
-            pass
-    return early, rolls
+        except Exception:  # noqa: BLE001 - the calendar and flag still work
+            warnings.append("Cached bars unreadable; roll dates not checked")
+
+    return early, rolls, closed, warnings
 
 
 def main(argv=None) -> int:
@@ -328,8 +356,10 @@ def main(argv=None) -> int:
         thesis=args.thesis,
     )
     state = AccountState.from_journal(now.date(), journal_path)
-    early, rolls = calendar_dates(args.early_close, now.date())
-    decision = evaluate(request, state, now, early, rolls)
+    early, rolls, closed, cal_warnings = calendar_dates(args.early_close, now.date())
+    decision = evaluate(request, state, now, early, rolls, closed)
+    for note in cal_warnings:
+        decision.warn(note)
 
     print(format_decision(request, state, decision, now))
 

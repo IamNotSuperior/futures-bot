@@ -24,6 +24,6 @@ __pycache__/
 # Parquet data files (anywhere in the tree)
 *.parquet
 
-# Journal: personal trading record, appended constantly.
-# See the note in the step-4 commit about tracking this instead.
-journal/*.jsonl
+# The journal is TRACKED on purpose. Committing each close puts the record in
+# git history, where an after-the-fact edit shows up as a rewrite rather than
+# passing unnoticed. That tamper-evidence is the point of the file.
