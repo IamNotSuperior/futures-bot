@@ -989,7 +989,7 @@ account at once, on the same date.**
 
 **Date:** 2026-09-03
 **Spec frozen at:** `17338c5` (nothing below was decided after seeing results)
-**Verdict commit:** recorded in the one-line follow-up commit to this one
+**Verdict commit:** `243f9b1`
 **Code:** `strategies/orb2.py`, `strategies/trend.py`, `backtests/run_orb2.py`
 **Reports:** `backtests/results/orb2_report_slip1.txt`, `..._slip2.txt`
 
