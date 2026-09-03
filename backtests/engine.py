@@ -176,12 +176,83 @@ def price_trades(
     return out
 
 
+def enforce_daily_loss_limit(
+    trades: pd.DataFrame, limit: float = 300.0
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Drop trades taken after a session's realised loss reached ``limit``.
+
+    Trading stops for the day the moment realised P&L hits the limit: the trade
+    that breached it stands, everything after it that session does not.
+
+    Because the strategy holds one position at a time, realised P&L only moves
+    when a trade closes, and at that instant the book is flat. So the "close any
+    open position" half of the rule has nothing to act on here and enforcement
+    reduces to blocking later entries. A strategy that ran concurrent positions
+    would need the open leg marked out at the next bar's open as well.
+
+    Note this measures *realised* P&L. CLAUDE.md rule 5 is written as
+    "realised + open", which would halt a day earlier - while a losing position
+    is still open rather than once it closes.
+
+    Returns:
+        ``(kept_trades, halt_log)`` where ``halt_log`` has one row per halted
+        session with the P&L at the halt and how many trades were dropped.
+    """
+    if trades.empty:
+        return trades, pd.DataFrame(
+            columns=["session_date", "realised_at_halt", "trades_taken", "trades_blocked"]
+        )
+
+    keep_idx: list = []
+    halts: list[dict] = []
+
+    for day, group in trades.groupby("session_date"):
+        ordered = group.sort_values("entry_time")
+        running = 0.0
+        taken = 0
+        halted = False
+        for idx, trade in ordered.iterrows():
+            if running <= -limit:
+                halted = True
+                break
+            keep_idx.append(idx)
+            running += float(trade["net_pnl"])
+            taken += 1
+        if halted:
+            halts.append(
+                {
+                    "session_date": day,
+                    "realised_at_halt": running,
+                    "trades_taken": taken,
+                    "trades_blocked": len(ordered) - taken,
+                }
+            )
+
+    kept = trades.loc[keep_idx].sort_values("entry_time").reset_index(drop=True)
+    halt_log = pd.DataFrame(
+        halts, columns=["session_date", "realised_at_halt", "trades_taken", "trades_blocked"]
+    )
+    return kept, halt_log
+
+
 def run_backtest(
     signals: pd.DataFrame,
     bars: pd.DataFrame,
     spec: ContractSpec = MES,
     costs: CostModel = CostModel(),
     contracts: int = 1,
-) -> pd.DataFrame:
-    """Signals plus bars in, priced trade list out."""
-    return price_trades(build_trades(signals, bars), spec, costs, contracts)
+    enforce_loss_limit: bool = True,
+    daily_loss_limit: float = 300.0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Signals plus bars in, priced trade list out.
+
+    Returns ``(trades, halt_log)``. With ``enforce_loss_limit`` the trade list
+    is what the rules would actually have permitted; without it, it is the raw
+    signal.
+    """
+    trades = price_trades(build_trades(signals, bars), spec, costs, contracts)
+    if not enforce_loss_limit:
+        return trades, pd.DataFrame(
+            columns=["session_date", "realised_at_halt", "trades_taken", "trades_blocked"]
+        )
+    return enforce_daily_loss_limit(trades, daily_loss_limit)

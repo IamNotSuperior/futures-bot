@@ -22,7 +22,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from engine import MES, MNQ, ContractSpec, CostModel, build_trades, price_trades
+from engine import (
+    MES, MNQ, ContractSpec, CostModel, build_trades,
+    enforce_daily_loss_limit, price_trades,
+)
 from metrics import compute_metrics, max_drawdown, sharpe_ratio
 
 ET = "America/New_York"
@@ -220,6 +223,81 @@ class TestDailyLossBreach:
         assert len(breaches) == 1
         assert breaches.iloc[0]["worst_running_pnl"] <= -300
         assert breaches.iloc[0]["closing_pnl"] > 0
+
+
+class TestDailyLossEnforcement:
+    """Trading stops for the day once realised P&L reaches the limit."""
+
+    def _day(self, day: str, pnls: list[float]) -> pd.DataFrame:
+        """Trades on one session engineered to realise the given P&L values.
+
+        Each is a long of `pnl/5 + 1` points before costs, so after the $5.00
+        round-turn cost the net is exactly `pnl`.
+        """
+        rows = []
+        for i, pnl in enumerate(pnls):
+            move = pnl / 5.0 + 1.0  # +1 point covers commission + slippage
+            rows.append(
+                {
+                    "entry_time": pd.Timestamp(f"{day} {10 + i}:00", tz=ET),
+                    "exit_time": pd.Timestamp(f"{day} {10 + i}:30", tz=ET),
+                    "direction": "long",
+                    "entry_price": 5000.0,
+                    "exit_price": 5000.0 + move,
+                    "exit_reason": "stop" if pnl < 0 else "target",
+                }
+            )
+        return price_trades(pd.DataFrame(rows))
+
+    def test_fixture_realises_the_intended_pnl(self):
+        priced = self._day("2025-07-14", [-100.0, -250.0, 50.0])
+        assert list(priced["net_pnl"].round(2)) == [-100.0, -250.0, 50.0]
+
+    def test_trades_after_the_breach_are_dropped(self):
+        priced = self._day("2025-07-14", [-100.0, -250.0, 50.0, -20.0])
+        kept, halts = enforce_daily_loss_limit(priced, limit=300.0)
+        # -100 then -350 breaches; the breaching trade stands, the rest go.
+        assert len(kept) == 2
+        assert list(kept["net_pnl"].round(2)) == [-100.0, -250.0]
+        assert len(halts) == 1
+        assert halts.iloc[0]["realised_at_halt"] == pytest.approx(-350.0)
+        assert halts.iloc[0]["trades_blocked"] == 2
+
+    def test_day_that_never_breaches_is_untouched(self):
+        priced = self._day("2025-07-14", [-100.0, -150.0, 40.0])
+        kept, halts = enforce_daily_loss_limit(priced, limit=300.0)
+        assert len(kept) == 3
+        assert len(halts) == 0
+
+    def test_breach_exactly_at_the_limit_halts(self):
+        priced = self._day("2025-07-14", [-300.0, 100.0])
+        kept, halts = enforce_daily_loss_limit(priced, limit=300.0)
+        assert len(kept) == 1
+        assert len(halts) == 1
+
+    def test_halt_does_not_leak_into_the_next_session(self):
+        a = self._day("2025-07-14", [-400.0, 100.0])
+        b = self._day("2025-07-15", [75.0, 25.0])
+        kept, halts = enforce_daily_loss_limit(
+            pd.concat([a, b], ignore_index=True), limit=300.0
+        )
+        assert len(halts) == 1
+        assert len(kept) == 3  # one from the halted day, both from the next
+        assert kept[kept["session_date"] == date(2025, 7, 15)].shape[0] == 2
+
+    def test_enforcement_cannot_worsen_a_day(self):
+        priced = self._day("2025-07-14", [-400.0, -100.0, -100.0])
+        kept, _ = enforce_daily_loss_limit(priced, limit=300.0)
+        assert kept["net_pnl"].sum() >= priced["net_pnl"].sum()
+
+    def test_run_backtest_flag_toggles_enforcement(self):
+        priced = self._day("2025-07-14", [-400.0, 100.0])
+        kept, halts = enforce_daily_loss_limit(priced, limit=300.0)
+        assert len(kept) == 1 and len(halts) == 1
+
+    def test_empty_input(self):
+        kept, halts = enforce_daily_loss_limit(pd.DataFrame(), limit=300.0)
+        assert kept.empty and halts.empty
 
 
 class TestDrawdownAndSharpe:

@@ -87,8 +87,11 @@ rules, flag the conflict instead of silently working around it.
 
 11. **Backtests must report:**
     - Max daily loss (the worst single day's P&L)
-    - Worst day as a percentage of total profit (the same figure used for the
-      rule 8 consistency check, but reported as a standard backtest metric)
+    - Worst day as a percentage of total profit — the largest losing day
+      measured against total profit. This is a drawdown-shape metric and is
+      **not** the rule 8 consistency check, which measures the *best* day.
+      Both are reported; they are different figures and must not be conflated.
+    - Best day as a percentage of total profit (the rule 8 consistency check)
     - Average trade duration
     - Percentage of total profit from trades held 5 seconds or less (rule 7),
       flagged when above 30%

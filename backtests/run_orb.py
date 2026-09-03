@@ -37,6 +37,8 @@ def main() -> int:
     ap.add_argument("--stop-multiple", type=float, default=1.0)
     ap.add_argument("--target-multiple", type=float, default=2.0)
     ap.add_argument("--no-save", action="store_true")
+    ap.add_argument("--no-enforce", action="store_true",
+                    help="report the raw signal without the daily loss limit")
     args = ap.parse_args()
 
     bars = loader.load_bars(args.parquet)
@@ -64,7 +66,10 @@ def main() -> int:
     costs = CostModel(
         commission_per_side=args.commission, slippage_ticks=args.slippage_ticks
     )
-    trades = run_backtest(signals, bars5, spec=MES, costs=costs, contracts=1)
+    trades, halts = run_backtest(
+        signals, bars5, spec=MES, costs=costs, contracts=1,
+        enforce_loss_limit=not args.no_enforce,
+    )
 
     print("=" * 72)
     print("SETUP")
@@ -83,6 +88,12 @@ def main() -> int:
     print(f"  ORB params         open_range={params.opening_range_minutes}m  "
           f"window_end={params.trade_window_end}  "
           f"stop={params.stop_multiple}xOR  target={params.target_multiple}xstop")
+    print(f"  Daily loss limit   "
+          f"{'ENFORCED at -$%.0f' % rules.DAILY_LOSS_LIMIT if not args.no_enforce else 'not enforced (raw signal)'}")
+    if len(halts):
+        blocked = int(halts["trades_blocked"].sum())
+        print(f"                     {len(halts)} session(s) halted, "
+              f"{blocked} trade(s) blocked")
     print()
 
     metrics = compute_metrics(trades)
