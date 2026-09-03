@@ -106,6 +106,196 @@ independently of backtest results.
 
 ---
 
+## 2. Leveraged ETF end-of-day rebalance drift — PROPOSED
+
+**Date:** 2026-09-03
+**Commit:** pending (entry written before any code exists)
+**Code:** not yet written
+**Instrument:** MES, 5-minute bars, RTH only
+
+### Mechanism claimed
+
+Leveraged and inverse ETFs hold a constant target leverage against their net
+assets. Because their exposure is reset daily, any move in the underlying index
+changes their effective leverage and forces a trade to restore it. A 3× long
+fund that gains on an up day is left under-levered and must buy; on a down day
+it is over-levered and must sell. Inverse funds trade the same direction, for
+the mirrored reason. The required notional scales with both fund AUM and the
+size of the day's move, and the trade is concentrated in the last ~30 minutes so
+the fund can mark against the official close.
+
+The flow is therefore **mechanical, direction-predictable from information
+already public at 3:30, and price-insensitive**.
+
+**Who is on the other side:** the fund itself is a forced, price-insensitive
+trader — it must complete the rebalance regardless of the price it receives,
+because tracking error against its stated leverage is the one thing it cannot
+accept. The economic cost is borne by the fund's own shareholders as tracking
+drag, which they accept as the price of a daily-reset leveraged product. The
+immediate counterparty is whoever supplies liquidity into that imbalance, and
+they demand compensation in the form of price impact. The claimed edge is
+anticipating that impact.
+
+This is a materially stronger counterparty claim than ORB's, because the
+constraint is contractual rather than behavioural: the fund is not choosing to
+trade badly, it is mandated to trade at a specific time in a specific direction
+regardless of price. That is exactly the "forced flow" property ORB lacked.
+
+### Prediction
+
+On days where the MES return from the RTH open to 3:30 PM ET exceeds a
+threshold in magnitude, the 3:35→4:00 PM return continues in the same direction
+more often than chance, with effect size increasing in the magnitude of the
+day's move.
+
+### Pre-registered test
+
+Fixed before any data is touched. Nothing below may be changed after results are
+seen; a change means a new entry, not an edit to this one.
+
+**Signal.** Return from the RTH open (open of the 09:30 bar) to the price as of
+15:30:00 ET — the close of the 5-minute bar labelled 15:25, since bars are
+labelled by opening minute and closed left. Using the bar labelled 15:30 would
+mean measuring through 15:34:59, which is a different (and later) quantity.
+
+**Entry.** Open of the bar labelled 15:35, in the direction of the signal, only
+when `|signal| >= threshold`. One trade per session, at most.
+
+**Exit.** Close of the bar labelled 15:55 (15:59:59, the RTH close), or the stop
+if hit first.
+
+**Grid.** 4 thresholds × 3 stop settings = **12 combinations**.
+
+| Parameter | Values |
+|---|---|
+| Threshold on \|open→15:30\| return | 0.5%, 0.75%, 1.0%, 1.5% |
+| Stop distance from entry | 0.25%, 0.5%, none (time exit only) |
+
+The grid is deliberately 16× smaller than ORB's 192. Fewer knobs is less surface
+for noise to be fitted to.
+
+**Evaluation.** `backtests/walkforward.py` unchanged — seven yearly folds,
+2020–2026, expanding training window, parameters chosen on prior years only,
+$1.25/side commission and 1 tick/side slippage, then repeated at 2 ticks.
+
+**Effect-size measurement, defined now so it cannot be defined to taste later.**
+Separately from trading P&L, and measured on the pooled **out-of-sample** test
+windows only:
+
+```
+E(θ) = mean[ sign(r_open→15:30) × r_15:35→16:00 ]  over days with |r_open→15:30| ≥ θ
+H(θ) = fraction of those days where the two returns share a sign
+```
+
+`E` in basis points, before costs. "Effect size increases with threshold" means
+E(θ) is non-decreasing across the four thresholds — operationally, Spearman
+correlation between θ and E(θ) is positive **and** E(1.5%) > E(0.5%). `H(θ)` is
+reported against the 50% null.
+
+Splitting the statistical question (does the drift exist?) from the trading
+question (does it survive costs?) matters here: the drift could be real and
+still untradeable, and those two outcomes call for different next steps.
+
+### Kill criteria — decided now
+
+Any **one** of these kills the hypothesis:
+
+1. Fewer than 4 of 7 folds profitable out-of-sample.
+2. Median fold out-of-sample Sharpe below 0.3.
+3. Effect size does not increase with threshold, as defined above.
+
+No appeal, no re-grid, no "but with a different exit". A kill is recorded here
+and the idea is closed.
+
+### Prior expectations, recorded before results
+
+**Decay.** The rebalance effect was documented publicly by around 2010 and is
+now well known. The expectation is that it has been substantially arbitraged
+away since roughly 2015, so **early folds should be stronger than late folds**.
+If late folds are stronger, that is a flag to investigate for a bug or a
+confound — not a result to celebrate.
+
+**Two problems with testing that expectation on this data, worth stating up
+front:**
+
+*The sample is entirely post-decay.* MES launched 2019-05-06, so the earliest
+fold tests 2020. If the effect decayed by ~2015, every fold sits in the decayed
+regime and the base rate may already be near zero. This test can measure whether
+anything remains; it cannot observe the effect in its documented era. A clean
+decay curve would need ES rather than MES, which is a different (and more
+expensive) data pull.
+
+*2020 confounds decay with volatility.* The earliest fold contains the March 2020
+crash. Far more days clear every threshold in a high-volatility year, and larger
+moves mean larger rebalance notionals. So "early folds stronger" is exactly what
+a pure volatility effect would also produce, with no decay involved. Any
+early-vs-late reading must be checked against per-fold realised volatility and
+trade counts before being attributed to decay.
+
+**Scale scepticism.** Leveraged S&P 500 ETF AUM is small relative to ES/MES
+daily notional volume. The forced flow is real, but it may be small enough that
+its price impact is inside the bid-ask spread. Costs here are $5.00 per round
+turn against a 25-minute holding period.
+
+### Sample-size guard
+
+At the 1.5% threshold, qualifying days will be rare — possibly single digits per
+test year. That is precisely where the "effect increases with threshold" test is
+weakest, and a strong-looking E(1.5%) on eight trades is not evidence.
+
+Pre-registered: report n per threshold per fold; any threshold with fewer than
+**30 pooled out-of-sample trades** is reported as *insufficient evidence* and
+counts as neither a pass nor a fail of criterion 3.
+
+**First step after approval, before any strategy code:** count how many sessions
+clear each threshold per year. This looks only at the signal distribution, never
+at the 15:35→16:00 outcome, so it is a power check rather than peeking. If the
+top thresholds cannot reach ~30 out-of-sample trades, the grid should be revised
+*now*, before any outcome has been observed.
+
+### Power check result (run before any strategy code)
+
+`research/power_check_eod.py`, 2026-09-03. Signal distribution only. 1,810 of
+1,890 sessions are eligible after excluding 64 early closes (no 15:25 bar), 29
+roll days, and any session missing the required bars.
+
+| Year | Sessions | ≥0.50% | ≥0.75% | ≥1.00% | ≥1.50% |
+|---|---|---|---|---|---|
+| 2019 *(train only)* | 164 | 48 | 28 | 15 | 3 |
+| 2020 | 250 | 122 | 95 | 63 | 35 |
+| 2021 | 251 | 85 | 50 | 24 | 7 |
+| 2022 | 248 | 165 | 129 | 97 | 44 |
+| 2023 | 244 | 112 | 69 | 33 | 8 |
+| 2024 | 246 | 74 | 40 | 19 | 5 |
+| 2025 | 243 | 114 | 57 | 35 | 16 |
+| 2026 | 164 | 64 | 30 | 16 | 6 |
+| **Pooled OOS (2020-2026)** | **1,646** | **736** | **470** | **287** | **121** |
+
+All four thresholds clear the 30-trade pooled floor, so criterion 3 is testable
+across the whole grid and the grid stands unrevised.
+
+**Selection minimum, fixed here.** Per-fold counts at the 1.5% threshold are
+thin (min 5, median 8 per test year) even though the pooled total is adequate.
+ORB's 100-trade eligibility minimum is unreachable for a strategy taking at most
+one trade a session — the 2020 fold trains on 2019 alone, which has 48 qualifying
+days at 0.5% and 3 at 1.5% — and an unreachable filter silently falls back to
+selecting from the unfiltered pool. Selection therefore requires **30 training
+trades**, and any fold whose chosen set produces fewer than **20 test trades**
+has its Sharpe reported as low-confidence. This is an implementation detail the
+spec above left open; it is fixed now, before any outcome has been observed, and
+it does not alter the kill criteria.
+
+### Rule compatibility
+
+Entry 15:35 is inside the 16:20 cutoff; exit 15:59 precedes the 16:30 forced
+flatten; the ~24-minute hold clears the 30-second floor with room to spare. A
+0.5% stop on MES near 6,800 is roughly 34 points, about $170 on one contract, so
+the $300 daily loss limit should bind only on a gap through the stop. With at
+most one trade per session, the limit has little to cut — the same structural
+reason it barely bound for ORB.
+
+---
+
 ## Template for new entries
 
 ```
