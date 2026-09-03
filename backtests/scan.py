@@ -65,9 +65,19 @@ def parameter_grid() -> list[ORBParams]:
 
 
 def slice_by_date(frame: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
-    """Rows whose session date falls in ``[start, end]`` inclusive."""
-    days = pd.Series(frame.index.date, index=frame.index)
-    return frame[(days >= start) & (days <= end)]
+    """Rows whose session date falls in ``[start, end]`` inclusive.
+
+    Compared as timestamps rather than by building a per-row ``.date`` array,
+    which is materially faster on a multi-million-row index.
+    """
+    if frame.empty:
+        return frame
+    tz = frame.index.tz
+    lo = pd.Timestamp(start)
+    hi = pd.Timestamp(end) + pd.Timedelta(days=1)
+    if tz is not None:
+        lo, hi = lo.tz_localize(tz), hi.tz_localize(tz)
+    return frame[(frame.index >= lo) & (frame.index < hi)]
 
 
 def summarise(trades: pd.DataFrame, halts: pd.DataFrame, prefix: str) -> dict:

@@ -83,8 +83,16 @@ def build_trades(signals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:
     has_exit_price = "exit_price" in signals.columns
     has_reason = "exit_reason" in signals.columns
 
-    for ts in signals.index:
-        row = signals.loc[ts]
+    # Only bars carrying a signal can change state, and they are sparse. Walking
+    # every bar and doing a .loc lookup per bar is what made this the dominant
+    # cost of a multi-year scan.
+    active = signals[
+        signals["entry_long"] | signals["entry_short"]
+        | signals["exit_long"] | signals["exit_short"]
+    ]
+    opens = bars["open"]
+
+    for ts, row in active.iterrows():
 
         # Exits are processed before entries so a same-bar flip is well defined.
         if open_trade is not None:
@@ -96,7 +104,7 @@ def build_trades(signals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:
                 if has_exit_price and pd.notna(row.get("exit_price")):
                     price = float(row["exit_price"])
                 if price is None:
-                    price = float(bars.loc[ts, "open"])
+                    price = float(opens.loc[ts])
                 open_trade["exit_time"] = ts
                 open_trade["exit_price"] = price
                 open_trade["exit_reason"] = (
@@ -117,7 +125,7 @@ def build_trades(signals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:
             open_trade = {
                 "entry_time": ts,
                 "direction": direction,
-                "entry_price": float(bars.loc[ts, "open"]),
+                "entry_price": float(opens.loc[ts]),
                 "exit_time": pd.NaT,
                 "exit_price": float("nan"),
                 "exit_reason": "",
@@ -231,13 +239,21 @@ def enforce_daily_loss_limit(
         raise ValueError(f"mark must be 'close' or 'adverse', got {mark!r}")
 
     commission = costs.commission_round_turn(contracts)
-    bar_dates = pd.Series(bars.index.date, index=bars.index)
+    # Grouped once. Selecting with `bars[bars.index.date == day]` inside the
+    # loop rescans the whole frame per session, which turns this function into
+    # the dominant cost of a parameter scan.
+    bars_by_day = dict(tuple(bars.groupby(bars.index.normalize())))
 
     kept_raw: list[dict] = []
     halts: list[dict] = []
 
     for day, group in trades.groupby("session_date"):
-        session_bars = bars[bar_dates == day]
+        session_bars = bars_by_day.get(pd.Timestamp(day).tz_localize(bars.index.tz))
+        if session_bars is None or session_bars.empty:
+            # No bars to mark against; keep the session's trades as they are.
+            for _, trade in group.sort_values("entry_time").iterrows():
+                kept_raw.append({c: trade[c] for c in TRADE_COLUMNS})
+            continue
         ordered = group.sort_values("entry_time")
         realised = 0.0
         taken = 0
