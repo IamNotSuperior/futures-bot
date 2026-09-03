@@ -110,7 +110,7 @@ independently of backtest results.
 
 **Date:** 2026-09-03
 **Spec frozen at:** `43aa4e1` (entry written before any code existed)
-**Verdict commit:** `4b2a90c`
+**Verdict commit:** `a788e2b`
 **Code:** `strategies/eod_rebalance.py`
 **Instrument:** MES, 5-minute bars, RTH only
 
@@ -419,6 +419,8 @@ problem (fund AUM and daily creation/redemption), not a backtest problem.
 **Date:** YYYY-MM-DD
 **Commit:** <hash>
 **Code:** <path, or "not yet written">
+**Note:** an entry cannot contain its own commit hash. Record the verdict
+commit in a one-line follow-up commit immediately after, never by amending.
 **Instrument:** MES | MNQ, timeframe
 
 ### Mechanism claimed
