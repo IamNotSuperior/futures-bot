@@ -106,7 +106,9 @@ def evaluate(
     win_signals = slice_by_date(signals, start, end)
     win_bars = slice_by_date(bars5, start, end)
     trades = price_trades(build_trades(win_signals, win_bars), MES, costs, 1)
-    trades, halts = enforce_daily_loss_limit(trades, rules.DAILY_LOSS_LIMIT)
+    trades, halts = enforce_daily_loss_limit(
+        trades, win_bars, MES, costs, 1, rules.DAILY_LOSS_LIMIT
+    )
     return summarise(trades, halts, prefix)
 
 

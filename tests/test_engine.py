@@ -226,77 +226,177 @@ class TestDailyLossBreach:
 
 
 class TestDailyLossEnforcement:
-    """Trading stops for the day once realised P&L reaches the limit."""
+    """Trading halts once realised + open P&L reaches the limit.
 
-    def _day(self, day: str, pnls: list[float]) -> pd.DataFrame:
-        """Trades on one session engineered to realise the given P&L values.
+    Bars are flat at the entry price except where a test moves them, so the
+    mark-to-market value of an open position is easy to reason about.
+    """
 
-        Each is a long of `pnl/5 + 1` points before costs, so after the $5.00
-        round-turn cost the net is exactly `pnl`.
+    DAY = "2025-07-14"
+
+    def bars(self, closes, default=5000.0):
+        """5-minute session bars, flat at `default` except where overridden."""
+        idx = pd.date_range(f"{self.DAY} 09:30", f"{self.DAY} 15:55",
+                            freq="5min", tz=ET)
+        px = pd.Series(default, index=idx, dtype=float)
+        for clock, value in closes.items():
+            px.loc[f"{self.DAY} {clock}"] = value
+        return pd.DataFrame(
+            {"open": px, "high": px, "low": px, "close": px, "volume": 1}, index=idx
+        )
+
+    def trade(self, t_in, t_out, direction="long", entry=5000.0, exit_=5000.0,
+              reason="target"):
+        return {
+            "entry_time": pd.Timestamp(f"{self.DAY} {t_in}", tz=ET),
+            "exit_time": pd.Timestamp(f"{self.DAY} {t_out}", tz=ET),
+            "direction": direction,
+            "entry_price": entry,
+            "exit_price": exit_,
+            "exit_reason": reason,
+        }
+
+    def test_open_loss_alone_triggers_the_halt(self):
+        """A single position never closed by the strategy still halts the day.
+
+        Long filled at 5000.25 after slippage. At 4935 the open loss is
+        (4935 - 5000.25) x $5 = -$326.25, minus $2.50 commission: past -$300.
         """
-        rows = []
-        for i, pnl in enumerate(pnls):
-            move = pnl / 5.0 + 1.0  # +1 point covers commission + slippage
-            rows.append(
-                {
-                    "entry_time": pd.Timestamp(f"{day} {10 + i}:00", tz=ET),
-                    "exit_time": pd.Timestamp(f"{day} {10 + i}:30", tz=ET),
-                    "direction": "long",
-                    "entry_price": 5000.0,
-                    "exit_price": 5000.0 + move,
-                    "exit_reason": "stop" if pnl < 0 else "target",
-                }
-            )
-        return price_trades(pd.DataFrame(rows))
+        trades = price_trades(pd.DataFrame([
+            self.trade("10:00", "15:55", exit_=5000.0, reason="session_end")
+        ]))
+        bars = self.bars({"10:30": 4935.0})
+        kept, halts = enforce_daily_loss_limit(trades, bars, limit=300.0)
 
-    def test_fixture_realises_the_intended_pnl(self):
-        priced = self._day("2025-07-14", [-100.0, -250.0, 50.0])
-        assert list(priced["net_pnl"].round(2)) == [-100.0, -250.0, 50.0]
-
-    def test_trades_after_the_breach_are_dropped(self):
-        priced = self._day("2025-07-14", [-100.0, -250.0, 50.0, -20.0])
-        kept, halts = enforce_daily_loss_limit(priced, limit=300.0)
-        # -100 then -350 breaches; the breaching trade stands, the rest go.
-        assert len(kept) == 2
-        assert list(kept["net_pnl"].round(2)) == [-100.0, -250.0]
         assert len(halts) == 1
-        assert halts.iloc[0]["realised_at_halt"] == pytest.approx(-350.0)
-        assert halts.iloc[0]["trades_blocked"] == 2
+        assert bool(halts.iloc[0]["forced_flatten"]) is True
+        assert halts.iloc[0]["halt_time"] == pd.Timestamp(f"{self.DAY} 10:30", tz=ET)
+        # Flattened at the NEXT bar's open, not the strategy's intended exit.
+        assert kept.loc[0, "exit_time"] == pd.Timestamp(f"{self.DAY} 10:35", tz=ET)
+        assert kept.loc[0, "exit_reason"] == "loss_limit_flatten"
 
-    def test_day_that_never_breaches_is_untouched(self):
-        priced = self._day("2025-07-14", [-100.0, -150.0, 40.0])
-        kept, halts = enforce_daily_loss_limit(priced, limit=300.0)
-        assert len(kept) == 3
+    def test_shallow_open_loss_does_not_halt(self):
+        trades = price_trades(pd.DataFrame([
+            self.trade("10:00", "15:55", exit_=5000.0, reason="session_end")
+        ]))
+        bars = self.bars({"10:30": 4960.0})  # about -$204, inside the limit
+        kept, halts = enforce_daily_loss_limit(trades, bars, limit=300.0)
         assert len(halts) == 0
+        assert kept.loc[0, "exit_reason"] == "session_end"
 
-    def test_breach_exactly_at_the_limit_halts(self):
-        priced = self._day("2025-07-14", [-300.0, 100.0])
-        kept, halts = enforce_daily_loss_limit(priced, limit=300.0)
-        assert len(kept) == 1
-        assert len(halts) == 1
-
-    def test_halt_does_not_leak_into_the_next_session(self):
-        a = self._day("2025-07-14", [-400.0, 100.0])
-        b = self._day("2025-07-15", [75.0, 25.0])
+    def test_short_position_marks_the_other_way(self):
+        trades = price_trades(pd.DataFrame([
+            self.trade("10:00", "15:55", direction="short", exit_=5000.0,
+                       reason="session_end")
+        ]))
+        # Short filled at 4999.75; at 5065 the open loss is -$326.25.
         kept, halts = enforce_daily_loss_limit(
-            pd.concat([a, b], ignore_index=True), limit=300.0
+            trades, self.bars({"10:30": 5065.0}), limit=300.0
         )
         assert len(halts) == 1
-        assert len(kept) == 3  # one from the halted day, both from the next
-        assert kept[kept["session_date"] == date(2025, 7, 15)].shape[0] == 2
+        assert kept.loc[0, "exit_reason"] == "loss_limit_flatten"
 
-    def test_enforcement_cannot_worsen_a_day(self):
-        priced = self._day("2025-07-14", [-400.0, -100.0, -100.0])
-        kept, _ = enforce_daily_loss_limit(priced, limit=300.0)
-        assert kept["net_pnl"].sum() >= priced["net_pnl"].sum()
+    def test_realised_losses_bring_the_halt_forward(self):
+        """A prior realised loss means a smaller open loss is enough."""
+        trades = price_trades(pd.DataFrame([
+            self.trade("09:45", "09:55", exit_=4960.0, reason="stop"),
+            self.trade("10:00", "15:55", exit_=5000.0, reason="session_end"),
+        ]))
+        kept, halts = enforce_daily_loss_limit(
+            trades, self.bars({"10:30": 4978.0}), limit=300.0
+        )
+        assert len(halts) == 1
+        assert kept.loc[1, "exit_reason"] == "loss_limit_flatten"
 
-    def test_run_backtest_flag_toggles_enforcement(self):
-        priced = self._day("2025-07-14", [-400.0, 100.0])
-        kept, halts = enforce_daily_loss_limit(priced, limit=300.0)
-        assert len(kept) == 1 and len(halts) == 1
+    def test_later_trades_are_blocked_after_a_halt(self):
+        trades = price_trades(pd.DataFrame([
+            self.trade("10:00", "11:00", exit_=5000.0, reason="session_end"),
+            self.trade("11:30", "12:00", exit_=5010.0, reason="target"),
+            self.trade("12:30", "13:00", exit_=5010.0, reason="target"),
+        ]))
+        kept, halts = enforce_daily_loss_limit(
+            trades, self.bars({"10:30": 4935.0}), limit=300.0
+        )
+        assert len(kept) == 1
+        assert int(halts.iloc[0]["trades_blocked"]) == 2
+
+    def test_forced_exit_repriced_at_the_next_bar_open(self):
+        trades = price_trades(pd.DataFrame([
+            self.trade("10:00", "15:55", exit_=5000.0, reason="session_end")
+        ]))
+        bars = self.bars({"10:30": 4935.0, "10:35": 4930.0})
+        kept, _ = enforce_daily_loss_limit(trades, bars, limit=300.0)
+        # Exits at the 10:35 open of 4930, less one tick of slippage on the sell.
+        assert kept.loc[0, "exit_price"] == pytest.approx(4930.0)
+        assert kept.loc[0, "exit_fill"] == pytest.approx(4929.75)
+        expected = (4929.75 - 5000.25) * 5.0 - 2.50
+        assert kept.loc[0, "net_pnl"] == pytest.approx(expected)
+
+    def test_breach_on_the_final_bar_closes_at_that_bar(self):
+        trades = price_trades(pd.DataFrame([
+            self.trade("15:00", "15:55", exit_=5000.0, reason="session_end")
+        ]))
+        bars = self.bars({"15:50": 4935.0})
+        kept, halts = enforce_daily_loss_limit(trades, bars, limit=300.0)
+        assert len(halts) == 1
+        assert kept.loc[0, "exit_time"] == pd.Timestamp(f"{self.DAY} 15:55", tz=ET)
+
+    def test_adverse_mark_halts_where_close_mark_does_not(self):
+        """An intrabar dip that recovers by the close still hits real equity."""
+        idx = pd.date_range(f"{self.DAY} 09:30", f"{self.DAY} 15:55",
+                            freq="5min", tz=ET)
+        px = pd.Series(5000.0, index=idx, dtype=float)
+        bars = pd.DataFrame(
+            {"open": px, "high": px, "low": px.copy(), "close": px, "volume": 1},
+            index=idx,
+        )
+        bars.loc[f"{self.DAY} 10:30", "low"] = 4930.0
+
+        trades = price_trades(pd.DataFrame([
+            self.trade("10:00", "15:55", exit_=5000.0, reason="session_end")
+        ]))
+        _, close_halts = enforce_daily_loss_limit(trades, bars, limit=300.0,
+                                                  mark="close")
+        _, adverse_halts = enforce_daily_loss_limit(trades, bars, limit=300.0,
+                                                    mark="adverse")
+        assert len(close_halts) == 0
+        assert len(adverse_halts) == 1
+
+    def test_invalid_mark_rejected(self):
+        trades = price_trades(pd.DataFrame([self.trade("10:00", "11:00")]))
+        with pytest.raises(ValueError, match="mark must be"):
+            enforce_daily_loss_limit(trades, self.bars({}), mark="midpoint")
+
+    def test_halt_does_not_leak_into_the_next_session(self):
+        day2 = "2025-07-15"
+        rows = [
+            self.trade("10:00", "15:55", exit_=5000.0, reason="session_end"),
+            {
+                "entry_time": pd.Timestamp(f"{day2} 10:00", tz=ET),
+                "exit_time": pd.Timestamp(f"{day2} 10:30", tz=ET),
+                "direction": "long",
+                "entry_price": 5000.0,
+                "exit_price": 5010.0,
+                "exit_reason": "target",
+            },
+        ]
+        idx2 = pd.date_range(f"{day2} 09:30", f"{day2} 15:55", freq="5min", tz=ET)
+        px2 = pd.Series(5000.0, index=idx2, dtype=float)
+        bars2 = pd.DataFrame(
+            {"open": px2, "high": px2, "low": px2, "close": px2, "volume": 1},
+            index=idx2,
+        )
+        bars = pd.concat([self.bars({"10:30": 4935.0}), bars2])
+        kept, halts = enforce_daily_loss_limit(
+            price_trades(pd.DataFrame(rows)), bars, limit=300.0
+        )
+        assert len(halts) == 1
+        assert halts.iloc[0]["session_date"] == date(2025, 7, 14)
+        assert len(kept) == 2  # the next session trades normally
 
     def test_empty_input(self):
-        kept, halts = enforce_daily_loss_limit(pd.DataFrame(), limit=300.0)
+        kept, halts = enforce_daily_loss_limit(pd.DataFrame(), pd.DataFrame(),
+                                               limit=300.0)
         assert kept.empty and halts.empty
 
 

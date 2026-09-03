@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 TRADE_COLUMNS = [
@@ -176,63 +177,146 @@ def price_trades(
     return out
 
 
+HALT_COLUMNS = [
+    "session_date",
+    "halt_time",
+    "equity_at_halt",
+    "forced_flatten",
+    "trades_taken",
+    "trades_blocked",
+]
+
+LOSS_LIMIT_EXIT = "loss_limit_flatten"
+
+
 def enforce_daily_loss_limit(
-    trades: pd.DataFrame, limit: float = 300.0
+    trades: pd.DataFrame,
+    bars: pd.DataFrame,
+    spec: ContractSpec = MES,
+    costs: CostModel = CostModel(),
+    contracts: int = 1,
+    limit: float = 300.0,
+    mark: str = "close",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Drop trades taken after a session's realised loss reached ``limit``.
+    """Halt a session once realised **plus open** P&L reaches ``limit``.
 
-    Trading stops for the day the moment realised P&L hits the limit: the trade
-    that breached it stands, everything after it that session does not.
+    CLAUDE.md rule 5 is an equity rule, not a realised-P&L rule: an open losing
+    position counts against the limit while it is still open. So every bar an
+    position is held is marked to market, and if realised P&L plus that mark
+    reaches the limit the position is flattened at the **next bar's open** and
+    the session halts. Anything the strategy wanted to trade later that day is
+    dropped.
 
-    Because the strategy holds one position at a time, realised P&L only moves
-    when a trade closes, and at that instant the book is flat. So the "close any
-    open position" half of the rule has nothing to act on here and enforcement
-    reduces to blocking later entries. A strategy that ran concurrent positions
-    would need the open leg marked out at the next bar's open as well.
+    The mark is liquidation value - what closing right now would realise -
+    so it carries the full round-turn commission. That is deliberately the
+    pessimistic reading: it halts marginally earlier than a mark that ignores
+    the exit cost, which is the safer direction for a risk control.
 
-    Note this measures *realised* P&L. CLAUDE.md rule 5 is written as
-    "realised + open", which would halt a day earlier - while a losing position
-    is still open rather than once it closes.
+    Args:
+        trades: priced trades, as returned by :func:`price_trades`.
+        bars: the bars the signals were generated on, used for the marks.
+        mark: ``"close"`` marks each bar at its close, per the stated rule.
+            ``"adverse"`` marks at the bar's low (long) or high (short), which
+            catches an intrabar equity dip that a close-only mark misses. Real
+            equity moves intrabar, so ``"adverse"`` is the stricter model.
 
     Returns:
-        ``(kept_trades, halt_log)`` where ``halt_log`` has one row per halted
-        session with the P&L at the halt and how many trades were dropped.
+        ``(kept_trades, halt_log)``. Kept trades are re-priced, so a forced
+        flatten carries its actual exit rather than the strategy's intended one.
     """
+    empty_log = pd.DataFrame(columns=HALT_COLUMNS)
     if trades.empty:
-        return trades, pd.DataFrame(
-            columns=["session_date", "realised_at_halt", "trades_taken", "trades_blocked"]
-        )
+        return trades, empty_log
+    if mark not in ("close", "adverse"):
+        raise ValueError(f"mark must be 'close' or 'adverse', got {mark!r}")
 
-    keep_idx: list = []
+    commission = costs.commission_round_turn(contracts)
+    bar_dates = pd.Series(bars.index.date, index=bars.index)
+
+    kept_raw: list[dict] = []
     halts: list[dict] = []
 
     for day, group in trades.groupby("session_date"):
+        session_bars = bars[bar_dates == day]
         ordered = group.sort_values("entry_time")
-        running = 0.0
+        realised = 0.0
         taken = 0
         halted = False
-        for idx, trade in ordered.iterrows():
-            if running <= -limit:
-                halted = True
-                break
-            keep_idx.append(idx)
-            running += float(trade["net_pnl"])
-            taken += 1
-        if halted:
-            halts.append(
-                {
-                    "session_date": day,
-                    "realised_at_halt": running,
-                    "trades_taken": taken,
-                    "trades_blocked": len(ordered) - taken,
-                }
-            )
+        halt_row: dict | None = None
 
-    kept = trades.loc[keep_idx].sort_values("entry_time").reset_index(drop=True)
-    halt_log = pd.DataFrame(
-        halts, columns=["session_date", "realised_at_halt", "trades_taken", "trades_blocked"]
+        for _, trade in ordered.iterrows():
+            # A previous trade already closed the day out below the limit.
+            if realised <= -limit:
+                halted = True
+                halt_row = {
+                    "session_date": day,
+                    "halt_time": pd.NaT,
+                    "equity_at_halt": realised,
+                    "forced_flatten": False,
+                }
+                break
+
+            sign = 1.0 if trade["direction"] == "long" else -1.0
+            entry_fill = float(trade["entry_fill"])
+
+            held = session_bars[
+                (session_bars.index >= trade["entry_time"])
+                & (session_bars.index < trade["exit_time"])
+            ]
+
+            breach_pos = None
+            if len(held):
+                if mark == "adverse":
+                    marks = (held["low"] if sign > 0 else held["high"]).to_numpy(float)
+                else:
+                    marks = held["close"].to_numpy(float)
+                open_pnl = (marks - entry_fill) * sign * spec.point_value * contracts
+                equity = realised + open_pnl - commission
+                hits = np.flatnonzero(equity <= -limit)
+                if hits.size:
+                    breach_pos = int(hits[0])
+
+            row = {c: trade[c] for c in TRADE_COLUMNS}
+
+            if breach_pos is None:
+                kept_raw.append(row)
+                realised += float(trade["net_pnl"])
+                taken += 1
+                continue
+
+            breach_ts = held.index[breach_pos]
+            where = int(session_bars.index.get_indexer([breach_ts])[0])
+            if where + 1 < len(session_bars):
+                row["exit_time"] = session_bars.index[where + 1]
+                row["exit_price"] = float(session_bars.iloc[where + 1]["open"])
+            else:
+                # Breach on the session's final bar: nothing left to open into.
+                row["exit_time"] = breach_ts
+                row["exit_price"] = float(session_bars.iloc[where]["close"])
+            row["exit_reason"] = LOSS_LIMIT_EXIT
+
+            kept_raw.append(row)
+            taken += 1
+            halted = True
+            halt_row = {
+                "session_date": day,
+                "halt_time": breach_ts,
+                "equity_at_halt": float(realised + open_pnl[breach_pos] - commission),
+                "forced_flatten": True,
+            }
+            break
+
+        if halted and halt_row is not None:
+            halt_row["trades_taken"] = taken
+            halt_row["trades_blocked"] = len(ordered) - taken
+            halts.append(halt_row)
+
+    kept = price_trades(
+        pd.DataFrame(kept_raw, columns=TRADE_COLUMNS), spec, costs, contracts
     )
-    return kept, halt_log
+    if not kept.empty:
+        kept = kept.sort_values("entry_time").reset_index(drop=True)
+    return kept, pd.DataFrame(halts, columns=HALT_COLUMNS)
 
 
 def run_backtest(
@@ -243,6 +327,7 @@ def run_backtest(
     contracts: int = 1,
     enforce_loss_limit: bool = True,
     daily_loss_limit: float = 300.0,
+    mark: str = "close",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Signals plus bars in, priced trade list out.
 
@@ -252,7 +337,7 @@ def run_backtest(
     """
     trades = price_trades(build_trades(signals, bars), spec, costs, contracts)
     if not enforce_loss_limit:
-        return trades, pd.DataFrame(
-            columns=["session_date", "realised_at_halt", "trades_taken", "trades_blocked"]
-        )
-    return enforce_daily_loss_limit(trades, daily_loss_limit)
+        return trades, pd.DataFrame(columns=HALT_COLUMNS)
+    return enforce_daily_loss_limit(
+        trades, bars, spec, costs, contracts, daily_loss_limit, mark
+    )

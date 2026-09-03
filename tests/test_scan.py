@@ -189,7 +189,9 @@ class TestReproducesBaseline:
         direct_trades = price_trades(
             build_trades(direct_signals, direct_bars), MES, costs, 1
         )
-        direct_trades, halts = enforce_daily_loss_limit(direct_trades)
+        direct_trades, halts = enforce_daily_loss_limit(
+            direct_trades, direct_bars, MES, costs, 1
+        )
 
         assert scanned["is_trades"] == len(direct_trades)
         assert scanned["is_net_pnl"] == pytest.approx(direct_trades["net_pnl"].sum())
