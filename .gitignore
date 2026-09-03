@@ -1,11 +1,18 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
 # Virtual environment
 venv/
 
 # Market data — large, regenerable, and not source.
 # The directory itself is tracked (via .gitkeep) so a fresh clone keeps the
-# documented project structure; everything inside it is ignored.
+# documented project structure, and Python source under data/ is tracked
+# because it is code, not data. Everything else inside data/ is ignored.
 data/*
 !data/.gitkeep
+!data/*.py
 
 # Python bytecode
 __pycache__/
