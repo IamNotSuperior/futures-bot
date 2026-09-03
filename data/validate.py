@@ -45,17 +45,17 @@ def load_bars(path: str | Path) -> pd.DataFrame:
     df = pd.read_parquet(path)
 
     if isinstance(df.index, pd.DatetimeIndex):
-        ts = df.index.to_series(index=range(len(df)))
+        ts = pd.DatetimeIndex(df.index)
     elif "ts_event" in df.columns:
-        ts = df["ts_event"]
+        ts = pd.DatetimeIndex(pd.to_datetime(df["ts_event"]))
     else:
         raise ValueError(
             "No timestamp found: expected a DatetimeIndex or a 'ts_event' column, "
             f"got columns {list(df.columns)}"
         )
 
-    ts = pd.to_datetime(ts.values, utc=False)
-    ts = pd.DatetimeIndex(ts)
+    # Read the timezone off the index itself. Going via .values would strip the
+    # tz to naive UTC first and misreport tz-aware data as naive.
     source_tz = str(ts.tz) if ts.tz is not None else None
 
     if ts.tz is None:

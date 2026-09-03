@@ -13,11 +13,32 @@ futures-bot/
 ├── README.md          # This file
 ├── requirements.txt   # Python dependencies
 ├── venv/              # Local virtual environment (not committed)
-├── data/              # Raw and processed market data (historical bars/ticks)
-├── strategies/         # Strategy signal logic (entries/exits), no execution/risk code
-├── backtests/          # Backtest runners, parameter scans, performance reports
-└── execution/           # Live/paper execution: order routing, risk enforcement,
-                          # position/time guards, broker (Tradovate) integration
+├── data/              # Data pipeline + cached bars
+│   ├── loader.py      #   credentials, bar loading, roll/early-close detection
+│   ├── fetch.py       #   Databento pull, cost-gated
+│   └── validate.py    #   data-quality report
+├── strategies/        # Signal logic and the shared rule module
+│   ├── rules.py       #   CLAUDE.md hard rules as enforceable functions
+│   ├── base.py        #   Strategy interface
+│   └── orb.py         #   opening-range breakout
+├── backtests/         # Backtest runners, parameter scans, performance reports
+├── execution/         # Live/paper execution: order routing, risk enforcement,
+│                      #   position/time guards, broker (Tradovate) integration
+└── tests/             # pytest suite + smoke scripts
+```
+
+`strategies/rules.py` is imported by both the backtest and the execution layer,
+so a risk rule cannot be enforced in one and skipped in the other. Strategies
+themselves return signals only — they have no way to express a position size or
+a risk decision.
+
+## Running things
+
+```powershell
+venv\Scripts\python.exe -m pytest tests\ -q       # test suite
+venv\Scripts\python.exe data\fetch.py --estimate  # cost estimate, no spend
+venv\Scripts\python.exe data\validate.py data\<file>.parquet
+venv\Scripts\python.exe tests\smoke_orb.py        # eyeball ORB signals
 ```
 
 - **`data/`** — scripts and storage for pulling and caching historical MES/MNQ

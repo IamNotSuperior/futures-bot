@@ -6,6 +6,9 @@ pyarrow
 python-dotenv
 databento
 
+# Testing
+pytest
+
 # vectorbt 1.1.0 builds its plotly themes using the `scattermapbox` trace type,
 # which plotly 6+ renamed to `scattermap`. Unpinned, pip installs plotly 7.x and
 # `import vectorbt` fails at import time.
