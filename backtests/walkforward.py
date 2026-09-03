@@ -18,7 +18,7 @@ import argparse
 import sys
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, time as dt_time
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +30,10 @@ for folder in ("data", "strategies", "backtests"):
 
 import loader  # noqa: E402
 import rules  # noqa: E402
-from engine import MES, CostModel, build_trades, enforce_daily_loss_limit, price_trades  # noqa: E402
+from engine import (  # noqa: E402
+    MES, CostModel, build_trades, count_evaluation_blowups, enforce_daily_loss_limit,
+    equity_curve_by_day, price_trades, trailing_drawdown_summary,
+)
 from metrics import compute_metrics  # noqa: E402
 from orb import ORBParams, OpeningRangeBreakout, resample_bars  # noqa: E402
 from scan import MIN_RELIABLE_TRADES, parameter_grid, slice_by_date  # noqa: E402
@@ -329,3 +332,85 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _orb_rebuild(row) -> ORBParams:
+    hh, mm = str(row["trade_window_end"]).split(":")
+    return ORBParams(
+        opening_range_minutes=int(row["opening_range_minutes"]),
+        trade_window_end=dt_time(int(hh), int(mm)),
+        stop_multiple=float(row["stop_multiple"]),
+        target_multiple=float(row["target_multiple"]),
+    )
+
+
+def oos_trade_stream(bars5, roll_dates, early_closes, costs, summary,
+                     factory=None, rebuild=None) -> pd.DataFrame:
+    """The trades actually taken out-of-sample, stitched across folds.
+
+    Each fold contributes its test year traded with the parameters that fold
+    chose. That concatenation is the real out-of-sample experience: what an
+    account following this process would have held, in order. Anything measured
+    on a single fold's parameters over all seven years would be hindsight.
+    """
+    factory = _orb_factory if factory is None else factory
+    rebuild = _orb_rebuild if rebuild is None else rebuild
+    folds = {f.test_year: f for f in build_folds()}
+
+    frames = []
+    for _, row in summary.iterrows():
+        fold = folds[int(row["test_year"])]
+        strat = factory(rebuild(row), roll_dates, early_closes)
+        signals = strat.generate_signals_resampled(bars5)
+        win_signals = slice_by_date(signals, fold.test_start, fold.test_end)
+        win_bars = slice_by_date(bars5, fold.test_start, fold.test_end)
+        trades = price_trades(build_trades(win_signals, win_bars), MES, costs, 1)
+        trades, _ = enforce_daily_loss_limit(
+            trades, win_bars, MES, costs, 1, rules.DAILY_LOSS_LIMIT
+        )
+        if not trades.empty:
+            frames.append(trades)
+
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True).sort_values(
+        "entry_time").reset_index(drop=True)
+
+
+def format_drawdown_report(stream: pd.DataFrame, label: str = "") -> str:
+    """EOD trailing drawdown over the stitched out-of-sample stream."""
+    equity = equity_curve_by_day(stream)
+    summary = trailing_drawdown_summary(equity)
+    blow = count_evaluation_blowups(stream)
+
+    out = ["=" * 104,
+           f"EOD TRAILING DRAWDOWN{(' - ' + label) if label else ''}",
+           "=" * 104]
+    if not len(equity):
+        out.append("  No trades.")
+        return "\n".join(out)
+
+    out += [
+        f"  Starting balance            ${rules.ACCOUNT_SIZE:>12,.2f}",
+        f"  Final balance               ${summary['final_balance']:>12,.2f}",
+        f"  Peak end-of-day balance     ${summary['peak_balance']:>12,.2f}",
+        f"  Worst drawdown from peak    ${summary['max_drawdown_from_peak']:>12,.2f}"
+        f"   (firm line ${rules.FIRM.max_trailing_drawdown:,.0f})",
+        f"  Closest approach to the firm line  "
+        f"${summary['min_headroom_to_firm']:>7,.2f} of headroom left",
+        "",
+        f"  Days in internal WARN state (>= ${rules.TRAILING_DD_WARN:,.0f}) : "
+        f"{summary['warn_days']:>5}",
+        f"  Days past the internal STOP (>= ${rules.TRAILING_DD_STOP:,.0f}) : "
+        f"{summary['internal_stop_days']:>5}",
+        f"  Trading days                                     : {summary['days']:>5}",
+        "",
+        f"  $50K evaluations BLOWN       {blow['blowups']:>5}",
+        f"  $50K evaluations PASSED      {blow['passes']:>5}   "
+        f"(+${rules.PROFIT_TARGET:,.0f} reached before the trailing line)",
+    ]
+    if blow["blowups"]:
+        out.append("\n  Each blow-up restarts a fresh $50K account the next day:")
+        for d, n in zip(blow["dates"], blow["days_survived"]):
+            out.append(f"    account died {d} after {n} trading day(s)")
+    return "\n".join(out)

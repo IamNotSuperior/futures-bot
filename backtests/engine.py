@@ -369,3 +369,142 @@ def run_backtest(
     return enforce_daily_loss_limit(
         trades, bars, spec, costs, contracts, daily_loss_limit, mark
     )
+
+
+# ===========================================================================
+# End-of-day trailing drawdown (CLAUDE.md rule 5b)
+# ===========================================================================
+
+EQUITY_COLUMNS = [
+    "session_date",
+    "day_pnl",
+    "balance",
+    "peak_eod_balance",
+    "drawdown_from_peak",
+    "internal_floor",
+    "firm_floor",
+    "headroom_to_firm",
+    "state",
+    "terminated",
+]
+
+
+def equity_curve_by_day(
+    trades: pd.DataFrame,
+    starting_balance: float | None = None,
+    firm_limit: float | None = None,
+) -> pd.DataFrame:
+    """Daily equity with the trailing drawdown tracked against both limits.
+
+    The drawdown trails the peak *end-of-day* balance, so a day is scored on
+    its close: an intraday spike never raises the peak and an intraday dip
+    never lowers it. That is what "EOD trailing" means, and it is materially
+    kinder than an intraday trail - a day that dips $2,500 and closes flat
+    survives here.
+
+    ``terminated`` marks days where the FIRM would have ended the account.
+    Trading does not actually continue past that point in reality, so the
+    first True is the answer; later rows are what the account *would* have
+    done had it survived, kept for context rather than trimmed away.
+    """
+    if starting_balance is None:
+        starting_balance = rules.ACCOUNT_SIZE
+    if firm_limit is None:
+        firm_limit = rules.FIRM.max_trailing_drawdown
+
+    if trades.empty:
+        return pd.DataFrame(columns=EQUITY_COLUMNS)
+
+    daily = trades.groupby("session_date")["net_pnl"].sum().sort_index()
+
+    rows = []
+    balance = float(starting_balance)
+    peak = float(starting_balance)
+    for day, pnl in daily.items():
+        balance += float(pnl)
+        drawdown = max(0.0, peak - balance)
+        rows.append(
+            {
+                "session_date": day,
+                "day_pnl": float(pnl),
+                "balance": balance,
+                "peak_eod_balance": peak,
+                "drawdown_from_peak": drawdown,
+                "internal_floor": peak - rules.INTERNAL.trailing_drawdown_stop,
+                "firm_floor": peak - firm_limit,
+                "headroom_to_firm": firm_limit - drawdown,
+                "state": rules.trailing_drawdown_state(balance, peak),
+                "terminated": drawdown >= firm_limit,
+            }
+        )
+        # Only a close can raise the peak.
+        peak = max(peak, balance)
+
+    return pd.DataFrame(rows, columns=EQUITY_COLUMNS)
+
+
+def trailing_drawdown_summary(equity: pd.DataFrame) -> dict:
+    """Headline numbers from an equity curve, including the blow-up date."""
+    if equity.empty:
+        return {"days": 0, "terminated": False, "termination_date": None,
+                "max_drawdown_from_peak": 0.0, "min_headroom_to_firm": np.nan,
+                "warn_days": 0, "internal_stop_days": 0, "final_balance": np.nan,
+                "peak_balance": np.nan}
+
+    dead = equity[equity["terminated"]]
+    return {
+        "days": len(equity),
+        "terminated": bool(len(dead)),
+        "termination_date": dead.iloc[0]["session_date"] if len(dead) else None,
+        "max_drawdown_from_peak": float(equity["drawdown_from_peak"].max()),
+        "min_headroom_to_firm": float(equity["headroom_to_firm"].min()),
+        "warn_days": int((equity["state"] == "warn").sum()),
+        "internal_stop_days": int((equity["state"] == "stop").sum()),
+        "final_balance": float(equity["balance"].iloc[-1]),
+        "peak_balance": float(equity["peak_eod_balance"].max()),
+    }
+
+
+def count_evaluation_blowups(
+    trades: pd.DataFrame,
+    starting_balance: float | None = None,
+    firm_limit: float | None = None,
+) -> dict:
+    """How many $50K evaluations this trade stream would have destroyed.
+
+    Each time the firm's trailing line is crossed the account is gone, so the
+    honest count restarts a fresh evaluation from the next day and keeps going.
+    Reporting a single "max drawdown" would hide the fact that the same series
+    kills several accounts in a row.
+    """
+    if starting_balance is None:
+        starting_balance = rules.ACCOUNT_SIZE
+    if firm_limit is None:
+        firm_limit = rules.FIRM.max_trailing_drawdown
+
+    if trades.empty:
+        return {"blowups": 0, "dates": [], "days_survived": [], "passes": 0}
+
+    daily = trades.groupby("session_date")["net_pnl"].sum().sort_index()
+
+    blowups, dates, survived, passes = 0, [], [], 0
+    balance = float(starting_balance)
+    peak = float(starting_balance)
+    days = 0
+    for day, pnl in daily.items():
+        balance += float(pnl)
+        days += 1
+        if balance - starting_balance >= rules.PROFIT_TARGET:
+            passes += 1
+            balance, peak, days = float(starting_balance), float(starting_balance), 0
+            continue
+        if peak - balance >= firm_limit:
+            blowups += 1
+            dates.append(day)
+            survived.append(days)
+            balance, peak, days = float(starting_balance), float(starting_balance), 0
+            continue
+        peak = max(peak, balance)
+
+    return {"blowups": blowups, "dates": dates, "days_survived": survived,
+            "passes": passes}

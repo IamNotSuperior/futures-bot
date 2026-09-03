@@ -25,13 +25,15 @@ for folder in ("data", "strategies", "backtests"):
 import loader  # noqa: E402
 import rules  # noqa: E402
 from eod_rebalance import (  # noqa: E402
-    ENTRY_BAR, OPEN_BAR, SIGNAL_BAR, THRESHOLDS, EODRebalanceDrift,
+    ENTRY_BAR, OPEN_BAR, SIGNAL_BAR, THRESHOLDS, EODParams, EODRebalanceDrift,
     describe, parameter_grid,
 )
+from engine import equity_curve_by_day  # noqa: E402
 from engine import CostModel  # noqa: E402
 from orb import resample_bars  # noqa: E402
 from walkforward import (  # noqa: E402
-    build_folds, format_report, pooled_rank_correlation, run_walkforward,
+    build_folds, format_drawdown_report, format_report, oos_trade_stream,
+    pooled_rank_correlation, run_walkforward,
 )
 
 PARQUET = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2019-05_2026-08.parquet"
@@ -49,6 +51,13 @@ PARAM_COLS = ["threshold", "stop_pct"]
 def _factory(params, roll_dates, early_closes):
     return EODRebalanceDrift(params, roll_dates=roll_dates,
                              early_close_dates=early_closes)
+
+
+def _rebuild(row) -> EODParams:
+    """Reconstruct params from a summary row. -1 encodes "no stop"."""
+    stop = float(row["stop_pct"])
+    return EODParams(threshold=float(row["threshold"]),
+                     stop_pct=None if stop < 0 else stop)
 
 
 def session_table(bars5, roll_dates) -> pd.DataFrame:
@@ -199,6 +208,15 @@ def main() -> int:
 
     print()
     print(format_report(summary, all_pairs, costs, PARAM_COLS, "EOD REBALANCE"))
+
+    stream = oos_trade_stream(bars5, roll_dates, early_closes, costs, summary,
+                              factory=_factory, rebuild=_rebuild)
+    print()
+    print(format_drawdown_report(stream, "EOD rebalance, stitched OOS stream"))
+    if not stream.empty:
+        stream.to_csv(RESULTS_DIR / f"eod_oos_stream_{tag}.csv", index=False)
+        equity_curve_by_day(stream).to_csv(
+            RESULTS_DIR / f"eod_oos_equity_{tag}.csv", index=False)
 
     sessions = session_table(bars5, roll_dates)
     table = effect_size_table(sessions)
