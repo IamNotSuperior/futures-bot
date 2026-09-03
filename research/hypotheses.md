@@ -453,6 +453,94 @@ problem (fund AUM and daily creation/redemption), not a backtest problem.
 
 ---
 
+## 3. Manual discretionary trading — PROPOSED
+
+**Date:** 2026-09-03
+**Spec frozen at:** the commit adding this entry
+**Code:** `journal/pretrade.py`, `journal/close.py`, `journal/review.py`
+**Instrument:** MES / MNQ, manual entry on TradingView paper
+
+### Mechanism claimed
+
+A human reading order flow, levels and context in real time makes decisions a
+fixed rule set cannot express: which failed breakout is worth fading today,
+when a range is genuinely exhausted, when to stand aside entirely. The claim is
+that this judgement has positive expectancy after costs.
+
+**Who is on the other side:** this is the entry's weak point and it is recorded
+as such, before any trades. ORB was rejected partly because its counterparty
+claim was assumed rather than established, and "I am a better reader of the
+tape than whoever takes my fill" is exactly that same assumption in a more
+flattering form. The honest position is that no counterparty has been
+identified. Discretion is not a mechanism; it is a container that might hold
+one.
+
+This entry therefore does not test whether discretionary trading works in
+general. It tests one narrower and answerable question: **does this operator,
+following these rules, produce a positive-expectancy record over enough trades
+to distinguish it from noise?** A pass licenses buying one evaluation. It does
+not establish an edge, and the entry should not later be read as though it had.
+
+### Pre-registered gate
+
+Fixed now. Nothing below may be relaxed after seeing results; a change gets a
+dated addendum, never an edit.
+
+Before any Lucid evaluation is purchased, **all three** must hold:
+
+1. **60 or more rule-clean paper trades.** Logged through
+   `journal/pretrade.py`, closed through `journal/close.py`. A trade placed
+   without a logged ticket does not exist for this count and cannot be added
+   afterwards.
+2. **Positive expectancy per trade** after commission and 1 tick of slippage
+   per side — the same cost model the backtests use, applied by the same
+   function.
+3. **Simulator pass probability above 50%**, from `backtests/eval_sim.py` run
+   on the logged trades, against the firm's $3,000 target and $2,000
+   end-of-day trailing drawdown.
+
+### Kill criterion
+
+**Any rule violation resets the clean-trade count to zero.** Not a warning, not
+a deduction — a reset. Detected violations are: an entry after the session's
+cutoff, a hold under 30 seconds, size above the 5-contract internal cap, and a
+day breaching the $400 internal daily loss limit.
+
+The reset is deliberately harsh, and it is the only part of this entry that
+does real work. The gate's other three conditions are measurements; this one is
+the discipline. A rule broken once under pressure is a rule that will be broken
+again at size, and the count exists to make that expensive now rather than
+later.
+
+`journal/review.py` computes and displays all four figures. It is not a manual
+check.
+
+### Recorded expectations, before any trades
+
+**The base rate is poor and the sample will be small.** 60 trades is enough to
+notice a large effect and nowhere near enough to confirm a small one. A
+positive expectancy over 60 trades is consistent with a genuine edge and also
+consistent with an ordinary run of luck. Passing this gate is permission to
+risk one $115 attempt, not evidence of a strategy.
+
+**Paper is easier than live.** Fills are optimistic, and the psychological cost
+of a real drawdown is absent. Whatever expectancy appears here should be
+expected to degrade with money at stake.
+
+**The thesis log is the part most likely to be useful.** Even if the gate is
+never passed, grouping outcomes by the stated reasoning may show that some
+setups pay and others reliably do not. That is a finding worth having
+independently of the verdict, and it is the reason `pretrade.py` blocks a trade
+with no thesis: a trade you cannot describe in one line cannot be reviewed
+later, so it contributes nothing but P&L variance.
+
+### Verdict
+
+Not yet run. To be filled in when the gate is either met or reset, with the
+commit hash recorded in a follow-up commit.
+
+---
+
 ## Template for new entries
 
 ```

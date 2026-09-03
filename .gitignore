@@ -23,3 +23,7 @@ __pycache__/
 
 # Parquet data files (anywhere in the tree)
 *.parquet
+
+# Journal: personal trading record, appended constantly.
+# See the note in the step-4 commit about tracking this instead.
+journal/*.jsonl
