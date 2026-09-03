@@ -104,6 +104,48 @@ Do not re-test ORB with a wider grid or different exits. The grid was already
 Any future breakout idea must first establish the counterparty claim
 independently of backtest results.
 
+### Addendum, 2026-09-03 — measured against the Lucid 50K Pro eval
+
+Added after the verdict; the verdict is unchanged. This quantifies what
+"rejected" costs in account terms, under the real firm limits (daily loss now
+$400 internal, and an end-of-day trailing drawdown terminating at $2,000).
+
+Re-run under the $400 daily limit, the walk-forward total moved from −$6,072.81
+to **−$5,964.06** over the same 1,409 trades, still 3 of 7 folds profitable.
+The looser daily stop changed almost nothing, which is consistent with ORB
+rarely having a second trade left to block.
+
+**The trailing drawdown is where it actually dies.**
+
+| | Baseline (default params, 2019–2026) | Walk-forward OOS stream |
+|---|---|---|
+| Trading days | 1,821 | 1,296 |
+| Worst drawdown from peak | $6,483.75 | $8,339.38 |
+| $50K evaluations blown | **5** | **4** |
+| Evaluations passed | 1 | 1 |
+
+Against a $2,000 trailing line, ORB destroys an account roughly once a year.
+The walk-forward stream's first death is 2020-03-18, 46 trading days in.
+
+Monte Carlo on the baseline daily P&L distribution (`backtests/eval_sim.py`,
+20,000 paths, 250-day horizon):
+
+- **Pass probability 7.67%** (95% CI 7.30–8.04%)
+- Blow-up 57.60%, ran out of time 34.73%
+- **Expected 13.04 attempts to pass once — about $1,499 at $115 an attempt**
+
+The mean day is −$1.50 against a standard deviation of $120.50. That is the
+whole story in two numbers: a distribution centred fractionally below zero,
+with enough daily variance to walk into a $2,000 trailing line long before it
+walks into a $3,000 target. Paying $1,499 in expectation to win a funded
+account that would then be traded with a negative-expectancy strategy is worse
+than not entering.
+
+Recorded because "unprofitable" and "uninsurable" are different failures, and
+the second is the one that matters for a prop account. A −$5,964 result over
+seven years reads as a slow bleed; on a trailing-drawdown account it is four
+dead evaluations.
+
 ---
 
 ## 2. Leveraged ETF end-of-day rebalance drift — REJECTED
