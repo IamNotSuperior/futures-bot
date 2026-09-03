@@ -13,10 +13,16 @@ scheme layered on top of it.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "strategies"))
+
+import rules  # noqa: E402
 
 TRADE_COLUMNS = [
     "entry_time",
@@ -203,10 +209,14 @@ def enforce_daily_loss_limit(
     spec: ContractSpec = MES,
     costs: CostModel = CostModel(),
     contracts: int = 1,
-    limit: float = 300.0,
+    limit: float | None = None,
     mark: str = "close",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Halt a session once realised **plus open** P&L reaches ``limit``.
+
+    ``limit`` defaults to :data:`rules.DAILY_LOSS_LIMIT`. It is deliberately not
+    restated as a literal here: a hardcoded default diverges silently the moment
+    the rule changes, which is exactly the bypass path CLAUDE.md rule 9 forbids.
 
     CLAUDE.md rule 5 is an equity rule, not a realised-P&L rule: an open losing
     position counts against the limit while it is still open. So every bar an
@@ -232,6 +242,8 @@ def enforce_daily_loss_limit(
         ``(kept_trades, halt_log)``. Kept trades are re-priced, so a forced
         flatten carries its actual exit rather than the strategy's intended one.
     """
+    if limit is None:
+        limit = rules.DAILY_LOSS_LIMIT
     empty_log = pd.DataFrame(columns=HALT_COLUMNS)
     if trades.empty:
         return trades, empty_log
@@ -342,7 +354,7 @@ def run_backtest(
     costs: CostModel = CostModel(),
     contracts: int = 1,
     enforce_loss_limit: bool = True,
-    daily_loss_limit: float = 300.0,
+    daily_loss_limit: float | None = None,
     mark: str = "close",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Signals plus bars in, priced trade list out.

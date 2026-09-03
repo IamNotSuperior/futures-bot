@@ -26,6 +26,7 @@ from engine import (
     MES, MNQ, ContractSpec, CostModel, build_trades,
     enforce_daily_loss_limit, price_trades,
 )
+import rules
 from metrics import compute_metrics, max_drawdown, sharpe_ratio
 
 ET = "America/New_York"
@@ -205,7 +206,7 @@ class TestDailyLossBreach:
                 "exit_time": pd.Timestamp("2025-07-14 10:30", tz=ET),
                 "direction": "long",
                 "entry_price": 5000.0,
-                "exit_price": 4940.0,  # -60 pts = -$300 gross
+                "exit_price": 4915.0,  # -85 pts = -$425 gross, past the $400 limit
                 "exit_reason": "stop",
             },
             {
@@ -221,7 +222,7 @@ class TestDailyLossBreach:
         m = compute_metrics(priced)
         breaches = m["daily_loss_breaches"]
         assert len(breaches) == 1
-        assert breaches.iloc[0]["worst_running_pnl"] <= -300
+        assert breaches.iloc[0]["worst_running_pnl"] <= -rules.DAILY_LOSS_LIMIT
         assert breaches.iloc[0]["closing_pnl"] > 0
 
 

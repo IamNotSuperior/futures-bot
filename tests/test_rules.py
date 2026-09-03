@@ -257,17 +257,17 @@ def test_require_allowed_instrument_raises():
     "current, requested, expected",
     [
         (0, 1, 1),
-        (0, 2, 2),
-        (0, 3, 2),  # clamped down to the cap
-        (1, 1, 1),
-        (1, 2, 1),  # only one more contract fits
-        (2, 1, 0),  # already at the cap
-        (0, -3, -2),
-        (-2, -1, 0),
-        (-1, -5, -1),
-        (2, -1, -1),  # reducing is always fine
-        (2, -4, -4),  # reversing to -2 stays inside the cap
-        (2, -5, -4),  # reversal clamped at the far side
+        (0, 5, 5),
+        (0, 6, 5),  # clamped down to the cap
+        (3, 2, 2),
+        (4, 2, 1),  # only one more contract fits
+        (5, 1, 0),  # already at the cap
+        (0, -6, -5),
+        (-5, -1, 0),
+        (-4, -5, -1),
+        (5, -1, -1),  # reducing is always fine
+        (5, -10, -10),  # reversing to -5 stays inside the cap
+        (5, -11, -10),  # reversal clamped at the far side
         (0, 0, 0),
     ],
 )
@@ -285,11 +285,11 @@ def test_clamp_never_flips_order_direction():
 
 
 def test_position_cap_boundaries():
-    assert rules.within_position_cap(2) is True
-    assert rules.within_position_cap(-2) is True
-    assert rules.within_position_cap(3) is False
+    assert rules.within_position_cap(5) is True
+    assert rules.within_position_cap(-5) is True
+    assert rules.within_position_cap(6) is False
     with pytest.raises(rules.RuleViolation, match="exceeds the hard cap"):
-        rules.require_position_cap(3)
+        rules.require_position_cap(6)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +299,7 @@ def test_position_cap_boundaries():
 
 @pytest.mark.parametrize(
     "pnl, breached",
-    [(0.0, False), (-299.99, False), (-300.0, True), (-300.01, True), (250.0, False)],
+    [(0.0, False), (-399.99, False), (-400.0, True), (-400.01, True), (250.0, False)],
 )
 def test_daily_loss_limit(pnl, breached):
     assert rules.is_daily_loss_breached(pnl) is breached
@@ -308,7 +308,7 @@ def test_daily_loss_limit(pnl, breached):
 def test_loss_limit_blocks_entry_even_inside_the_window():
     ts = et(f"{SUMMER_DAY} 10:00")
     assert rules.can_open_new_position(ts, day_pnl=-50.0) is True
-    assert rules.can_open_new_position(ts, day_pnl=-300.0) is False
+    assert rules.can_open_new_position(ts, day_pnl=-400.0) is False
 
 
 def test_time_cutoff_blocks_entry_even_when_profitable():
@@ -348,3 +348,129 @@ class TestMinimumHold:
     def test_hold_floor_exceeds_the_microscalp_threshold(self):
         """Rule 6 must keep every trade clear of the rule 7 measure."""
         assert rules.MIN_HOLD_SECONDS > rules.MICROSCALP_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Firm ceilings vs internal limits
+# ---------------------------------------------------------------------------
+
+
+class TestLimitSeparation:
+    """The buffer is the point: every internal limit must sit inside the firm's."""
+
+    def test_firm_values_match_the_lucid_50k_pro_eval(self):
+        assert rules.FIRM.account_size == 50_000
+        assert rules.FIRM.daily_loss == 1_200
+        assert rules.FIRM.max_trailing_drawdown == 2_000
+        assert rules.FIRM.max_contracts == 40
+        assert rules.FIRM.consistency_pct == 40.0
+        assert rules.FIRM.profit_target == 3_000
+
+    def test_internal_values(self):
+        assert rules.INTERNAL.daily_loss == 400
+        assert rules.INTERNAL.trailing_drawdown_warn == 1_000
+        assert rules.INTERNAL.trailing_drawdown_stop == 1_500
+        assert rules.INTERNAL.max_contracts == 5
+        assert rules.INTERNAL.consistency_warn_pct == 30.0
+
+    def test_every_internal_limit_is_strictly_tighter(self):
+        assert rules.INTERNAL.daily_loss < rules.FIRM.daily_loss
+        assert rules.INTERNAL.trailing_drawdown_stop < rules.FIRM.max_trailing_drawdown
+        assert rules.INTERNAL.max_contracts < rules.FIRM.max_contracts
+        assert rules.INTERNAL.consistency_warn_pct < rules.FIRM.consistency_pct
+
+    def test_warn_precedes_stop(self):
+        assert (
+            rules.INTERNAL.trailing_drawdown_warn
+            < rules.INTERNAL.trailing_drawdown_stop
+        )
+
+    def test_enforced_aliases_point_at_internal_never_firm(self):
+        """The guards must read internal values. This is the regression that
+        would matter most: an alias silently repointed at a firm number."""
+        assert rules.DAILY_LOSS_LIMIT == rules.INTERNAL.daily_loss
+        assert rules.POSITION_CAP == rules.INTERNAL.max_contracts
+        assert rules.TRAILING_DD_STOP == rules.INTERNAL.trailing_drawdown_stop
+        assert rules.TRAILING_DD_WARN == rules.INTERNAL.trailing_drawdown_warn
+        assert rules.WORST_DAY_FLAG_PCT == rules.INTERNAL.consistency_warn_pct
+
+        assert rules.DAILY_LOSS_LIMIT != rules.FIRM.daily_loss
+        assert rules.POSITION_CAP != rules.FIRM.max_contracts
+        assert rules.TRAILING_DD_STOP != rules.FIRM.max_trailing_drawdown
+
+    def test_buffer_report_covers_each_limit(self):
+        rows = rules.buffer_report()
+        assert len(rows) == 4
+        for _label, internal, firm, _note in rows:
+            assert internal < firm
+
+    def test_limits_are_frozen(self):
+        with pytest.raises(Exception):
+            rules.INTERNAL.daily_loss = 999
+
+
+# ---------------------------------------------------------------------------
+# Rule 5b: end-of-day trailing drawdown
+# ---------------------------------------------------------------------------
+
+
+class TestTrailingDrawdown:
+    START = 50_000.0
+
+    def test_floor_starts_below_the_opening_balance(self):
+        assert rules.trailing_floor(self.START) == 48_500.0  # internal stop
+        assert rules.trailing_floor(self.START, rules.FIRM.max_trailing_drawdown) \
+            == 48_000.0
+
+    def test_floor_trails_a_new_peak(self):
+        assert rules.trailing_floor(52_000.0) == 50_500.0
+
+    def test_drawdown_is_zero_at_or_above_the_peak(self):
+        assert rules.drawdown_from_peak(50_000.0, 50_000.0) == 0.0
+        assert rules.drawdown_from_peak(51_000.0, 50_000.0) == 0.0
+
+    def test_drawdown_measures_from_the_peak(self):
+        assert rules.drawdown_from_peak(49_100.0, 50_000.0) == 900.0
+
+    @pytest.mark.parametrize(
+        "balance, state",
+        [
+            (50_000.0, "ok"),
+            (49_100.0, "ok"),      # -900, inside the warn line
+            (49_000.0, "warn"),    # -1,000 exactly
+            (48_600.0, "warn"),    # -1,400
+            (48_500.0, "stop"),    # -1,500 exactly, internal stop
+            (48_400.0, "stop"),
+        ],
+    )
+    def test_state_boundaries(self, balance, state):
+        assert rules.trailing_drawdown_state(balance, 50_000.0) == state
+
+    def test_internal_stop_fires_before_the_firm_would_terminate(self):
+        """At the internal stop there is still $500 of the firm's line left."""
+        at_stop = 50_000.0 - rules.INTERNAL.trailing_drawdown_stop
+        assert rules.trailing_drawdown_state(at_stop, 50_000.0) == "stop"
+        assert rules.is_account_terminated(at_stop, 50_000.0) is False
+        assert rules.headroom_to_firm_termination(at_stop, 50_000.0) == 500.0
+
+    @pytest.mark.parametrize(
+        "balance, dead",
+        [(48_100.0, False), (48_000.0, True), (47_900.0, True)],
+    )
+    def test_firm_termination_line(self, balance, dead):
+        assert rules.is_account_terminated(balance, 50_000.0) is dead
+
+    def test_termination_line_trails_the_peak(self):
+        """After a good day the account dies at a balance that was once fine.
+
+        Peak 52,000 puts the firm's floor at exactly 50,000 - the starting
+        balance. Being flat on the account is a termination once you have been
+        up $2,000 and given it all back.
+        """
+        assert rules.is_account_terminated(50_000.0, 52_000.0) is True
+        assert rules.is_account_terminated(50_100.0, 52_000.0) is False  # -1,900
+        assert rules.is_account_terminated(50_000.0, 50_000.0) is False
+
+    def test_headroom_shrinks_as_the_drawdown_grows(self):
+        assert rules.headroom_to_firm_termination(50_000.0, 50_000.0) == 2_000.0
+        assert rules.headroom_to_firm_termination(49_000.0, 50_000.0) == 1_000.0

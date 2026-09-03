@@ -19,6 +19,7 @@ that without any offset arithmetic here.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime, time, timedelta
 from typing import Collection
@@ -26,6 +27,86 @@ from typing import Collection
 import pandas as pd
 
 ET = "America/New_York"
+
+
+# ===========================================================================
+# Limits: the firm's ceilings, and the tighter lines this code enforces
+# ===========================================================================
+#
+# Two separate sets of numbers, deliberately never merged:
+#
+#   FIRM     - Lucid's published limits for the 50K Pro evaluation. Breaching
+#              any of these ends the account. Recorded here as documentation
+#              and as the denominator for the buffer report. **Nothing in this
+#              codebase enforces against FIRM values** - if code ever stops at
+#              a firm number it means the internal guard above it failed.
+#
+#   INTERNAL - what the guards actually enforce. Every value sits strictly
+#              inside its firm counterpart, so an internal stop fires with
+#              room left. That gap is the whole point: a limit you hit exactly
+#              is a limit you eventually cross.
+#
+# Keeping them in separate objects means a future edit cannot loosen an
+# internal limit to the firm's number by accident - it would have to be
+# retyped, in the internal block, on purpose.
+
+
+@dataclass(frozen=True)
+class FirmLimits:
+    """Lucid 50K Pro evaluation - the firm's hard ceilings. Never enforced."""
+
+    name: str = "Lucid 50K Pro eval"
+    account_size: float = 50_000.0
+    #: Account ends if a single day loses this much.
+    daily_loss: float = 1_200.0
+    #: Trailing drawdown measured from the peak *end-of-day* balance.
+    max_trailing_drawdown: float = 2_000.0
+    #: Micro contracts, aggregate.
+    max_contracts: int = 40
+    #: On funded accounts, no single day may exceed this share of total profit.
+    consistency_pct: float = 40.0
+    #: Profit needed to pass the evaluation.
+    profit_target: float = 3_000.0
+
+
+@dataclass(frozen=True)
+class InternalLimits:
+    """What the code enforces. Every value is tighter than the firm's."""
+
+    #: Stop trading for the day here (firm: 1,200).
+    daily_loss: float = 400.0
+    #: Warn when trailing drawdown reaches this (firm's line: 2,000).
+    trailing_drawdown_warn: float = 1_000.0
+    #: Stop trading entirely here, well short of the firm's 2,000.
+    trailing_drawdown_stop: float = 1_500.0
+    #: Micro contracts, aggregate (firm: 40).
+    max_contracts: int = 5
+    #: Flag a day above this share of total profit (firm's line: 40%).
+    consistency_warn_pct: float = 30.0
+
+
+FIRM = FirmLimits()
+INTERNAL = InternalLimits()
+
+
+def buffer_report() -> list[tuple[str, float, float, str]]:
+    """(limit, internal, firm, headroom) rows, for logging and for the report.
+
+    Makes the gap between what we stop at and what ends the account visible in
+    one place rather than implied across two modules.
+    """
+    return [
+        ("Daily loss", INTERNAL.daily_loss, FIRM.daily_loss,
+         f"{FIRM.daily_loss - INTERNAL.daily_loss:,.0f} of room"),
+        ("Trailing drawdown (stop)", INTERNAL.trailing_drawdown_stop,
+         FIRM.max_trailing_drawdown,
+         f"{FIRM.max_trailing_drawdown - INTERNAL.trailing_drawdown_stop:,.0f} of room"),
+        ("Max contracts", INTERNAL.max_contracts, FIRM.max_contracts,
+         f"{FIRM.max_contracts - INTERNAL.max_contracts} contracts of room"),
+        ("Consistency", INTERNAL.consistency_warn_pct, FIRM.consistency_pct,
+         f"{FIRM.consistency_pct - INTERNAL.consistency_warn_pct:.0f} points of room"),
+    ]
+
 
 # --- CLAUDE.md rule 1: instruments -----------------------------------------
 ALLOWED_INSTRUMENTS = frozenset({"MES", "MNQ"})
@@ -44,22 +125,36 @@ ENTRY_RUNWAY = timedelta(minutes=10)
 REGULAR_SESSION_CLOSE = time(17, 0)
 EARLY_SESSION_CLOSE = time(13, 0)
 
-# --- CLAUDE.md rule 4: position cap ----------------------------------------
-POSITION_CAP = 2
+# --- Enforced values -------------------------------------------------------
+# These aliases are what the guards and the backtest read. They point at
+# INTERNAL, never at FIRM. Kept as module-level names because every call site
+# already reads them, and because a single indirection here is easier to audit
+# than the same constant repeated across modules.
 
-# --- CLAUDE.md rule 5: daily loss limit ------------------------------------
-DAILY_LOSS_LIMIT = 300.0
+# CLAUDE.md rule 4: position cap
+POSITION_CAP = INTERNAL.max_contracts
 
-# --- CLAUDE.md rule 6: minimum hold ----------------------------------------
+# CLAUDE.md rule 5: daily loss limit
+DAILY_LOSS_LIMIT = INTERNAL.daily_loss
+
+# CLAUDE.md rule 5b: end-of-day trailing drawdown
+TRAILING_DD_WARN = INTERNAL.trailing_drawdown_warn
+TRAILING_DD_STOP = INTERNAL.trailing_drawdown_stop
+
+# CLAUDE.md rule 6: minimum hold
 MIN_HOLD_SECONDS = 30
 
-# --- CLAUDE.md rule 7: microscalping measure -------------------------------
+# CLAUDE.md rule 7: microscalping measure
 MICROSCALP_SECONDS = 5
 MICROSCALP_PROFIT_FLAG_PCT = 30.0
 MICROSCALP_FIRM_LIMIT_PCT = 50.0
 
-# --- CLAUDE.md rule 8: consistency -----------------------------------------
-WORST_DAY_FLAG_PCT = 40.0
+# CLAUDE.md rule 8: consistency
+WORST_DAY_FLAG_PCT = INTERNAL.consistency_warn_pct
+
+# The evaluation target, for the simulator and the journal.
+PROFIT_TARGET = FIRM.profit_target
+ACCOUNT_SIZE = FIRM.account_size
 
 
 class RuleViolation(Exception):
@@ -282,6 +377,57 @@ def can_open_new_position(
 # ---------------------------------------------------------------------------
 # Rule 6: minimum hold
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Rule 5b: end-of-day trailing drawdown
+# ---------------------------------------------------------------------------
+
+
+def trailing_floor(peak_eod_balance: float, limit: float | None = None) -> float:
+    """The balance at which the account is dead, given the peak EOD balance.
+
+    The drawdown trails the highest *end-of-day* balance ever reached, so
+    intraday spikes do not raise it - only a close does. Modelled as a pure
+    trail with no lock-in: some firms freeze the floor once it reaches the
+    starting balance, and if Lucid does, this is the conservative reading.
+    """
+    if limit is None:
+        limit = INTERNAL.trailing_drawdown_stop
+    return float(peak_eod_balance) - float(limit)
+
+
+def drawdown_from_peak(balance: float, peak_eod_balance: float) -> float:
+    """How far below the peak EOD balance we are, as a positive number."""
+    return max(0.0, float(peak_eod_balance) - float(balance))
+
+
+def trailing_drawdown_state(balance: float, peak_eod_balance: float) -> str:
+    """``"ok"``, ``"warn"`` or ``"stop"`` for the current balance.
+
+    ``"stop"`` is the internal line, not the firm's - by the time this fires
+    there is still headroom before the account would actually be terminated.
+    """
+    dd = drawdown_from_peak(balance, peak_eod_balance)
+    if dd >= INTERNAL.trailing_drawdown_stop:
+        return "stop"
+    if dd >= INTERNAL.trailing_drawdown_warn:
+        return "warn"
+    return "ok"
+
+
+def is_account_terminated(balance: float, peak_eod_balance: float) -> bool:
+    """True if the FIRM would have ended the account at this balance.
+
+    Only for measuring what would have happened - never a trading gate. The
+    guards stop at :data:`TRAILING_DD_STOP` long before this is reachable.
+    """
+    return drawdown_from_peak(balance, peak_eod_balance) >= FIRM.max_trailing_drawdown
+
+
+def headroom_to_firm_termination(balance: float, peak_eod_balance: float) -> float:
+    """Dollars of loss still available before the firm's line is crossed."""
+    return FIRM.max_trailing_drawdown - drawdown_from_peak(balance, peak_eod_balance)
 
 
 def hold_seconds(entry_ts, exit_ts) -> float:

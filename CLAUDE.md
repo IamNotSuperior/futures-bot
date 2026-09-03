@@ -28,15 +28,26 @@ rules, flag the conflict instead of silently working around it.
    minutes of runway before the flatten, so no trade can be caught needing to
    close before its 30-second floor has elapsed.
 
-4. **Hard max position: 2 contracts.** Net position size, per instrument and in
-   aggregate, must never exceed 2 contracts. Order sizing logic must clamp/reject
-   any order that would breach this, independent of what a strategy signal
-   requests.
+4. **Hard max position: 5 micro contracts.** Net position size, per instrument
+   and in aggregate, must never exceed 5 contracts. Order sizing logic must
+   clamp/reject any order that would breach this, independent of what a strategy
+   signal requests. The firm allows 40; we use 5.
 
-5. **Daily loss limit: $300.** Once realized + open P&L for the trading day hits
-   a $300 loss, trading must stop for the rest of that day — no new entries. This
-   must be enforced by a risk-management/guard component that runs regardless of
-   what any individual strategy does.
+5. **Daily loss limit: $400.** Once realized + open P&L for the trading day hits
+   a $400 loss, trading must stop for the rest of that day — no new entries, and
+   any open position is flattened. Measured on equity, marked to market each bar,
+   not on realized P&L alone. This must be enforced by a risk-management/guard
+   component that runs regardless of what any individual strategy does. The
+   firm's line is $1,200.
+
+5b. **End-of-day trailing drawdown: warn at $1,000, stop at $1,500.** The account
+   carries a drawdown limit that trails the highest *end-of-day* balance ever
+   reached — intraday spikes do not raise it, only a close does. Trading stops
+   entirely at $1,500 below the peak EOD balance. The firm terminates the account
+   at $2,000, so the internal stop leaves $500 of headroom.
+
+   Modelled as a pure trail with no lock-in. If the firm freezes the floor once
+   it reaches the starting balance, this is the conservative reading.
 
 6. **Minimum trade duration: 30 seconds.** No position may be closed less than
    30 seconds after it was opened. Exit logic must check elapsed holding time and
@@ -69,13 +80,15 @@ rules, flag the conflict instead of silently working around it.
    enforcement is not working — treat it as a bug, not just a risk warning.
 
 8. **Consistency check.** Flag (log/alert) if any single trading day's profit
-   exceeds 40% of total cumulative profit across the tracked period. This is a
+   exceeds **30%** of total cumulative profit across the tracked period. This is a
    reporting/monitoring requirement, not just a note — it must be computed and
-   surfaced, not left as a manual check.
+   surfaced, not left as a manual check. The firm's line is 40% on funded
+   accounts; 30% is the internal warning.
 
 9. **Risk limits live in code, not comments or config alone.** Rules 2–6 (time
-   cutoff, entry cutoff, position cap, daily loss limit, minimum hold time) must
-   be enforced by actual runtime logic that can reject/override orders. A comment
+   cutoff, entry cutoff, position cap, daily loss limit, trailing drawdown,
+   minimum hold time) must be enforced by actual runtime logic that can
+   reject/override orders. A comment
    saying "don't exceed 2 contracts" or a config value nobody reads at runtime
    does not satisfy this rule. If a limit is expressed in config, the code must
    actually load and enforce it every time, with no bypass path.
@@ -113,6 +126,30 @@ rules, flag the conflict instead of silently working around it.
     ticks of slippage per side. In-sample results are never evidence, and a
     single in-sample/out-of-sample split is not enough — ORB passed a favourable
     two-year window at +$2,250 and lost $6,073 across seven folds.
+
+## The prop firm account
+
+The target account is a **Lucid 50K Pro evaluation**: $50,000 nominal, $3,000
+profit target.
+
+Two sets of numbers exist in this project and must never be merged. They live in
+`strategies/rules.py` as `FIRM` and `INTERNAL`, and the guards read `INTERNAL`
+only. If code ever stops at a firm number, an internal guard above it has failed.
+
+| Limit | Internal (enforced) | Firm (account ends) | Headroom |
+|---|---|---|---|
+| Daily loss | $400 | $1,200 | $800 |
+| EOD trailing drawdown | warn $1,000, stop $1,500 | $2,000 | $500 |
+| Max micro contracts | 5 | 40 | 35 |
+| Consistency (single day as % of profit) | 30% | 40% | 10 points |
+| Microscalping (% profit from 5s-or-less trades) | 30% | 50% | 20 points |
+| Profit target | — | $3,000 | — |
+
+The buffer is the product, not a rounding artefact. A limit hit exactly is a
+limit eventually crossed, and an evaluation is lost once, permanently. Any change
+that narrows a gap in this table must be deliberate and stated as such —
+`rules.buffer_report()` prints it, and `tests/test_rules.py` asserts that every
+internal value is strictly tighter than its firm counterpart.
 
 ## Project scope note
 
