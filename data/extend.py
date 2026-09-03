@@ -28,8 +28,14 @@ NEW_END = "2024-09-01"
 
 MAX_COST_USD = 15.0
 
-EXISTING = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2024-09_2026-08.parquet"
 MERGED = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2019-05_2026-08.parquet"
+
+# The original 2024-09..2026-08 cache was deleted once its contents had been
+# merged into MERGED, so this script now merges into its own output. That is
+# idempotent: re-running re-pulls the same historical span, and the duplicate
+# drop keeps the rows already on disk. It is not free - the pull still costs -
+# so check --estimate first.
+EXISTING = MERGED
 
 
 def estimate(client: db.Historical) -> float:
@@ -49,6 +55,14 @@ def estimate(client: db.Historical) -> float:
 
 def merge(new: pd.DataFrame, existing_path: Path) -> pd.DataFrame:
     """Concatenate, dropping any timestamp already present in the existing file."""
+    if not existing_path.exists():
+        # Failing loudly beats writing a file that silently holds only the
+        # historical span and looks like the full dataset.
+        raise FileNotFoundError(
+            f"{existing_path} is missing. Nothing to merge into: the result "
+            f"would cover only {NEW_START}..{NEW_END} while carrying a name "
+            f"that claims the full span. Restore the cache or change MERGED."
+        )
     existing = pd.read_parquet(existing_path)
     combined = pd.concat([new, existing])
     before = len(combined)

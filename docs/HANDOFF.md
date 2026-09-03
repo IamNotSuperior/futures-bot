@@ -11,29 +11,21 @@ those three first; this is the delta.
 
 ## 1. Current state
 
-**Branch** `master`. **HEAD** `c6d9fd0`. **365 tests pass** —
+**Branch** `master`. **Working tree clean.** **365 tests pass** —
 `venv\Scripts\python.exe -m pytest tests\ -q`, about 35 seconds.
 
-**Working tree is clean except one file:**
-
-| Path | Status |
-|---|---|
-| `backtests/plot_trade.py` | **untracked** — written but never committed |
-
-`plot_trade.py` renders an annotated candlestick chart of a single ORB trade,
-reading the opening range, stop, target, entry/exit bars and P&L off the
-strategy's own signal output rather than from retyped numbers. It works; it
-produced `backtests/results/orb_trade_2026-08-2{5,6,7}.png`. It was left
-uncommitted only because the session ended before asking. Committing it is
-almost certainly right.
-
-**Nothing else is pending.** No half-finished refactor, no failing test, no
-branch other than `master`.
+**Nothing is pending.** No untracked files, no half-finished refactor, no
+failing test, no branch other than `master`.
 
 ### Recent commits, newest first
 
+The commit that last updated this file is not listed below — a file cannot
+contain its own hash. `git log --oneline | head -3` gives the true tip.
+
 | Hash | What |
 |---|---|
+| `ef1aee2` | Per-trade candlestick chart for visual verification |
+| `5cb7a14` | Add `docs/HANDOFF.md` |
 | `c6d9fd0` | Track the journal in git; add the CME holiday calendar |
 | `f1996c6` | Add the manual-trading discipline layer (`journal/`) |
 | `a9c6bb3` | Monte Carlo eval simulator; record ORB's pass probability |
@@ -53,11 +45,15 @@ recreate** — do not delete them casually.
 - `data/mes_v_0_ohlcv_1m_2019-05_2026-08.parquet` — 40 MB, 2.58M bars,
   2019-05-05 to 2026-08-31. **This is the dataset everything uses.**
   Re-pulling it costs real money (see §5).
-- `data/mes_v_0_ohlcv_1m_2024-09_2026-08.parquet` — 11 MB, superseded by the
-  file above and no longer referenced by any script. Safe to delete; left only
-  because nobody asked.
 - `backtests/results/*` — scan CSVs, walk-forward outputs, heatmaps, trade
   charts. Regenerable, but the ORB walk-forward takes ~55 minutes.
+
+The earlier two-year cache (`..._2024-09_2026-08.parquet`) was **deleted** once
+its contents were merged into the file above. `data/extend.py` used to read it
+as its merge target, so `EXISTING` now points at the merged file — re-running
+`extend.py --pull` is idempotent, and `merge()` raises rather than writing a
+file that would hold only the historical span under a name claiming the full
+one.
 
 `journal/trades.jsonl` **is tracked** (see §2) but **does not exist yet** — no
 paper trades have been logged. It appears on the first `pretrade.py` ALLOW.
@@ -237,6 +233,22 @@ is explicitly forbidden by entry 1's *Next* section, and entry 2's says the
 same about a different entry time or horizon. That search is how a clean
 negative becomes a fitted positive.
 
+### Do not propose order-placement or automation code yet
+
+**Do not propose order-placement or automation code until EITHER (a) the
+60-trade paper-trading gate is met, for automating discretionary trading, OR
+(b) a pre-registered hypothesis has passed walk-forward validation with kill
+criteria stated in advance, for automating a systematic strategy.**
+
+Neither condition currently holds. The journal has no trades yet, and both
+hypotheses on the books are rejected. `CLAUDE.md`'s scope note says the same
+thing more narrowly; this is the operative version.
+
+The failure mode is offering to "wire it up to Tradovate" because the
+scaffolding exists and looks ready. It is ready in the sense that the guards
+work; it is not ready in the sense that there is nothing with demonstrated
+positive expectancy to automate.
+
 ### Bar labelling: left-closed, labelled by opening minute
 
 A 5-minute bar labelled `15:25` covers 15:25–15:29 and **closes at 15:29:59**.
@@ -316,7 +328,73 @@ new chart with currency labels needs the same.
 
 ---
 
-## 6. Command reference
+## 6. Next direction — ORB-2
+
+The operator intends to build an **ORB-based bot targeting the Lucid 50K Pro
+evaluation**. Stated shape:
+
+- Active from **09:30 ET**
+- **One trade per day maximum**
+- Parameters selected for **eval pass probability** (`backtests/eval_sim.py`)
+  rather than Sharpe
+
+**No code for ORB-2 exists.** The hypothesis entry must be written and frozen
+in `research/hypotheses.md` before any is written — `CLAUDE.md` rule 12.
+
+### This is a new hypothesis, not a re-test of entry 1
+
+Entry 1's prohibition stands: ORB as specified there is rejected, and its grid
+must not be re-run wider or with different exits. ORB-2 is a **separate entry
+with its own mechanism statement, counterparty claim, grid and kill criteria**,
+pre-registered before code the same way entry 2 was. It does not inherit entry
+1's verdict and it does not get to reuse entry 1's search.
+
+The distinction is worth holding onto, because "new hypothesis" is also exactly
+what a re-test would call itself. What makes ORB-2 legitimate is that its
+objective genuinely differs — see below — not that it is ORB with fresh
+paperwork. If the entry ends up proposing the same signal, the same grid and
+the same objective, it is a re-test and entry 1 forbids it.
+
+### Three things the entry will have to confront
+
+**One trade per day is a real change to the code, not a parameter.**
+`strategies/orb.py` currently allows one trade *per direction* per session, so
+up to two. ORB-2's constraint is stricter and needs implementing and testing.
+
+**Optimising for pass probability is still optimising.** Switching the
+objective from Sharpe to `eval_sim` pass probability does not escape
+overfitting — it changes what is overfitted to. The walk-forward discipline
+applies unchanged: select on prior folds only, score each test year once. Note
+also that `eval_sim` draws days i.i.d., so it under-represents clustered losing
+streaks and its pass probability is **optimistic**; selecting on an optimistic
+metric compounds that.
+
+**The baseline is discouraging and should be stated in the entry.** ORB at the
+default parameters returned a 7.67% pass probability over 20,000 paths, with a
+57.6% blow-up rate and about 13 attempts (~$1,499) expected per pass. A
+different objective function does not change the underlying distribution — mean
+day −$1.50 against a $120.50 standard deviation. ORB-2's entry should say what
+it expects to change about that, in advance.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+The operator intends eventually to copy the same trade across several funded
+accounts.
+
+**This multiplies outcomes in both directions. It is not risk reduction and
+must not be described as diversification.** Identical trades on N accounts are
+perfectly correlated: the same losing day draws down every account
+simultaneously, and a trailing-drawdown breach terminates all of them on the
+same date. N accounts running one strategy is one bet at N times the size, with
+N times the fees — not N independent bets.
+
+The only thing it diversifies is the *evaluation attempt*, and only when
+accounts are started at different times on different price paths. Once they are
+funded and trading in lockstep, the correlation is 1.
+
+---
+
+## 7. Command reference
 
 ```bash
 venv\Scripts\python.exe -m pytest tests\ -q                    # 365 tests, ~35s
