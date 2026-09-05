@@ -1267,6 +1267,159 @@ an expensive one, and it should be priced before it is started rather than
 approached through another parameter set.
 
 
+### Addendum, 2026-09-04 — what the range ceiling was actually doing
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** This is a diagnostic, not a pre-registered test. It was chosen after
+seeing the results above, it has no kill criteria, and nothing in it is evidence
+for a strategy. It is recorded because the verdict left one question explicitly
+open — the 10-point ceiling skipped 1,196 of 1,719 out-of-sample sessions, and
+"nothing here settles which, because the excluded days were never traded" — and
+the excluded days can simply be measured.
+
+Filter OFF, 4 contracts, 2020–2026, the configuration otherwise unchanged. The
+ceiling is removed by setting it beyond any observed range; nothing else moves.
+
+| | Ceiling ON (entry 4) | Ceiling OFF | …narrow days | …**wide days only** |
+|---|---|---|---|---|
+| Trades | 504 | 1,689 | 504 | **1,185** |
+| Net P&L, 1 tick | −$3,930 | −$26,980 | −$3,930 | **−$23,050** |
+| Mean per trade | −$7.80 | −$15.97 | −$7.80 | **−$19.45** |
+| Win rate | 40.08% | 37.36% | 40.08% | 36.20% |
+| Worst drawdown | $6,210 | $29,375 | $6,210 | $26,470 |
+| **Evaluations blown** | **6** | **29** | **6** | **24** |
+| Pass probability | 15.86% | 10.73% | 15.86% | 9.09% |
+
+At 2 ticks the no-ceiling variant loses $43,870 and destroys 34 accounts.
+
+**The ceiling is protecting the account, decisively.** The 1,185 excluded-session
+trades lose $23,050 on their own, at two and a half times the loss per trade of
+the days the strategy does take, and they would have destroyed 24 further
+evaluations. Removing it is unambiguously worse on every measure.
+
+#### But not for the reason it was justified on
+
+The ceiling's stated rationale was that a fixed 10-point stop sits inside a wider
+opening range, so an ordinary retrace stops the trade out for reasons unrelated
+to the signal. The stop-out share is consistent with that — **63.0% on wide days
+against 50.2% on narrow ones**. The target share of bracket outcomes is not:
+
+| | Narrow days | Wide days |
+|---|---|---|
+| Targets / stops | 139 / 253 | 412 / 747 |
+| **Target share** | **35.46%** | **35.55%** |
+| Break-even required | 39.29% | 39.29% |
+
+**The two are indistinguishable, and both miss break-even by the same margin.**
+Bracket expectancy works out at roughly −$21 per bracket trade in each group. So
+the ceiling is not selecting sessions where the breakout resolves better; the
+breakout resolves equally badly at every opening-range width tested. Whatever
+the ceiling is doing, it is not improving the signal.
+
+#### What it is actually selecting for: the flatten
+
+The difference between the two groups is not the bracket, it is how often the
+bracket resolves at all.
+
+| | Narrow days | Wide days |
+|---|---|---|
+| Time exits | 112 of 504 (**22.2%**) | 26 of 1,185 (**2.2%**) |
+
+**The 15:55 flatten is the only exit category with a positive mean.** On entry
+4's OFF arm it returns **+$39.91 per trade** against −$220.00 for a stop and
++$340.00 for a target, and it is the only category whose mean is above zero once
+frequency is accounted for. Narrow-range sessions produce ten times as many of
+them, because on a quiet day the market often fails to travel 10 or 18 points
+before the close, while on a wide-range day it almost always resolves one way or
+the other.
+
+**So on this strategy the flatten is doing the earning and the bracket is doing
+the losing**, and the ceiling helps because it selects sessions where the bracket
+frequently never resolves. That is a different mechanism from the one written
+into the specification, and it was not visible until the excluded population was
+measured.
+
+#### Why this changes nothing about the verdict
+
+It is worth being explicit, because a finding this clean invites being read as a
+lead:
+
+- **Every group loses.** Narrow days lose $3,930, wide days lose $23,050. There
+  is no subset here that makes money.
+- **The ceiling is a good filter for a reason nobody wrote down, and a good
+  filter on a losing strategy is still a losing strategy.**
+- **This was chosen after seeing the results.** It is one of an unbounded number
+  of post-hoc slices, and the fact that it came out clean is not evidence that
+  it would survive pre-registration.
+
+Entry 4's Next section stands unchanged: no re-test with a different ceiling, and
+no third opening-range variant.
+
+#### Follow-up, same date: the flatten is not an edge either
+
+The obvious next thought — if a position held into the close is the only thing
+that earns, perhaps the late session carries something — was tested immediately
+as a second diagnostic, and the answer is no. **This closes the lead rather than
+opening it.**
+
+**The 15:00 → 15:55 return, unconditional on any signal**, across 1,662 sessions
+with a full late session (early closes excluded):
+
+| Session group | n | Mean (points) | Mean $/4 contracts | SE | t |
+|---|---|---|---|---|---|
+| All sessions | 1,662 | −0.231 | −$4.63 | 0.379 | −0.61 |
+| Ceiling skipped (range > 10) | 1,187 | −0.009 | −$0.18 | 0.490 | −0.02 |
+| Ceiling took (range ≤ 10) | 459 | −0.326 | −$6.53 | 0.462 | −0.71 |
+
+**There is no late-day drift.** Every group is indistinguishable from zero and
+all three point slightly negative. Sign-adjusted to each time-exit trade's own
+direction, the same window returns **−0.168 points (−$3.37 per trade, t =
+−0.33)** — so the final 55 minutes *subtracts* about 6% from the time exit's
+mean rather than producing it.
+
+**Where the time exit's +$56.30 actually comes from: the bracket's own
+geometry.** Decomposed, the 15:00→close leg contributes −$3.37 and the
+entry-to-15:00 leg +$59.66. And that residual is not an edge — it is an
+arithmetic consequence of the bracket. A time exit is by construction a trade
+that touched neither the −10 stop nor the +18 target for its whole hold, so its
+final price is conditioned to lie inside an **asymmetric band, (−10, +18),
+whose midpoint is +4 points.** The observed mean is +$56.30 net, or about
+**+3.8 gross points** — sitting just where truncation into that band predicts.
+
+**So the three exit categories are not three findings, they are one identity.**
+The stop truncates losses at −10, the target truncates gains at +18, and
+whatever survives both must average positive because the surviving band is wider
+above than below. It cannot be otherwise, and it would appear on a pure random
+walk. Reading the flatten's positive mean as evidence that holding into the
+close pays would be reading the bracket's arithmetic as a market effect.
+
+**Composition, not time of day, also explains the exit-time pattern.** Sorting
+all 1,689 trades by when they exited, the earliest bucket loses most
+(−$130.47 mean, 09:30–10:00) and later buckets turn positive. That is not a
+clock effect: **268 of the 319 trades exiting in the first bucket are stops.**
+A failed breakout fails fast, so early exits are almost all losses by selection.
+Stops average exactly −$220.00 and targets exactly +$340.00 in every bucket,
+confirming the fixed bracket behaves identically at every hour.
+
+*(One curiosity, recorded and deliberately not pursued: sign-adjusted, the
+15:00→close window is +1.558 points with t = 2.57 on sessions whose trade exited
+at target. Those trades were already closed, so this is post-exit drift and
+attributes no P&L. Chasing it would be exactly the post-hoc search this log
+exists to prevent.)*
+
+#### What this leaves
+
+**Nothing here is a hypothesis, and after the follow-up there is no longer an
+obvious candidate to become one.** The ceiling helps for a mechanical reason,
+the flatten's positive mean is a truncation artefact, and the late session has
+no measurable drift. Entry 4's Next section stands: no re-test with a different
+ceiling, and no third opening-range variant.
+
+If any of this is ever pursued it gets a new entry with its own mechanism,
+counterparty, kill criteria and grid, written before anything further is run —
+not an extension of this one.
+
+
 ---
 
 ## Template for new entries
