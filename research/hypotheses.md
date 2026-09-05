@@ -1625,7 +1625,7 @@ times on different price paths.
 
 **Date:** 2026-09-05
 **Spec frozen at:** `c7c6f01` (nothing below was decided after seeing results)
-**Verdict commit:** recorded in the one-line follow-up commit to this one
+**Verdict commit:** `d5b0bce`
 **Code:** `strategies/orb2.py` (with `flatten_at_next_open`),
 `backtests/run_orb_flat.py`
 **Reports:** `backtests/results/orb_flat_report_slip1.txt`, `..._slip2.txt`
