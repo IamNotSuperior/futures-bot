@@ -1422,6 +1422,213 @@ not an extension of this one.
 
 ---
 
+## 5. ORB flat by 10:30 — PROPOSED
+
+**Date:** 2026-09-05
+**Spec frozen at:** the commit adding this entry
+**Code:** not yet written
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES, 15-minute opening range, 1-minute bars for fills, RTH only
+**Source:** transcribed line for line from `orb_flat_1030.pine`, the script the
+operator is running.
+
+### This entry is forbidden by entry 4, and is being written anyway
+
+Entry 4's Next section says, in terms: **"Do not test a third opening-range
+variant. Three entries in this log now rest on the same unestablished claim —
+that a break of an early range predicts continuation — and all three are
+rejected."**
+
+**This is a fourth.** The operator has directed it after seeing that verdict.
+Recording the conflict here rather than omitting it is the whole function of
+this log: an entry that quietly ignores its predecessor's prohibition is how a
+rejected idea gets re-run until it passes, and the reader six months from now
+needs to see that this one did not sneak past.
+
+**What is genuinely different, and it is not nothing:** every prior entry in
+this family varied the *signal* or its *parameters* — the range length, the
+stop, the target, the filter, the entry window. This one changes the **holding
+period**, and changes it drastically: the position is flat by **10:30**, a
+maximum hold of 45 minutes against entry 4's 15:55. That is a structural change
+to the strategy's exposure, not another cell of the same grid.
+
+**What is not different:** the signal, the mechanism, and the absence of one.
+
+### Mechanism claimed
+
+**None.** No new edge is claimed, and none has been established at any point in
+entries 1, 4, or here. The breakout continuation claim was assumed from the
+pattern's popularity in entry 1, was never measured against order flow, and
+remains unmeasured.
+
+**Who is on the other side:** unknown. Under this log's own standard that makes
+this a pattern rather than a hypothesis, and the entry says so rather than
+dressing a shorter hold as a mechanism.
+
+**The honest prior is that it fails, and probably worse per trade than entry 4
+did.** The reasoning is below and is specific enough to be wrong.
+
+### Specification, line for line with the Pine
+
+Fixed here. Nothing may change after results are seen.
+
+**Opening range.** High and low of the single 15-minute candle covering
+**09:30–09:45 ET**, resampled from 1-minute bars, labelled by opening minute,
+left-closed, sessions resampled independently.
+
+**Day filter.** Skip the session entirely if the opening-range height exceeds
+**10.0 points**.
+
+**Orders at the 09:45 close.** **Both** rest: a **buy stop at
+`range_high + 1.0`** and a **sell stop at `range_low − 1.0`**. The trend filter
+is **OFF** and stays off; both sides are always placed.
+
+**First fill wins, OCA at the moment of fill.** The instant one side fills the
+other is cancelled — not at the next bar, not at the next 15-minute candle.
+Where a single 1-minute bar reaches both levels, the fill is unobservable at
+this resolution and is resolved **pessimistically**: the direction producing the
+worse outcome for that day is assumed to have filled. The count of such sessions
+is reported.
+
+**Bracket.** From the fill: **stop 10.0 points**, **target 18.0 points**, both
+fixed in points.
+
+**Fills.** Entry, stop and target resolve on **1-minute bars**. A stop order
+fills at its level, or at the bar's open if the bar opened through it. **If one
+bar touches both stop and target, the stop is assumed filled.**
+
+**One trade per day**, enforced. No re-entry after an exit.
+
+**10:30 ET, no exceptions.** Any unfilled order is cancelled **and** any open
+position is closed **at the open of the 10:30 bar**. The maximum hold is
+therefore 45 minutes and the entry window is 09:45–10:30.
+
+**Size.** **4 MES contracts.** $1.25 per contract per side commission, **1 tick
+of slippage per side**, repeated at 2 ticks per the project standard.
+
+**Internal guards.** The **$400 daily loss limit**, marked to market, and a
+**$1,500 trailing drawdown halt** measured from peak end-of-day equity. Roll
+days are skipped. These are `INTERNAL` values; nothing here reads a `FIRM`
+number except `eval_sim`, which asks whether the account survived.
+
+### Prediction on record
+
+**No ORB flat-by-10:30 backtest has been run and no partial result inspected.**
+What follows is derived from entry 4's published figures and its 2026-09-04
+addendum, both already in this log.
+
+**1. The target share of bracket outcomes falls to roughly 25–30%, against
+entry 4's 35.5% and a 39.29% break-even.** This is the sharp one. The addendum's
+exit-time table shows that resolutions *before 10:30* are markedly stop-heavy:
+of the trades exiting in the 09:30 and 10:00 buckets, **647 were stops against
+247 targets — a 27.6% target share**, versus 35.5% across the full population. A
+failed breakout fails fast; a working one takes longer to travel 18 points than
+a failing one takes to travel 10. **Cutting the hold at 10:30 therefore keeps
+the stop-heavy fast resolutions and discards the slower target resolutions.**
+
+**2. Per-trade net expectancy is worse than entry 4's −$7.80.** Entry 4's OFF
+arm netted −$7.80 per trade at 4 contracts against $20.00 of round-turn
+friction, so its *gross* expectancy was about +$12.20 and costs alone made it
+negative. With a worse target share and a truncated upside, gross should fall,
+while friction is unchanged at $20.00 per round turn.
+
+**3. Most trades end at the 10:30 flatten, and its mean is far smaller than
+entry 4's +$39.91.** Forty-five minutes is rarely enough to travel 10 or 18
+points. The addendum established that the flatten's positive mean is
+**truncation, not drift** — survivors are conditioned into an asymmetric
+(−10, +18) band whose midpoint is +4 points. Over 45 minutes most survivors will
+sit near zero rather than spread across that band, so the truncation premium
+should largely vanish. **This is the prediction most likely to be wrong**, and
+it is the one worth watching: if the flatten mean stays large, the truncation
+account in the addendum is incomplete.
+
+**4. Fewer trades than entry 4's 504.** The entry window closes an hour earlier.
+
+**5. Pooled seven-year pass probability does not clear 25%**, killing it on
+criterion 1.
+
+**What would falsify the pessimism:** a target share at or above 39.29% across a
+majority of the seven years with positive total P&L. Predictions 1 and 2 are
+specific enough that being wrong about them will be obvious.
+
+### The two-year window is context, not evidence — fixed now
+
+Results are reported for **2024-09-01 to 2026-08-31** alongside the seven years,
+as requested. **The verdict turns on the seven-year figures only**, and this is
+pre-registered so it cannot be renegotiated once both are visible.
+
+The reason is on the record already: **entry 1's ORB returned +$2,250 over
+exactly this two-year window and −$6,073 across seven folds.** That window
+contains the two best years and none of 2020–2022. A two-year number that
+disagrees with the seven-year number is the expected behaviour of a favourable
+draw, not new information.
+
+### Kill criteria — decided now
+
+Any **one** kills the hypothesis. Measured at **4 contracts**, pooled over the
+**seven years 2020–2026**.
+
+1. **Pooled seven-year `eval_sim` pass probability below 25%.**
+2. **More than 1 evaluation blown across the seven years.**
+3. **Fewer than 4 of 7 years profitable, *or* total seven-year P&L negative.**
+   Survival requires **both**.
+
+No appeal, no re-grid, no third flatten time.
+
+### Reporting required
+
+Trade count, net P&L, win rate with its standard error, profit factor and max
+drawdown, for both windows side by side; P&L and counts by exit reason
+(stop / target / 10:30 flatten); the yearly breakdown; evaluations blown over
+the seven years at 4 contracts; and `eval_sim` pass probability computed
+separately on the two-year and the seven-year daily distributions. Plus the
+count of sessions where both entry stops were reached inside one 1-minute bar,
+the count of trades entering and exiting inside one bar, and the skipped-session
+counts with their opening-range distribution. All repeated at 2 ticks.
+
+### Where the backtest and the Pine still disagree
+
+**1. Fill resolution: 1-minute here, 15-minute in the script.** Between 09:45
+and 10:30 the Pine sees three bars; this backtest sees forty-five. For resting
+stop orders the two are close, but the Pine's own strategy tester will not
+reproduce these numbers and is the coarser model — at 15-minute resolution a bar
+containing both stop and target is common, and the stop-first convention then
+fires far more often than it should.
+
+**2. The drawdown halt is modelled on end-of-day equity; the Pine marks it
+intraday.** `strategy.equity` in Pine includes open profit bar by bar, so the
+live script can halt mid-session where this backtest halts only at a daily
+boundary. The backtest is therefore mildly *permissive* on this guard.
+
+**3. The halt is implemented in the entry-5 runner, not in `engine.py`.** The
+engine has `enforce_daily_loss_limit` but no trailing-drawdown equivalent. Rule
+9 wants this as shared runtime logic and it should be promoted to the engine
+when a second caller needs it; for now it lives beside the run and is tested
+there.
+
+**4. OCA resolution.** The Pine leaves a both-sides-touched bar to the broker's
+OCA group; this backtest resolves it pessimistically and reports how often it
+mattered.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged and repeated because it governs how any accepted result would be used.
+Copying identical trades across N funded accounts **multiplies outcomes in both
+directions and is not diversification**: the same losing day draws down every
+account at once and a trailing-drawdown breach terminates all of them on the
+same date. It is one bet at N times the size with N times the fees. Only the
+evaluation *attempt* is diversified, and only while accounts start at different
+times on different price paths.
+
+### Verdict
+
+Not yet run. To be filled in after the runs, with the commit hash recorded in a
+one-line follow-up commit. Per this log's standing rule, the verdict is not
+revised afterwards.
+
+---
+
 ## Template for new entries
 
 ```
