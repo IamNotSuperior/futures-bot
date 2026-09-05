@@ -97,6 +97,11 @@ class ORB2Params:
     flatten_time: time = time(15, 55)
     #: The pre-registered ON/OFF arm. False arms both directions.
     use_trend_filter: bool = True
+    #: Exit the forced flatten at the *open of the flatten bar* rather than the
+    #: close of the bar before it. Entry 5 needs this - its Pine closes at the
+    #: 10:30 bar open - and entry 4 does not, so it defaults to entry 4's
+    #: behaviour and leaves those results reproducible.
+    flatten_at_next_open: bool = False
 
     def __post_init__(self) -> None:
         if self.stop_points <= 0 or self.target_points <= 0:
@@ -168,11 +173,19 @@ class ORB2(Strategy):
         direction: str,
         stop: float,
         target: float,
+        opens: np.ndarray | None = None,
+        n_bars: int | None = None,
     ) -> tuple[int, float, str]:
         """Walk bars from the entry bar to the deadline. Returns the exit.
 
         ``start`` is the entry bar itself, deliberately: the fill happened
         inside it and the rest of that minute can still reach the stop.
+
+        The forced flatten lands on the close of ``last`` by default. With
+        ``flatten_at_next_open`` it lands on the *open of the following bar* -
+        the flatten bar itself - which is what a script closing "at the 10:30
+        bar open" actually does. If there is no following bar the close of
+        ``last`` is used, because there is nothing later to fill against.
         """
         for i in range(start, last + 1):
             if direction == "long":
@@ -188,6 +201,10 @@ class ORB2(Strategy):
                 if hit_stop:
                     return i, stop, "stop"
                 return i, target, "target"
+
+        if (self.params.flatten_at_next_open and opens is not None
+                and n_bars is not None and last + 1 < n_bars):
+            return last + 1, float(opens[last + 1]), "session_end"
         return last, float(closes[last]), "session_end"
 
     def _fill_index(
@@ -291,7 +308,8 @@ class ORB2(Strategy):
             else:
                 stop, target = fill_price + p.stop_points, fill_price - p.target_points
             exit_i, exit_price, reason = self._simulate_exit(
-                highs, lows, closes, fill_i, last_hold, d, stop, target
+                highs, lows, closes, fill_i, last_hold, d, stop, target,
+                opens=opens, n_bars=len(session),
             )
             sign = 1.0 if d == "long" else -1.0
             outcomes[d] = {

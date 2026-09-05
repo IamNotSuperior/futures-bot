@@ -1422,7 +1422,7 @@ not an extension of this one.
 
 ---
 
-## 5. ORB flat by 10:30 — PROPOSED
+## 5. ORB flat by 10:30 — REJECTED
 
 **Date:** 2026-09-05
 **Spec frozen at:** the commit adding this entry
@@ -1621,11 +1621,208 @@ same date. It is one bet at N times the size with N times the fees. Only the
 evaluation *attempt* is diversified, and only while accounts start at different
 times on different price paths.
 
-### Verdict
+### Verdict: REJECTED
 
-Not yet run. To be filled in after the runs, with the commit hash recorded in a
-one-line follow-up commit. Per this log's standing rule, the verdict is not
-revised afterwards.
+**Date:** 2026-09-05
+**Spec frozen at:** `c7c6f01` (nothing below was decided after seeing results)
+**Verdict commit:** recorded in the one-line follow-up commit to this one
+**Code:** `strategies/orb2.py` (with `flatten_at_next_open`),
+`backtests/run_orb_flat.py`
+**Reports:** `backtests/results/orb_flat_report_slip1.txt`, `..._slip2.txt`
+
+**Rejected on every basis measured, at 1 and 2 ticks of slippage.**
+
+#### The drawdown halt ends the seven-year run in 2020
+
+This has to come first, because it governs how the rest reads.
+
+The $1,500 trailing halt fires early in 2020 and **never releases**. A halted
+account takes no trades, so its balance never recovers, so the halt is
+permanent: **433 sessions are blocked and the run stops after 45 trades, all of
+them in 2020.** Years 2021–2026 contain no trades at all.
+
+That is faithful to `orb_flat_1030.pine` — its `halted` flag works the same way
+— and it is the honest live outcome: **run with its own guards, this strategy
+stops trading in year one and does not resume.** But it makes two of the three
+kill criteria degenerate, so both bases are reported.
+
+| Seven years, 4 contracts, 1 tick | As frozen (halt ON) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 45 | 478 |
+| Net P&L | −$1,415 | **−$11,780** |
+| Mean per trade | −$31.44 | −$24.64 |
+| Win rate | 37.78% | 40.17% |
+| Standard error | 7.23 pts | 2.24 pts |
+| Profit factor | 0.527 | 0.673 |
+| Max drawdown | $1,500 | $12,065 |
+| **Target share of bracket** | **0.00%** | **21.71%** |
+| Evaluations blown | 0 | **6** |
+| Pass probability | 0.00% | 0.22% |
+| Years profitable | 0 of 7 | 1 of 7 |
+
+The halt-OFF column is the basis entries 1 and 4 were measured on, and is the
+only one comparable with them.
+
+#### Kill criteria
+
+| # | Criterion | Halt ON | Halt OFF | |
+|---|---|---|---|---|
+| 1 | Pass probability ≥ 25% | 0.00% | 0.22% | **FAIL** |
+| 2 | Evaluations blown ≤ 1 | 0 | 6 | **FAIL** (see below) |
+| 3 | ≥ 4 of 7 years profitable **and** P&L > 0 | 0 of 7, −$1,415 | 1 of 7, −$11,780 | **FAIL** |
+
+At 2 ticks, halt OFF: **−$16,560, 0 of 7 years profitable, 10 evaluations
+blown, pass probability 0.02%.**
+
+**Criterion 2 is defective as written, and it passed on the frozen basis for the
+wrong reason.** With the halt active, no evaluation can be blown *because the
+internal guard stops trading before the firm's $2,000 line is reached* — that is
+precisely what the guard is for. A blow-up count and a permanent halt are
+incompatible measurements: the count assumes a stream that keeps trading and
+restarts a fresh evaluation after each death, which is how entries 1 and 4
+computed theirs. **The entry should have specified which basis criterion 2 was
+measured on, and did not.** Recorded as a flaw in this entry's construction. It
+changes nothing here — criteria 1 and 3 fail on both bases, and criterion 2
+fails outright on the comparable one — but a future entry combining a halt with
+a blow-up count must say which it means.
+
+#### P&L by exit reason, seven years, halt OFF
+
+| Exit | n | Mean | Total |
+|---|---|---|---|
+| 10:30 flatten | **349** | **+$2.64** | +$920 |
+| Stop | 101 | −$220.00 | −$22,220 |
+| Target | 28 | +$340.00 | +$9,520 |
+
+On the frozen basis the 45 trades break down as **38 flattens (+$3.29 mean), 7
+stops, and zero targets** — 18 points inside 45 minutes on a session whose
+opening range was under 10 points essentially never happened in that sample.
+
+#### Yearly breakdown, halt OFF, 1 tick
+
+| Year | Trades | Net P&L | Win % | PF | Max DD | Stops | Targets | Flatten |
+|---|---|---|---|---|---|---|---|---|
+| 2020 | 92 | −$3,670 | 34.8 | 0.47 | −$3,890 | 18 | 2 | 72 |
+| 2021 | 112 | −$15 | 48.2 | 1.00 | −$1,125 | 7 | 6 | 99 |
+| 2022 | 14 | −$190 | 42.9 | 0.81 | −$730 | 3 | 1 | 10 |
+| 2023 | 87 | −$1,820 | 43.7 | 0.75 | −$2,045 | 25 | 5 | 57 |
+| 2024 | 117 | −$4,405 | 35.9 | 0.59 | −$4,405 | 33 | 11 | 73 |
+| 2025 | 44 | −$1,710 | 34.1 | 0.52 | −$1,800 | 12 | 1 | 31 |
+| 2026 | 12 | +$30 | 41.7 | 1.03 | −$510 | 3 | 2 | 7 |
+
+The only profitable year is 2026 at **+$30 on 12 trades**, which is noise.
+
+#### The two-year window, as pre-registered: context, not evidence
+
+**Halt OFF, 1 tick: 91 trades, −$2,820, win rate 39.56% ± 5.13, PF 0.633, 1
+evaluation blown, pass probability 0.12%.** The two-year window agrees with the
+seven-year one here. That agreement is not itself informative — a favourable
+draw was possible and did not occur — and the pre-registered rule that the
+verdict turns on seven years stands either way.
+
+#### Predictions scored
+
+All five held. One was understated and one was flagged in advance as the most
+likely to be wrong; it held clearly.
+
+**1. Target share falls to roughly 25–30% — CORRECT, and understated.** Actual
+**21.71%** against entry 4's 35.5% and a 39.29% break-even. The mechanism
+predicted from the addendum was right: resolutions before 10:30 are stop-heavy,
+so cutting the hold keeps the fast stops and discards the slower targets. **101
+stops against 28 targets.** The magnitude was worse than predicted.
+
+**2. Per-trade expectancy worse than entry 4's −$7.80 — CORRECT.** Actual
+**−$24.64**, roughly three times worse. And the decomposition is sharper than
+the prediction: friction is $20.00 per round turn, so **gross expectancy is
+about −$4.64**. Entry 4's gross was **+$12.20** and only costs made it negative.
+**Cutting the hold at 10:30 turned a positive gross expectancy negative.** That
+is the single most useful number in this entry.
+
+**3. Most trades flatten, and the flatten's mean falls far below +$39.91 —
+CORRECT.** This was flagged in advance as the prediction most likely to be
+wrong, because it tested the addendum's truncation account rather than restating
+it. **349 of 478 trades (73.0%) end at the flatten, at a mean of +$2.64** —
+against +$39.91 over a full session. The truncation premium did not merely
+shrink, it nearly vanished.
+
+That is a quantitative confirmation of the 2026-09-04 addendum. The premium
+comes from survivors being conditioned into an asymmetric (−10, +18) band, and
+its size depends on how far price disperses inside that band before the flatten.
+Over 45 minutes there is almost no dispersion, so survivors sit near zero and
+the premium collapses. **If the flatten had been a genuine late-day edge rather
+than truncation, shortening the hold would not have removed it.**
+
+**4. Fewer trades than entry 4's 504 — CORRECT, but barely: 478.** Cutting a
+full hour off the entry window removed only 26 trades, because a resting stop
+one point beyond a narrow opening range is almost always reached in the first
+45 minutes if it is reached at all. Worth recording: the 09:45–10:30 window
+captures nearly all the fills the 09:45–11:30 window did, so the extra hour in
+entry 4 was contributing hold time, not entries.
+
+**5. Pass probability does not clear 25% — CORRECT.** 0.22% halt OFF, 0.00% as
+frozen.
+
+#### Other pre-registered reporting
+
+**Guards.** Zero daily-loss halts in either window — with one trade a day
+risking $220, the $400 limit cannot bind, the same structural result entry 4
+recorded. 433 drawdown halts over seven years, 54 over two.
+
+**Measurability.** **Zero** trades entered and exited inside one 1-minute bar,
+so rule 6's 30-second floor is fully verifiable on this configuration — unlike
+entry 4, where 7 trades were unverifiable. **One** session across seven years had
+both entry stops reached inside a single bar, resolved pessimistically.
+
+**The range ceiling** skipped 1,196 of 1,719 sessions, unchanged from entry 4
+since neither the range nor the ceiling moved. Skipped sessions had a median
+opening range of 16.75 points; traded sessions 7.75.
+
+### What was learned
+
+**Shortening the hold made it worse, and the reason is now measured rather than
+argued.** Entry 4's bracket lost money but its gross expectancy was positive;
+friction alone sank it. Entry 5 keeps the friction, removes the slower target
+resolutions, and keeps the fast stops — and gross expectancy goes negative. **A
+10:30 flatten is not a risk control on this strategy, it is an adverse
+selection filter.**
+
+**The truncation account survived a real test.** The addendum explained the
+flatten's positive mean as an artefact of the (−10, +18) survivor band rather
+than a late-day effect. That explanation made a falsifiable prediction —
+shorten the hold and the premium should collapse — and the premium fell from
++$39.91 to +$2.64. A genuine time-of-day edge would not behave that way.
+
+**The internal guard works, and working is not the same as helping.** Run as
+specified, the $1,500 halt caught the account in 2020 and prevented all six
+evaluation blow-ups the unguarded stream would have suffered. It did that by
+ending the account's trading life in year one. A guard that saves an evaluation
+by stopping a negative-expectancy strategy is doing its job; it is not evidence
+the strategy is safe to run.
+
+**Four opening-range entries, four rejections.** Entries 1, 4 and 5 have now
+tested the same unestablished continuation claim across three signal
+definitions, two exit regimes, four holding periods and two objectives. None has
+produced a positive result, and none has ever measured the claim directly.
+
+### Next
+
+**Do not test a fifth opening-range variant.** Entry 4's Next section already
+forbade a third; this was a fourth, written with that conflict recorded, and it
+failed in the direction predicted. There is no remaining timing, bracket or
+filter permutation that this log has any reason to expect to work, and each new
+one is another draw against the same absent edge.
+
+The prohibition entry 1 wrote still stands unmet: **any future breakout idea
+must first establish the counterparty claim independently of backtest results.**
+That means order-flow evidence about who takes the other side of a range break
+and under what constraint. It is a data purchase, not a backtest, and it should
+be priced before it is started.
+
+If the operator intends to keep running `orb_flat_1030.pine` live, that is a
+decision this log cannot make. What it can record is that the script's own
+guards stopped the equivalent backtest in 2020, that its unguarded seven-year
+result is −$11,780 at 1 tick and −$16,560 at 2, and that its gross expectancy
+before costs is negative.
 
 ---
 
