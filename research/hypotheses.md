@@ -2439,6 +2439,267 @@ by bracket geometry rather than by the signal. An idea about *that* would be a
 different hypothesis with a different mechanism, and it would need its own entry
 written before any code — not an extension of this one.
 
+### Addendum, 2026-09-05 — the sizing rule breached its own risk cap
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** This records a defect the run measured and fixes it for future entries.
+
+Entry 6 sized positions as `contracts = floor($200 / (range_pts × $5))`,
+computed from the **range height**, while the realised stop sat at the range
+height **plus the overshoot** from the entry to the range edge. The entry kept
+that as written, matching the source, and required the breach to be measured
+rather than assumed small.
+
+**Measured, on the 1,025 unfiltered trades:**
+
+| | |
+|---|---|
+| Realised risk, median | **$180** |
+| Realised risk, mean | $176 |
+| Realised risk, **max** | **$416** |
+| Trades risking more than the stated $200 | **240 of 1,025 (23.4%)** |
+| Trades whose stop exceeded the **$400 daily loss limit** | **1** |
+
+The overshoot was a median of 1.00 point and a mean of 1.62 (7.1% and 10.0% of
+the range), with a maximum of 50.50 points. No daily-loss halt fired in any
+configuration, so the limit never actually bound — but **the rule permitted a
+position whose full stop-loss was larger than the daily loss limit that is
+supposed to contain the day**, which is a guard defeating itself by arithmetic.
+
+#### Standing rule for future entries
+
+**Any future use of range-based sizing must size off the realised stop distance,
+or cap at the daily loss limit, whichever binds first.** Concretely, the
+position must satisfy both:
+
+```
+contracts × stop_distance × point_value  <=  risk_budget
+contracts × stop_distance × point_value  <=  rules.DAILY_LOSS_LIMIT
+```
+
+where `stop_distance` is the distance from the actual fill to the actual stop,
+not a proxy for it. A rule that sizes off a quantity the stop does not use is
+not a risk rule; it is an estimate of one.
+
+**This binds new strategies, not replications.** Entry 7 reproduces entry 6's
+specification unchanged, sizing flaw included, because altering a constant would
+make it something other than a replication. That exemption is deliberate,
+applies only to a like-for-like reproduction of an already-frozen spec, and does
+not extend to any entry proposing a strategy of its own.
+
+
+---
+
+## 7. Replication of entry 6's one non-null finding, on MNQ — PROPOSED
+
+**Date:** 2026-09-05
+**Spec frozen at:** the commit adding this entry
+**Code:** not yet written
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** **MNQ**, 5-minute bars resampled from 1-minute, 19:00 ET
+through 09:25 ET
+**Replicates:** entry 6 (`068927d` spec, `9b28b3c` verdict), 1× arm, filter ON,
+base case 2 ticks per side.
+
+### This is a replication, not a strategy
+
+**No new strategy is proposed and no new mechanism is claimed.** Entry 6 is
+rejected and stays rejected. This entry exists to answer one question about one
+number, on data the specification has never touched.
+
+Entry 6 produced exactly one result that was not null: in the trend-filtered 1×
+arm, the target share of bracket outcomes was **57.77%** against a random-walk
+benchmark of **52.19%** — a departure of **+5.58 points, z = 2.06**. Every other
+figure in that entry was a loss or inside noise.
+
+That number is the only reason the London family is not already closed, and it
+has three specific weaknesses:
+
+1. **It was one of eight configurations examined** (two arms × filter ON/OFF ×
+   two slippage levels), with no correction for that.
+2. **No significance test was pre-registered.** The z was computed after the
+   fact, which is exactly the practice this log exists to prevent.
+3. **The benchmark it was measured against was wrong.** Entry 6's own verdict
+   established that `a / (a + b)` assumes unlimited time and is invalid where a
+   flatten truncates the horizon.
+
+This entry fixes all three at once: a different instrument, one pre-registered
+test, and a corrected benchmark.
+
+### The benchmark entry 6 used was wrong, so the MES figure is recomputed too
+
+**A replication that compared a corrected MNQ number against an uncorrected MES
+number would measure nothing.** So the corrected benchmark below is applied to
+**both** instruments, and entry 6's MES departure is recomputed under it.
+
+**This is stated in advance because it can dissolve the finding without MNQ
+saying anything at all.** If the corrected MES departure falls below +2 points
+or z below 1.65, then entry 6's non-null result was an artefact of its own
+benchmark and there was never anything to replicate. That outcome is recorded as
+a failure to replicate exactly as an MNQ null would be, and it closes the family
+the same way.
+
+### The corrected benchmark: a de-meaned bootstrap, fixed now
+
+The question is what fraction of trades would resolve at the target first if the
+price process had **no drift**, given the **same barrier distances** and the
+**same time limit**. That is not `a / (a + b)`, which assumes the horizon is
+unbounded.
+
+**Procedure, fixed here and not to be varied after results are seen:**
+
+For each realised trade in the arm under test:
+
+1. Take the **1-minute arithmetic price changes** of the series from the entry
+   bar through the flatten bar — the trade's actual holding window, at its
+   actual length.
+2. **Subtract the window's own mean change**, so the resampled process has zero
+   drift by construction while keeping the window's realised volatility and the
+   fat tails of its return distribution.
+3. **Resample those de-meaned changes with replacement** to the same length, and
+   rebuild a price path forward from the **actual entry price**.
+4. Apply the **same stop, the same target and the same flatten bar**, with the
+   stop assumed filled when one step reaches both — identical to the live rule.
+5. Repeat **1,000 times per trade**, seeded at **0**.
+
+**The benchmark target share is the pooled count of target-first outcomes
+divided by the pooled count of resolved outcomes** across every replication of
+every trade — flattens excluded on both sides, exactly as the observed target
+share excludes them.
+
+Sampling with replacement rather than permuting is deliberate: a permutation
+holds the terminal price fixed and would test only path order, not drift.
+
+### Pre-registered test — one test, decided now
+
+**Observed target share versus the bootstrap benchmark, pooled 2020–2026, on the
+MNQ 1× arm with the filter ON at 2 ticks per side.**
+
+```
+departure = observed_target_share - benchmark_target_share      (percentage points)
+z         = departure / sqrt( p0 (1 - p0) / n_resolved )        p0 = benchmark
+```
+
+**One-sided z-test, H1: observed > benchmark, α = 0.05, critical value
+z = 1.65.** One test, pre-registered, on one configuration. No other cell of
+entry 6's grid is tested for significance here and none may be added afterwards.
+
+The same statistic is computed on MES for comparison, and reported, but **MNQ is
+the replication and MES is the recomputation of the original**.
+
+### Kill criterion — decided now
+
+**A departure below +2 points, or z below 1.65, means entry 6's finding is
+recorded as NOT REPLICATED and the London family closes.** No further London
+entry, no further instrument, no further arm.
+
+The +2-point floor sits alongside the significance test on purpose: a departure
+could clear z = 1.65 on a large sample while being far too small to matter
+economically, and entry 6 already showed that a 5.58-point departure loses
+money. Both conditions must hold.
+
+For completeness and comparability, **entry 6's three kill criteria are also
+reported** on the MNQ run — pooled pass probability against 25%, evaluations
+blown against 1, and folds profitable against 4 of 7 with positive total P&L.
+**They are not the replication question.** Entry 6 already failed all three on
+MES and this entry expects the same on MNQ; a strategy that fails them can still
+carry a real statistical departure, and it is the departure being tested.
+
+### Prediction on record, and which the honest prior favours
+
+**If entry 6's departure was signal**, MNQ shows a departure of the **same
+positive sign with z ≥ 1.65**.
+
+**If it was noise**, MNQ sits **within ±1 point of the benchmark**, with z
+indistinguishable from zero.
+
+**The honest prior favours noise, and by some distance.** Three reasons, all
+available before the run:
+
+**The observed z is almost exactly what eight draws of noise produce.** The
+expected maximum of `n` independent standard normals is approximately
+`sqrt(2 ln n)`; for the eight configurations entry 6 examined that is
+**2.04**. The reported z was **2.06**. The single most extreme result from eight
+looks at the data landed within two-hundredths of where pure chance puts it.
+
+**Entry 6's prediction record was five wrong out of six**, and its verdict
+attributed every miss to carrying assumptions across contexts without checking
+whether the machinery transferred. The same caution applies to carrying a z
+across instruments.
+
+**Four prior breakout entries produced nothing**, and the mechanism has never
+been measured independently of backtest P&L in any of them.
+
+**Recorded plainly: this entry expects to close the London family.** It is being
+run because a single pre-registered test on untouched data is cheap, and because
+recording a clean failure to replicate is worth more than leaving a
+marginally-significant number in the log unchallenged.
+
+### Instrument translation — what changes and what does not
+
+**Every constant of entry 6's specification is unchanged.** The range window
+(19:00–02:55 ET), the entry window (03:00–05:00), the first 5-minute close
+outside the range acted on at the next candle's open, first break only, one
+trade per day, the 200-period EMA of 5-minute closes on the continuous 23-hour
+series with the filter ON, the stop at the far side of the range, the 1× target,
+the 09:25 flatten, roll days skipped, $1.25 per contract per side, 2 ticks of
+slippage per side, the $400 daily loss limit, the 5-contract cap, and no
+trailing-drawdown halt.
+
+**What follows from the contract rather than from the spec:** MNQ is **$2.00 per
+point** against MES's $5.00. The risk rule is stated in dollars and is unchanged
+— `contracts = floor($200 / (range_pts × point_value))`, clamped to [1, 5] — so
+its expression in points moves with the contract. **The skip threshold becomes a
+range wider than 100 points** (`$200 / $2`), where MES's was 40.
+
+This is the same rule, not a different one. Restating the threshold in points
+would have made it a different rule.
+
+**Entry 6's sizing defect is reproduced deliberately.** The 2026-09-05 addendum
+to entry 6 requires future range-based sizing to size off the realised stop
+distance or cap at the daily limit. **That rule does not apply here**, because
+changing a constant would make this something other than a replication. The
+exemption is limited to this entry.
+
+### Data
+
+MNQ.v.0, `ohlcv-1m`, GLBX.MDP3, **2019-05 through 2026-08**, matching the MES
+cache's span.
+
+**Cost is estimated before anything is pulled and the pull stops above $15.**
+Databento metadata calls are free and timeseries calls are not; the project has
+spent about $12 to date. The estimate is reported whatever it is.
+
+**`data/validate.py` is run on the result and its report recorded in the
+verdict**, including bar count, span, session coverage and any gaps. A
+replication on unvalidated data would be worthless, and the MNQ series has never
+been checked in this project.
+
+**If MNQ.v.0 does not resolve, or the estimate exceeds $15, or validation shows
+material gaps in the 19:00–05:00 window, this entry records that and stops.**
+A failed data step is not a failure to replicate and must not be recorded as
+one.
+
+### Pre-registered reporting
+
+1. The **cost estimate** and the **`validate.py` report** for the MNQ pull.
+2. **Observed target share, benchmark target share, departure and z** for MNQ
+   1×/ON at 2 ticks — the test.
+3. **The same four figures recomputed for MES**, so the comparison is
+   like-for-like.
+4. **Entry 6's three kill criteria** on MNQ, for completeness.
+5. Trade count, net P&L, per-fold P&L for 2020–2026, and the exit-reason
+   breakdown, so the MNQ run can be read against the MES one.
+6. **The bootstrap's own diagnostics:** replications run, mean resolved fraction,
+   and the benchmark's dispersion across trades.
+
+### Verdict
+
+Not yet run. To be filled in after the run, with the commit hash recorded in a
+one-line follow-up commit. Per this log's standing rule, the verdict is not
+revised afterwards.
+
 ---
 
 ## Template for new entries
