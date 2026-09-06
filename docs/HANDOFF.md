@@ -59,6 +59,50 @@ is a `--max-cost` argument now, defaulting to $10.
 
 ## 2. What exists that is worth knowing about
 
+**The desk bot exists, in shadow mode, and its existence is not evidence that
+§6's gate was met.** It was not. `bots/desk.py` was built on 2026-09-06 as a
+deliberate pre-gate exception, on the operator's explicit instruction, to test
+the plumbing rather than to trade. Read §6 before touching it — the gate there
+still stands and nothing about this build relaxes it.
+
+What keeps the exception honest:
+
+- The only strategy it runs is **`orb2`, which entry 4 REJECTED**. That is the
+  point rather than an accident: a shadow ticket must never be mistakable for
+  a result, and the cheapest guarantee is a strategy whose verdict is already
+  terminal. Every ticket carries `SHADOW - strategy rejected, no orders`.
+- **`shadow:` in `registry.yaml` is not a status.** It is a list of names, it is
+  absent from `STATUSES`, and `Registry.promote` neither reads it nor is
+  influenced by it. `Registry.load` refuses a `shadow` entry that happens to be
+  a status name, because that would be someone reaching for it as one.
+- **Tickets go to `journal/shadow_trades.jsonl`, never `trades.jsonl`.** Entry
+  3's 60-trade gate counts the manual journal and is untouched. The separation
+  is a different file rather than a filtered column, because a column the
+  reader must remember to filter is one bug away from inflating the count that
+  licenses buying an evaluation. Both the shadow journal and `desk_state.json`
+  are gitignored: they are test output, not evidence.
+- **`PaperAdapter` is the only adapter.** There is no `TradersPost` class, not
+  even a stub — a test asserts `BrokerAdapter.__subclasses__()` has exactly one
+  member, so adding one is a red test. `broker.require_live_eligible` checks
+  registry status **first** and the per-account `live_enabled` flag second, so
+  a flag switched on by accident still refuses and the message names the
+  status. `AccountConfig.__post_init__` refuses a live account pointed at the
+  shadow journal.
+
+The desk reuses rather than reimplements: `tickets.evaluate_signal` calls
+`pretrade.evaluate`, and `tickets.close_position` calls `close.find_open_ticket`
+and `close.close_ticket`. `tests/test_desk_rules.py` asserts the decisions are
+identical check-for-check, so a guard added to one path and not the other is a
+failing test rather than a silent divergence.
+
+**One known gap is pinned rather than fixed.** `rules.py` still has no
+session-*open* guard, so a signal at 08:00 passes every check — 08:00 is
+numerically before an afternoon cutoff. `orb2` slices to `09:30–15:59` and
+cannot produce one, so nothing is unsafe today;
+`test_desk_rules.py::test_premarket_signal_is_not_blocked_by_rules_py` asserts
+the current behaviour so the day a strategy *can* signal pre-market, it is a
+red test rather than a surprise fill. This is the same gap §5 already records.
+
 **The strategy registry** (`strategies/registry.py` + `registry.yaml`) is the
 machine-readable record of where every idea stands, and `Registry.promote` is
 the only way a status changes. It takes **two arguments and no override** — a

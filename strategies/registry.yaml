@@ -97,3 +97,25 @@ strategies:
       +5.59 points / z 2.06 to +3.96 / z 1.47, and MNQ lands at +3.65 / z 1.12
       - the same small departure on both instruments, significant on neither.
       The London family is closed.
+
+# ---------------------------------------------------------------------------
+# Shadow list - a plumbing test list, NOT a promotion.
+# ---------------------------------------------------------------------------
+#
+# `shadow` names strategies the desk bot (bots/desk.py) runs for the sole
+# purpose of exercising the signal -> guard -> ticket -> journal path end to
+# end. It is deliberately NOT a value of `status` and never appears in
+# STATUSES: nothing here advances, and a name listed below keeps whatever
+# status its record already carries.
+#
+# orb2 is listed precisely BECAUSE entry 4 rejected it. A shadow ticket must
+# never be mistakable for evidence, and the safest way to guarantee that is to
+# run a strategy whose verdict is already recorded and terminal. Every ticket
+# it produces is labelled "SHADOW - strategy rejected, no orders."
+#
+# Registry.verify() checks two things about this list: every name resolves to
+# a real record, and no name is at `live` status. A live strategy running in
+# shadow would mean the same signal was both routed and not routed, which is a
+# contradiction rather than a configuration.
+shadow:
+  - orb2

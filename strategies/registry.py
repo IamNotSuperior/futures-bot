@@ -217,10 +217,14 @@ class Registry:
 
     def __init__(self, records: Iterable[StrategyRecord],
                  path: Path = REGISTRY_PATH,
-                 hypotheses_path: Path = HYPOTHESES_PATH) -> None:
+                 hypotheses_path: Path = HYPOTHESES_PATH,
+                 shadow: Iterable[str] = ()) -> None:
         self._records = {r.name: r for r in records}
         self.path = path
         self.hypotheses_path = hypotheses_path
+        #: Names the desk bot runs as plumbing tests. Not a status; see
+        #: :meth:`shadow_names` and the comment block in ``registry.yaml``.
+        self._shadow = tuple(dict.fromkeys(shadow))
 
     # -- loading and saving ------------------------------------------------
 
@@ -247,7 +251,20 @@ class Registry:
                 verdict_commit=row.get("verdict_commit"),
                 walkforward_verdict=(row.get("walkforward_verdict") or "").strip(),
             ))
-        return cls(records, Path(path), Path(hypotheses_path))
+        shadow = raw.get("shadow") or []
+        if not isinstance(shadow, list) or any(not isinstance(n, str) for n in shadow):
+            raise RegistryError(
+                f"`shadow` must be a list of strategy names, got {shadow!r}"
+            )
+        # A name that collides with a status is almost certainly someone
+        # reaching for `shadow: paper` as though it were one.
+        bad = [n for n in shadow if n in STATUSES]
+        if bad:
+            raise RegistryError(
+                f"`shadow` holds status name(s) {bad}; it is a list of strategy "
+                f"names, not a status. Shadow is not a promotion."
+            )
+        return cls(records, Path(path), Path(hypotheses_path), shadow)
 
     def save(self) -> None:
         payload = {"strategies": [
@@ -261,6 +278,12 @@ class Registry:
             }
             for r in self.all()
         ]}
+        # Carried through explicitly. `save` rebuilds the file from records, so
+        # anything not named here is dropped - and silently dropping the shadow
+        # list on the next promote() would turn the desk bot's run set into an
+        # empty one with no error anywhere.
+        if self._shadow:
+            payload["shadow"] = list(self._shadow)
         self.path.write_text(
             yaml.safe_dump(payload, sort_keys=False, width=88,
                            default_flow_style=False, allow_unicode=True),
@@ -282,6 +305,41 @@ class Registry:
             raise KeyError(
                 f"no strategy {name!r} in the registry; known: {self.names()}"
             ) from None
+
+    def shadow_names(self) -> list[str]:
+        """Strategies listed for shadow running. **Not a status.**
+
+        Shadow is a plumbing test list: it exercises the signal -> guard ->
+        ticket path without any of it counting as evidence. A name here keeps
+        whatever status its record carries, and appearing here never advances
+        anything. :meth:`promote` does not read this list and cannot be
+        influenced by it.
+        """
+        return list(self._shadow)
+
+    def is_shadow(self, name: str) -> bool:
+        return name in self._shadow
+
+    def desk_strategies(self) -> list[tuple[StrategyRecord, str]]:
+        """What the desk bot runs, as ``(record, mode)`` pairs.
+
+        ``mode`` is ``"shadow"`` or ``"live-eligible"``. The split is the whole
+        point: a shadow record is run so the plumbing can be tested, and a
+        ``paper``/``live`` record is run because it earned its way there. The
+        desk bot labels and routes them differently and must never collapse the
+        two, so the distinction is made here rather than at the call site.
+
+        A record that is both listed in ``shadow`` and at ``paper``/``live``
+        status is reported as ``live-eligible``; :meth:`verify` flags the
+        ``live`` half of that overlap as a contradiction to be resolved.
+        """
+        out: list[tuple[StrategyRecord, str]] = []
+        for record in self.all():
+            if record.status in ("paper", "live"):
+                out.append((record, "live-eligible"))
+            elif self.is_shadow(record.name):
+                out.append((record, "shadow"))
+        return out
 
     def hypotheses(self) -> dict[int, HypothesisEntry]:
         return parse_hypotheses(self.hypotheses_path)
@@ -332,6 +390,22 @@ class Registry:
                 problems.append(
                     f"{r.name}: verdict commit {r.verdict_commit} does not match "
                     f"the log's {entry.verdict_commit}"
+                )
+
+        # -- the shadow list ------------------------------------------------
+        # Shadow is not a status, so the checks above do not see it at all. It
+        # still has to agree with the table it names.
+        for name in self._shadow:
+            if name not in self._records:
+                problems.append(
+                    f"shadow lists {name!r}, which is not in the registry"
+                )
+                continue
+            if self._records[name].status == "live":
+                problems.append(
+                    f"shadow lists {name!r}, but it is at 'live' status - a "
+                    f"strategy cannot be both routed to a broker and run as a "
+                    f"no-order plumbing test"
                 )
         return problems
 
@@ -439,11 +513,19 @@ class Registry:
             "-" * 78,
         ]
         for r in self.all():
+            marker = "  [shadow]" if self.is_shadow(r.name) else ""
             rows.append(
                 f"{r.name:<22}{r.hypothesis_entry:>6}{r.status:>11}"
-                f"{self.paper_trade_count(r.name):>8}  {r.verdict_commit or '-'}"
+                f"{self.paper_trade_count(r.name):>8}  "
+                f"{r.verdict_commit or '-'}{marker}"
             )
         problems = self.verify()
+        if self._shadow:
+            rows.append("")
+            rows.append(
+                f"shadow (desk bot plumbing test, NOT a status, no orders): "
+                f"{', '.join(self._shadow)}"
+            )
         rows.append("")
         rows.append("registry agrees with hypotheses.md" if not problems
                     else "DRIFT:\n  " + "\n  ".join(problems))

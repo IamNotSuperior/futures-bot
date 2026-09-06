@@ -1,0 +1,49 @@
+// bar_feed.pine - fire one alert per closed 1-minute bar, as JSON.
+//
+// Feeds bots/desk.py. Add to an MES or MNQ 1-minute chart, then create an
+// alert with:
+//
+//     Condition   : Bar feed -> Any alert() function call
+//     Options     : Once Per Bar Close        <- REQUIRED, see below
+//     Webhook URL : http://127.0.0.1:8787/bar
+//     Message     : leave empty - alert() supplies the JSON
+//
+// "Once Per Bar Close" is not optional. On "Once Per Bar" TradingView fires on
+// every tick of the forming bar, and the desk would receive an incomplete bar
+// labelled as a finished one - the high and low would still be moving. Every
+// signal derived from it would be computed on data that had not happened yet,
+// which is lookahead arriving through the feed rather than through the code.
+//
+// The desk listens on localhost, so TradingView cannot reach it without a
+// tunnel. If you open one, set DESK_WEBHOOK_TOKEN in .env and append
+// ?token=<value> to the webhook URL; that token is then the only thing in
+// front of the feed.
+//
+// Timestamps are epoch milliseconds (UTC), which the desk parses unambiguously.
+// A naive local-time string would be read as ET by rules.to_et and misplaced
+// by however far your chart timezone sits from New York.
+
+//@version=5
+indicator("Bar feed", overlay = true)
+
+// time_close is the closing instant of the bar. The desk floors to the opening
+// minute itself, so both conventions land on the same label; sending the close
+// keeps the payload meaningful if it is ever read by anything else.
+payload = '{"symbol":"' + syminfo.ticker + '"' +
+          ',"time":'    + str.tostring(time,   "#") +
+          ',"open":'    + str.tostring(open,   "#.##########") +
+          ',"high":'    + str.tostring(high,   "#.##########") +
+          ',"low":'     + str.tostring(low,    "#.##########") +
+          ',"close":'   + str.tostring(close,  "#.##########") +
+          ',"volume":'  + str.tostring(nz(volume, 0), "#.##########") +
+          '}'
+
+// barstate.isconfirmed keeps this from firing on the forming bar even if the
+// alert is misconfigured as "Once Per Bar". Belt and braces: the alert option
+// above is still the setting that matters, because a realtime alert on an
+// unconfirmed bar would simply never reach this line.
+if barstate.isconfirmed
+    alert(payload, alert.freq_once_per_bar_close)
+
+// A visible marker so it is obvious the script is attached and firing.
+plotchar(barstate.isconfirmed, "confirmed", "", location.top, size = size.tiny)

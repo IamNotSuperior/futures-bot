@@ -10,7 +10,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-for folder in ("data", "strategies", "backtests", "journal"):
+for folder in ("data", "strategies", "backtests", "journal", "bots"):
     path = str(PROJECT_ROOT / folder)
     if path not in sys.path:
         sys.path.insert(0, path)

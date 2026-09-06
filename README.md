@@ -28,12 +28,20 @@ futures-bot/
 ├── backtests/         # Backtest runners, parameter scans, performance reports
 ├── bots/              # Discord bots
 │   ├── research.py    #   read-only research bot (slash commands)
-│   └── runners.py     #   the work behind them, with no Discord in it
+│   ├── runners.py     #   the work behind them, with no Discord in it
+│   ├── desk.py        #   SHADOW desk bot: feed -> guards -> ticket -> Discord
+│   ├── feed.py        #   webhook receiver + parquet replay, one Bar type
+│   ├── tickets.py     #   the guard pass-through; calls pretrade.evaluate
+│   ├── broker.py      #   BrokerAdapter + PaperAdapter (no live adapter)
+│   └── desk_state.py  #   crash-safe state, atomically written
 ├── journal/           # Manual paper-trading discipline layer
 ├── research/          # hypotheses.md - the pre-registration log
 ├── execution/         # Live/paper execution: order routing, risk enforcement,
 │                      #   position/time guards, broker integration (not built)
+├── pine/              # TradingView scripts
+│   └── bar_feed.pine  #   posts every closed 1m bar to the desk webhook
 ├── start_bot.bat      # Launch the research bot in its own console window
+├── start_desk.bat     # Launch the desk bot (shadow mode) in its own window
 └── tests/             # pytest suite + smoke scripts
 ```
 
@@ -98,6 +106,55 @@ one that says where its numbers came from.
   (position cap, daily loss limit, min hold time, 4:20 PM ET entry cutoff,
   4:30 PM ET force-flatten), order routing, and eventually the Tradovate API
   integration for live/paper trading.
+
+### The desk bot — SHADOW MODE
+
+`start_desk.bat` launches `bots/desk.py` in its own console window. It consumes
+1-minute bars, runs the strategies the registry names, puts every signal
+through the same guards a manual trade goes through, and posts the outcome to
+Discord.
+
+**It places no orders, and it is not evidence of anything.** The only strategy
+it runs is `orb2`, which `research/hypotheses.md` entry 4 **REJECTED**, and
+every ticket it posts is labelled `SHADOW - strategy rejected, no orders`. It
+exists to test the plumbing before a strategy earns its way to `paper` status —
+`docs/HANDOFF.md` §6 gates that, and the gate is not met. `PaperAdapter` is the
+only broker adapter, and `broker.require_live_eligible` refuses any strategy
+below `live` status whatever the per-account flag says.
+
+```powershell
+.\start_desk.bat                                     # live webhook + Discord
+
+venv\Scripts\python.exe bots\desk.py --replay --start 2026-08-24 ^
+    --end 2026-08-28 --speed 60                      # replay, 60x real time
+venv\Scripts\python.exe bots\desk.py --replay --start 2026-08-10 ^
+    --end 2026-08-14 --speed 0                       # as fast as possible
+venv\Scripts\python.exe bots\desk.py --no-discord    # stdout only
+```
+
+**Live data** comes from a TradingView alert running `pine/bar_feed.pine`,
+POSTing JSON to `http://127.0.0.1:8787/bar`. The alert **must** be set to *Once
+Per Bar Close* — on *Once Per Bar* it fires on every tick of the forming bar and
+the desk would compute signals from a bar whose high and low were still moving.
+`GET /health` reports accepted/rejected counts and the last bar seen.
+
+**Replay** feeds cached parquet bars down the identical code path, so it tests
+the live path rather than a parallel one. Guards read the **bar's** timestamp,
+not the wall clock — otherwise every bar of a historical session would be
+blocked as after-hours.
+
+**Journals are separate.** Shadow tickets go to `journal/shadow_trades.jsonl`;
+`journal/trades.jsonl` is the manual journal that hypothesis entry 3's 60-trade
+gate counts, and nothing the desk does touches it. Both the shadow journal and
+`journal/desk_state.json` are gitignored — they are test output, not evidence.
+
+**Ops posts**: a 09:25 pre-market check (data flowing, calendar, roll day), a
+heartbeat every 15 minutes *during the session only*, a 16:35 daily summary
+read from the journal, and a startup reconciliation that shouts about any open
+position the state file cannot explain.
+
+Channel IDs come from `.env` — see `.env.example`. With none set the desk still
+runs and prints every post to stdout.
 
 ## Setup
 

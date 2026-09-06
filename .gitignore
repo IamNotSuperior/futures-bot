@@ -27,3 +27,12 @@ __pycache__/
 # The journal is TRACKED on purpose. Committing each close puts the record in
 # git history, where an after-the-fact edit shows up as a rewrite rather than
 # passing unnoticed. That tamper-evidence is the point of the file.
+
+# Desk bot runtime files. `journal/trades.jsonl` is tracked because it is the
+# evidence for hypothesis entry 3; these two are not evidence and must not be
+# mistakable for it.
+#   desk_state.json      - runtime state, rewritten on every bar
+#   shadow_trades.jsonl  - plumbing-test output from a REJECTED strategy,
+#                          regenerable with `desk.py --replay`
+journal/desk_state.json
+journal/shadow_trades.jsonl
