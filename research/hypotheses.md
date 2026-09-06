@@ -2154,6 +2154,37 @@ same date. It is one bet at N times the size with N times the fees. Only the
 evaluation *attempt* is diversified, and only while accounts start at different
 times on different price paths.
 
+### Implementation details the spec left open, fixed before any run
+
+Following entry 2's precedent: these were not settled by the specification
+above, they are settled now, **before any outcome has been observed**, and they
+do not alter the kill criteria.
+
+**Fill resolution: 1-minute bars.** The spec fixes 5-minute bars for the
+*signal* and is silent on fills. Entry, stop and target all resolve on 1-minute
+bars, and **if one bar touches both the stop and the target, the stop is assumed
+filled** - the convention entries 1, 4 and 5 all use. Signals are therefore
+generated on the 1-minute index with the 5-minute candles built internally, the
+same shape ORB-2 uses.
+
+**The entry bar is included in the exit search.** The fill happens inside it, so
+the rest of that minute can reach the stop. Trades entering and exiting inside
+one bar are counted and reported, since rule 6's 30-second floor is not
+verifiable at this resolution.
+
+**A trigger in the window is honoured even if its action bar is not.** A
+5-minute candle labelled 04:55 closes at 04:59:59 and is acted on at the 05:00
+open. The window governs the *trigger*, not the fill, so that trade is taken.
+
+**The 09:25 flatten lands on the open of the 09:25 bar**, not the close of the
+bar before it, matching "flatten at 09:25".
+
+**Minimum range coverage: 60 five-minute bars.** A complete 19:00-02:55 window
+holds 107. Sessions below the floor are skipped and counted; the power check
+found only 3 of 1,895 that thin.
+
+**Roll days are skipped on the trade date D**, not on the date the range began.
+
 ### Verdict
 
 Not yet run. To be filled in after the out-of-sample runs, with the commit hash
