@@ -62,3 +62,26 @@ strategies:
       stops trading in 2020 and never resumes; without it, -$11,780 over 478
       trades, 1 of 7 years profitable, 6 evaluations blown, pass probability
       0.22%. Cutting the hold to 10:30 turned gross expectancy negative.
+
+  - name: london_1x
+    class_path: london:LondonBreakout
+    hypothesis_entry: 6
+    status: rejected
+    verdict_commit: PENDING
+    walkforward_verdict: >-
+      REJECTED at both cost levels. -$19,502 over 1,025 trades unfiltered
+      (-$7,702 filtered), 1 of 7 folds profitable, 12 evaluations blown, pass
+      probability 0.10%. The bracket alone was near break-even at -$481 over
+      341 resolved trades - the best in this log - but 490 unresolved trades
+      were flattened at 09:25 out of a band skewed against them.
+
+  - name: london_2x
+    class_path: london:LondonBreakout
+    hypothesis_entry: 6
+    status: rejected
+    verdict_commit: PENDING
+    walkforward_verdict: >-
+      REJECTED at both cost levels. -$20,781 over 1,025 trades unfiltered,
+      2 of 7 folds profitable, 14 evaluations blown, pass probability 0.62%.
+      A fairer payoff did not help: the distant target is truncated by the
+      09:25 flatten, so it resolved only 82 targets against 269 stops.

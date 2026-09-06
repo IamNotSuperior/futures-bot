@@ -1826,7 +1826,7 @@ before costs is negative.
 
 ---
 
-## 6. London open breakout of the overnight range — PROPOSED
+## 6. London open breakout of the overnight range — REJECTED
 
 **Date:** 2026-09-05
 **Spec frozen at:** the commit adding this entry
@@ -2185,11 +2185,259 @@ found only 3 of 1,895 that thin.
 
 **Roll days are skipped on the trade date D**, not on the date the range began.
 
-### Verdict
+### Verdict: REJECTED — both arms, both filter states, both slippage levels
 
-Not yet run. To be filled in after the out-of-sample runs, with the commit hash
-recorded in a one-line follow-up commit. Per this log's standing rule, the
-verdict is not revised afterwards.
+**Date:** 2026-09-05
+**Spec frozen at:** `068927d`; implementation details at `6fe805f`
+**Verdict commit:** recorded in the one-line follow-up commit to this one
+**Code:** `strategies/london.py`, `strategies/trend.py` (`intraday_ema`),
+`backtests/run_london.py`
+**Reports:** `backtests/results/london_report_slip2.txt` (base),
+`..._slip1.txt` (optimistic)
+
+Seven out-of-sample years, 2020–2026, nothing selected. **All eight
+configurations fail all three kill criteria.**
+
+#### Pooled out-of-sample, base case (2 ticks per side)
+
+| | 1×/ON | 1×/OFF | 2×/ON | 2×/OFF |
+|---|---|---|---|---|
+| Trades | 686 | 1,025 | 686 | 1,025 |
+| Net P&L | −$7,702 | **−$19,502** | −$9,765 | **−$20,781** |
+| Sharpe | −1.37 | −2.27 | −1.52 | −2.08 |
+| Profit factor | 0.816 | 0.716 | 0.785 | 0.721 |
+| Max drawdown | −$9,150 | −$20,994 | −$10,828 | −$23,471 |
+| Targets / stops | 197 / 144 | 286 / 249 | 47 / 155 | 82 / 269 |
+| 09:25 flattens | 345 | 490 | 484 | 674 |
+| **Target share** | **57.77%** | **53.46%** | **23.27%** | **23.36%** |
+| Break-even (realised) | 58.19% | 58.35% | 39.34% | 39.54% |
+| Random-walk value | 52.19% | 52.17% | 35.31% | 35.29% |
+| Evaluations blown | 5 | 12 | 5 | 14 |
+| Pass probability | 0.83% | 0.10% | 1.38% | 0.62% |
+| Folds profitable | 1 of 7 | 1 of 7 | 0 of 7 | 2 of 7 |
+
+At **1 tick** (optimistic): −$3,842 / −$13,580 / −$5,905 / −$14,859, pass
+probabilities 3.94% / 0.56% / 4.45% / 1.81%, evaluations blown 4 / 8 / 4 / 12,
+and at most 2 of 7 folds profitable. **Every arm fails every criterion at both
+cost assumptions.** Halving the assumed slippage removes about a third of the
+loss and changes no verdict.
+
+#### Kill criteria
+
+| # | Criterion | 1× arm | 2× arm | |
+|---|---|---|---|---|
+| 1 | Pass probability ≥ 25% | 0.10% / 0.83% | 0.62% / 1.38% | **FAIL** |
+| 2 | Evaluations blown ≤ 1 | 12 / 5 | 14 / 5 | **FAIL** |
+| 3 | ≥4 of 7 folds **and** P&L > 0 | 1 of 7, −$19,502 | 2 of 7, −$20,781 | **FAIL** |
+
+#### Criterion 4: is the breakout or the filter carrying any result?
+
+**Neither carries a positive result. The filter reduces the loss by about 40%
+and is not statistically distinguishable from zero; the breakout bracket is
+close to break-even and the 09:25 flatten is what loses the money.**
+
+| | dE (ON − OFF) | SE | t | Long-only dE |
+|---|---|---|---|---|
+| 1× arm | **+$7.80** / trade | $6.46 | **+1.21** | +$5.24 (SE $8.22) |
+| 2× arm | +$6.04 / trade | $7.46 | +0.81 | +$4.03 (SE $9.41) |
+
+**This is the first entry in which the trend filter did not fail its own
+diagnostic.** Entry 4's filter measured `dE = +$0.13` (t = +0.03) and *reversed*
+to −$5.97 when longs were compared with longs. Here the filter is positive on
+both measures and survives the long-only comparison, at 60.5% long against
+OFF's 55.4% — so it is not merely a directional switch. But `t = +1.21` is not
+a result, the ON arms still lose $7,702 and $9,765, and eight configurations
+were examined. **Recorded as the first non-failure of a trend filter in this
+log, not as evidence one works.**
+
+#### My random-walk benchmark was wrong, and the way it was wrong is the finding
+
+The entry pre-registered that the driftless random-walk value `a / (a + b)` is
+the baseline the 03:00 volume step must beat. **That benchmark is invalid under
+a time limit, and I should have said so before the run rather than after.**
+
+`a / (a + b)` is the probability of touching one barrier before the other with
+*unlimited* time. Entry 6 flattens at 09:25, so the farther barrier is
+systematically under-reached. The distortion scales with how far the target
+sits:
+
+| | Target share | Random walk | Departure | z |
+|---|---|---|---|---|
+| 1×/OFF | 53.46% | 52.17% | **+1.29** | +0.60 |
+| 1×/ON | 57.77% | 52.19% | **+5.58** | +2.06 |
+| 2×/OFF | 23.36% | 35.29% | **−11.93** | −4.68 |
+| 2×/ON | 23.27% | 35.31% | **−12.04** | −3.58 |
+
+The 2× arm's twelve-point shortfall is **not evidence the signal is bad**; it is
+the time limit truncating a distant target — 674 of its 1,025 trades never
+resolve at all. In the 1× arm the two barriers are near-equidistant (stop =
+range + overshoot ≈ 1.07× range against a 1.0× range target), so truncation
+falls on both roughly equally and the comparison is close to fair.
+
+**On that fair comparison the London breakout sits slightly above a driftless
+random walk** — +1.29 points unfiltered (z = +0.60), +5.58 filtered (z = +2.06).
+Entry 4's ORB sat within **0.2** points of its own random-walk value. So the
+03:00 volume step does appear to add something entry 1's opening range did not.
+
+**It is not enough, and it is not established.** The unfiltered departure is
+inside noise. The filtered z of +2.06 is nominally significant but is one of
+eight configurations examined, which is roughly where a single z ≈ 2 is expected
+by chance, and no significance test was pre-registered. Above all it fails the
+economic test: break-even at 2 ticks is 58.35% and the arm delivered 53.46%.
+
+#### Where the money actually goes: the flatten, and its sign is arithmetic
+
+Mean P&L per trade by exit reason, base case:
+
+| | 1×/ON | 1×/OFF | 2×/ON | 2×/OFF |
+|---|---|---|---|---|
+| Target | +$141.78 | +$140.98 | +$306.60 | +$304.88 |
+| Stop | −$197.31 | −$197.51 | −$198.85 | −$199.42 |
+| **09:25 flatten** | **−$20.93** | **−$21.72** | **+$13.73** | **+$11.67** |
+
+**The flatten loses in the 1× arm and earns in the 2× arm, and that sign is
+determined by the bracket's geometry rather than by anything the market does.**
+A trade surviving to 09:25 is conditioned into the band between its stop and its
+target. In the 1× arm that band is (−1.07R, +1.0R) — the stop is *farther*
+because of the overshoot — so its midpoint is negative and the flatten loses. In
+the 2× arm the band is (−1.07R, +2.0R), midpoint strongly positive, and the
+flatten earns.
+
+**This is the third confirmation of the truncation account from entry 4's
+2026-09-04 addendum, and the first in the negative direction.** Entry 4's
+bracket (stop 10, target 18) had a band midpoint of +4 points and a flatten mean
+of +$39.91; entry 5 cut the hold to 45 minutes and the premium collapsed to
++$2.64; here an inverted band produces a *negative* premium. The account has now
+predicted the sign and the magnitude of an unresolved-trade population three
+times across three different strategies.
+
+**The consequence for entry 6 is the sharpest number in it.** In the 1×/ON arm
+at 2 ticks, the bracket alone nets **−$481** across 341 resolved trades — within
+a rounding error of break-even, and by far the best any breakout bracket has
+managed in this log. The 345 flattens then lose **$7,221**, which is the entire
+result. At 1 tick the bracket is actually **+$1,814** and the flattens still
+turn it into a −$3,842 loss.
+
+**So the strategy does not fail because the breakout is worthless. It fails
+because half its trades never resolve, and the unresolved half is priced against
+it by the geometry of its own bracket.**
+
+#### Predictions scored — five of six wrong
+
+This is the worst-performing prediction set in the log, and it is recorded as
+such rather than softened.
+
+**1. 1× target share inside 45–53% — WRONG.** 53.46% unfiltered (just outside)
+and 57.77% filtered (well outside).
+
+**2. 2× target share inside 29–36% — WRONG.** 23.3%, twelve points below the
+band, for the time-limit reason above that the prediction did not account for.
+
+**3. Departure from random walk no larger than entry 4's 0.2 points — WRONG.**
++1.29 unfiltered, +5.58 filtered, −12 in the 2× arm.
+
+**4. Both arms negative, with the 1× arm losing more in dollars — HALF WRONG.**
+Both negative, correct. But the **2× arm lost more** in every configuration
+(−$20,781 against −$19,502 unfiltered; −$9,765 against −$7,702 filtered). The
+reasoning behind the ordering was that a 1:1 payoff punishes a sub-50% hit rate
+harder than a 2:1 payoff punishes a sub-33% one — which ignored that the 2× arm
+converts most of its trades into flattens and takes its losses through a far
+worse target-to-stop count (82 against 269).
+
+**5. The trend filter changes little — WRONG.** It improves mean P&L per trade
+by $7.80 and cuts the loss roughly in half. Not significant, but not "little"
+either, and unlike entry 4's it survives the long-only diagnostic.
+
+**6. Volatility-scaled brackets do not rescue it — CORRECT.** Both arms
+rejected on every criterion at both cost levels.
+
+**One prediction of six held, and it was the least specific.** The pattern in
+the misses is consistent: every one came from carrying entry 4's opening-range
+findings onto a different session and a different bracket geometry without
+checking whether the machinery transferred. The random-walk benchmark in
+particular was imported wholesale and is simply not valid where a time limit
+binds.
+
+#### Other pre-registered reporting
+
+**Sizing.** Over the 1,025 unfiltered trades: 1 contract 34.1%, 2 contracts
+29.8%, 3 contracts 17.1%, 4 contracts 8.9%, 5 contracts 10.1% — within a point
+of the power check's forecast on every bucket.
+
+**Overshoot.** Median **1.00 point**, mean 1.62, p90 3.25, **max 50.50**. As a
+fraction of the range: median 7.1%, mean 10.0%.
+
+**Realised risk, and the sizing rule's breach.** Median **$180**, mean $176,
+**max $416** against a rule that sizes for $200. **240 of 1,025 trades (23.4%)
+risk more than the stated $200**, exactly as the entry predicted when it kept
+the rule as written. One trade's stop-loss exceeded the **$400 internal daily
+loss limit** — the sizing rule permits a position whose full stop is larger than
+the limit that is supposed to contain the day. No daily-loss halt fired in any
+configuration, so it never bound in practice, but the rule allows it and that is
+a defect worth recording.
+
+**Skipped sessions**, 2020–2026: 1,025 traded, 470 no break inside the window,
+344 with no London session at all (weekends — a Sunday group holds only the
+18:00–18:59 reopen), 210 over the 40-point cap, 26 roll days, 2 too thin.
+Range-cap skips had a median range of 54.25 points and a maximum of 188.
+
+**The 2026 fold, separately.** 1×/ON +$661 (Sharpe 1.53, 58 trades), 1×/OFF
++$325 (81 trades), 2×/ON −$372, 2×/OFF +$32. 2026 is the only profitable year
+for the 1× unfiltered arm. On 58–81 trades this is not a measurement, and the
+entry's pre-registered regime note applies: 2026's median overnight range is
+31.88 points against 2023's 12.00.
+
+**Rule 6.** **Zero** trades entered and exited inside one 1-minute bar in any
+configuration, so the 30-second minimum hold is fully verifiable here — unlike
+entry 4, where 7 trades were not.
+
+### What was learned
+
+**The 03:00 volume step is the first breakout mechanism in this log to leave a
+mark, and the mark is too small to pay for itself.** Entry 4's ORB was
+indistinguishable from a coin flip to two-tenths of a point. The London 1× arm
+sits 1.3 points above its random-walk value unfiltered and 5.6 filtered. That is
+the difference between "no effect" and "an effect inside the noise, smaller than
+the spread" — a real distinction, and not one that changes the decision.
+
+**The bracket was nearly break-even and the exit rule destroyed it.** −$481
+across 341 resolved trades at the base cost is the best breakout bracket this
+project has measured. The strategy still lost $7,702 because 345 unresolved
+trades were flattened out of a band skewed against them. **Where a bracket is
+asymmetric, the unresolved population is not neutral — its expected value is the
+band's midpoint, and that is a design choice, not a market outcome.**
+
+**A benchmark imported without checking its assumptions is worse than no
+benchmark.** The random-walk value was pre-registered as the thing to beat and
+is invalid wherever a time limit binds. It produced a twelve-point "shortfall"
+in the 2× arm that means nothing about the signal. Future entries using
+`a / (a + b)` must state whether the holding period is long enough for it to
+apply, and if it is not, must compare against a time-limited simulation instead.
+
+**Five wrong predictions out of six.** Every miss came from assuming entry 4's
+opening-range results would transfer to a different session and a different
+bracket. They did not, in both directions: the signal was better than predicted
+and the exit was far worse.
+
+### Next
+
+**Do not test a third target multiple, a different flatten time, or a different
+range window.** Entry 6 fixed two arms in advance precisely so that a third
+could not be justified by whatever the first two returned, and the flatten
+finding above is exactly the kind of result that invites one. The observation
+that a wider target makes the flatten profitable is arithmetic, not an edge; the
+2× arm already has that property and lost more money.
+
+**The mechanism remains unestablished.** No order-flow evidence was gathered
+here either. The one thing that would justify returning to breakouts is what
+entry 1 asked for and has never been produced: direct measurement of who takes
+the other side of a range break and under what constraint.
+
+**If anything in this entry is worth carrying forward it is the exit, not the
+entry.** Three entries have now shown that the fate of unresolved trades is set
+by bracket geometry rather than by the signal. An idea about *that* would be a
+different hypothesis with a different mechanism, and it would need its own entry
+written before any code — not an extension of this one.
 
 ---
 

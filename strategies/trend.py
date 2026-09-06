@@ -107,6 +107,30 @@ def trend_filter(bars: pd.DataFrame, period: int = EMA_PERIOD) -> pd.Series:
     return shifted.rename("trend_ema")
 
 
+def intraday_ema(bars: pd.DataFrame, minutes: int = 5, period: int = 200) -> pd.Series:
+    """EMA of resampled closes over the **continuous 23-hour** series.
+
+    Entry 6 needs a 200-period EMA of 5-minute closes read at 03:00 ET, which is
+    outside RTH, so this deliberately does *not* filter to the cash session the
+    way :func:`daily_closes` does. Bars are resampled across the whole series
+    rather than per session: an overnight strategy needs the average to carry
+    across the evening boundary, not restart at it.
+
+    Lookahead is handled the same way :func:`trend_filter` handles it. The value
+    published at timestamp ``T`` is the EMA through the close of the bar
+    *before* ``T``, so a bar can never see its own close. Seeded with a simple
+    mean of the first ``period`` closes, matching :func:`ema`.
+    """
+    if bars.empty:
+        return pd.Series(dtype="float64", name="intraday_ema")
+    closes = bars["close"].resample(f"{minutes}min", label="left",
+                                    closed="left").last().dropna()
+    if closes.empty:
+        return pd.Series(dtype="float64", name="intraday_ema")
+    values = ema(closes.to_numpy(), period)
+    return pd.Series(values, index=closes.index).shift(1).rename("intraday_ema")
+
+
 def largest_roll_gap(
     bars: pd.DataFrame, roll_dates: Collection[date_type]
 ) -> dict[str, float | date_type | None]:

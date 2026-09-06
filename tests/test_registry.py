@@ -121,9 +121,12 @@ class TestLoading:
         assert reg.verify() == []
         assert set(reg.names()) >= {"orb", "orb2", "orb_flat_1030"}
 
-    def test_entries_one_to_five_are_present(self):
+    def test_every_log_entry_has_at_least_one_registry_row(self):
+        """Entry 6 has two rows - the 1x and 2x arms share a hypothesis."""
         reg = Registry.load()
-        assert sorted(r.hypothesis_entry for r in reg.all()) == [1, 2, 3, 4, 5]
+        covered = {r.hypothesis_entry for r in reg.all()}
+        assert covered >= {1, 2, 3, 4, 5, 6}
+        assert covered <= set(parse_hypotheses())
 
     def test_the_four_rejected_entries_are_rejected(self):
         reg = Registry.load()
