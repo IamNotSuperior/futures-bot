@@ -67,7 +67,7 @@ strategies:
     class_path: london:LondonBreakout
     hypothesis_entry: 6
     status: rejected
-    verdict_commit: PENDING
+    verdict_commit: 9b28b3c
     walkforward_verdict: >-
       REJECTED at both cost levels. -$19,502 over 1,025 trades unfiltered
       (-$7,702 filtered), 1 of 7 folds profitable, 12 evaluations blown, pass
@@ -79,7 +79,7 @@ strategies:
     class_path: london:LondonBreakout
     hypothesis_entry: 6
     status: rejected
-    verdict_commit: PENDING
+    verdict_commit: 9b28b3c
     walkforward_verdict: >-
       REJECTED at both cost levels. -$20,781 over 1,025 trades unfiltered,
       2 of 7 folds profitable, 14 evaluations blown, pass probability 0.62%.

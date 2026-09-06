@@ -2189,7 +2189,7 @@ found only 3 of 1,895 that thin.
 
 **Date:** 2026-09-05
 **Spec frozen at:** `068927d`; implementation details at `6fe805f`
-**Verdict commit:** recorded in the one-line follow-up commit to this one
+**Verdict commit:** `9b28b3c`
 **Code:** `strategies/london.py`, `strategies/trend.py` (`intraday_ema`),
 `backtests/run_london.py`
 **Reports:** `backtests/results/london_report_slip2.txt` (base),
