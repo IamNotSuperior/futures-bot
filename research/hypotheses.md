@@ -2698,7 +2698,7 @@ one.
 
 **Date:** 2026-09-05
 **Spec frozen at:** `bff2bdc`
-**Verdict commit:** recorded in the one-line follow-up commit to this one
+**Verdict commit:** `b5d25ba`
 **Code:** `backtests/bootstrap_benchmark.py`, `backtests/run_entry7.py`
 **Report:** `backtests/results/entry7_report.txt`
 **Data:** `data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet`

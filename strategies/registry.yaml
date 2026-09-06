@@ -90,7 +90,7 @@ strategies:
     class_path: london:LondonBreakout
     hypothesis_entry: 7
     status: rejected
-    verdict_commit: PENDING
+    verdict_commit: b5d25ba
     walkforward_verdict: >-
       NOT REPLICATED. Entry 6's one non-null finding does not survive a
       pre-registered test. Corrected for the finite horizon, MES falls from
