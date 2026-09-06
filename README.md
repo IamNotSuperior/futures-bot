@@ -21,9 +21,19 @@ futures-bot/
 │   ├── rules.py       #   CLAUDE.md hard rules as enforceable functions
 │   ├── base.py        #   Strategy interface
 │   └── orb.py         #   opening-range breakout
+│   ├── london.py      #   London breakout of the overnight range (entry 6)
+│   ├── trend.py        #   daily and intraday EMAs, no-lookahead by construction
+│   ├── registry.py    #   strategy registry + gated promotion
+│   └── registry.yaml  #   where every strategy stands
 ├── backtests/         # Backtest runners, parameter scans, performance reports
+├── bots/              # Discord bots
+│   ├── research.py    #   read-only research bot (slash commands)
+│   └── runners.py     #   the work behind them, with no Discord in it
+├── journal/           # Manual paper-trading discipline layer
+├── research/          # hypotheses.md - the pre-registration log
 ├── execution/         # Live/paper execution: order routing, risk enforcement,
-│                      #   position/time guards, broker (Tradovate) integration
+│                      #   position/time guards, broker integration (not built)
+├── start_bot.bat      # Launch the research bot in its own console window
 └── tests/             # pytest suite + smoke scripts
 ```
 
@@ -39,7 +49,42 @@ venv\Scripts\python.exe -m pytest tests\ -q       # test suite
 venv\Scripts\python.exe data\fetch.py --estimate  # cost estimate, no spend
 venv\Scripts\python.exe data\validate.py data\<file>.parquet
 venv\Scripts\python.exe tests\smoke_orb.py        # eyeball ORB signals
+venv\Scripts\python.exe strategies\registry.py   # where every strategy stands
 ```
+
+### The research bot
+
+`start_bot.bat` in the project root launches the Discord research bot in its own
+console window. Double-click it, or run it from a terminal:
+
+```powershell
+.\start_bot.bat
+```
+
+It changes to the project directory itself, so it works from anywhere, and it
+checks that `venv\Scripts\python.exe` and `.env` exist before starting. The
+window stays open after the bot exits so a startup error is readable. Ctrl+C in
+that window stops it.
+
+The bot reads `DISCORD_TOKEN` from `.env` (gitignored) and syncs its slash
+commands to every guild it is in on startup, which is immediate. Commands:
+
+| Command | What it does |
+|---|---|
+| `/backtest <strategy> <start> <end>` | Metrics embed plus an equity-curve PNG |
+| `/walkforward <strategy>` | Per-fold table from the saved run |
+| `/evalsim <strategy>` | Pass probability and expected attempts |
+| `/hypotheses [n]` | The log: all entries, or one in detail |
+| `/status` | The strategy registry |
+
+**The bot is read-only.** Nothing it exposes promotes a strategy, writes to the
+journal, or places an order. Promotion goes through `Registry.promote`, which is
+deliberately not reachable from chat.
+
+`/walkforward` and `/evalsim` read saved run outputs and report when they were
+produced rather than recomputing — the ORB walk-forward takes about 55 minutes,
+and a chat command that silently starts an hour of work is a worse answer than
+one that says where its numbers came from.
 
 - **`data/`** — scripts and storage for pulling and caching historical MES/MNQ
   intraday data, plus any cleaned/resampled datasets used by backtests.

@@ -101,6 +101,11 @@ class LondonParams:
     target_multiple: float = 1.0         # the pre-registered arm: 1.0 or 2.0
     use_trend_filter: bool = True
     min_range_bars: int = 60             # of 107 in a complete window
+    #: Dollars per point. MES is $5.00, MNQ $2.00. The risk rule is stated in
+    #: dollars, so its expression in points follows the contract - entry 7's
+    #: MNQ replication keeps the same $200 budget and its skip threshold
+    #: becomes 100 points rather than 40.
+    point_value: float = 5.0
 
     def __post_init__(self) -> None:
         if self.target_multiple <= 0:
@@ -117,8 +122,8 @@ class LondonParams:
 
 
 def contracts_for(range_pts: float, params: LondonParams) -> int:
-    """``floor($200 / (range_pts x $5))``, clamped to [1, max_contracts]."""
-    raw = math.floor(params.risk_dollars / (range_pts * POINT_VALUE))
+    """``floor(risk / (range_pts x point_value))``, clamped to [1, max]."""
+    raw = math.floor(params.risk_dollars / (range_pts * params.point_value))
     return int(min(max(raw, 1), params.max_contracts))
 
 
@@ -195,7 +200,7 @@ class LondonBreakout(Strategy):
         if span <= 0:
             diag["skipped_reason"] = SKIP_NO_BARS
             return diag
-        if span * POINT_VALUE > p.risk_dollars:
+        if span * p.point_value > p.risk_dollars:
             diag["skipped_reason"] = SKIP_WIDE_RANGE
             return diag
 
@@ -300,7 +305,7 @@ class LondonBreakout(Strategy):
             direction=direction, entered=True, entry_price=entry_price,
             contracts=contracts, overshoot=float(overshoot),
             stop_distance=stop_distance,
-            risk_dollars=stop_distance * POINT_VALUE * contracts,
+            risk_dollars=stop_distance * p.point_value * contracts,
             same_bar_entry_exit=exit_i == start,
         )
         return diag

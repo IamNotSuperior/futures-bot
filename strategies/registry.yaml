@@ -85,3 +85,15 @@ strategies:
       2 of 7 folds profitable, 14 evaluations blown, pass probability 0.62%.
       A fairer payoff did not help: the distant target is truncated by the
       09:25 flatten, so it resolved only 82 targets against 269 stops.
+
+  - name: london_mnq_replication
+    class_path: london:LondonBreakout
+    hypothesis_entry: 7
+    status: rejected
+    verdict_commit: PENDING
+    walkforward_verdict: >-
+      NOT REPLICATED. Entry 6's one non-null finding does not survive a
+      pre-registered test. Corrected for the finite horizon, MES falls from
+      +5.59 points / z 2.06 to +3.96 / z 1.47, and MNQ lands at +3.65 / z 1.12
+      - the same small departure on both instruments, significant on neither.
+      The London family is closed.

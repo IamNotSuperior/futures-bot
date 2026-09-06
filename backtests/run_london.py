@@ -84,14 +84,20 @@ def size_trades(trades: pd.DataFrame, signals: pd.DataFrame,
 
 
 def apply_daily_limit(trades: pd.DataFrame, bars: pd.DataFrame,
-                      costs: CostModel) -> tuple[pd.DataFrame, int]:
-    """Rule 5, applied per size group. Exact given one trade a day."""
+                      costs: CostModel, spec=MES) -> tuple[pd.DataFrame, int]:
+    """Rule 5, applied per size group. Exact given one trade a day.
+
+    ``spec`` must be the instrument actually being traded. It used to be
+    hardcoded to MES, which silently marked MNQ positions at $5.00 a point
+    instead of $2.00 - inflating open P&L by two and a half times and firing
+    spurious daily-loss exits that removed would-be stops from the bracket.
+    """
     if trades.empty:
         return trades, 0
     kept, halts = [], 0
     for size, group in trades.groupby("contracts"):
         k, h = enforce_daily_loss_limit(
-            group.drop(columns=["contracts"]), bars, MES, costs, int(size),
+            group.drop(columns=["contracts"]), bars, spec, costs, int(size),
             rules.DAILY_LOSS_LIMIT,
         )
         halts += len(h)

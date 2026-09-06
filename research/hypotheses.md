@@ -2490,7 +2490,7 @@ not extend to any entry proposing a strategy of its own.
 
 ---
 
-## 7. Replication of entry 6's one non-null finding, on MNQ — PROPOSED
+## 7. Replication of entry 6's one non-null finding, on MNQ — REJECTED
 
 **Date:** 2026-09-05
 **Spec frozen at:** the commit adding this entry
@@ -2694,11 +2694,196 @@ one.
 6. **The bootstrap's own diagnostics:** replications run, mean resolved fraction,
    and the benchmark's dispersion across trades.
 
-### Verdict
+### Verdict: NOT REPLICATED — the London family closes
 
-Not yet run. To be filled in after the run, with the commit hash recorded in a
-one-line follow-up commit. Per this log's standing rule, the verdict is not
-revised afterwards.
+**Date:** 2026-09-05
+**Spec frozen at:** `bff2bdc`
+**Verdict commit:** recorded in the one-line follow-up commit to this one
+**Code:** `backtests/bootstrap_benchmark.py`, `backtests/run_entry7.py`
+**Report:** `backtests/results/entry7_report.txt`
+**Data:** `data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet`
+
+#### The data step
+
+MNQ.v.0 estimated at **$9.4256** against the $15 cap and was pulled:
+**2,581,801 bars, 42.58 MB, 2019-05-05 to 2026-08-31**, matching the MES span.
+Project data spend goes from about $12 to about $21.43.
+
+`validate.py` reported **no OHLC integrity violations and no zero-volume RTH
+bars**. Its findings are the expected ones: 7 exchange holidays, 64 half-days,
+14 sessions with overnight bars but no RTH, and 9 bar-to-bar moves above 2%
+(March 2020, the 2022 CPI prints, April 2025).
+
+That report is RTH-focused and this strategy trades 19:00–09:25, so the
+overnight window was checked separately, as the entry requires: **1,888 usable
+London sessions against MES's 1,892, and 1,720 against 1,721 across 2020–2026.**
+No material gaps. The entry proceeded rather than stopping.
+
+#### The test
+
+| | MES (recomputed) | MNQ (replication) |
+|---|---|---|
+| Trades | 686 | 438 |
+| Targets / stops | 197 / 144 | 134 / 100 |
+| 09:25 flattens | 345 | 204 |
+| **Observed target share** | **57.77%** | **57.26%** |
+| **Bootstrap benchmark** | **53.81%** | **53.61%** |
+| **Departure** | **+3.96 pts** | **+3.65 pts** |
+| **z (one-sided)** | **+1.47** | **+1.12** |
+| Clears z = 1.65? | no | **no** |
+| Clears +2.0 points? | yes | yes |
+
+Bootstrap: 1,000 replications per trade, seed 0, mean resolved fraction 52.67%
+(MES) and 56.93% (MNQ), per-trade benchmark dispersion 0.069 on both.
+
+**MNQ's departure clears the +2-point floor but its z is 1.12, below the
+pre-registered 1.65. The kill criterion fires on either condition. NOT
+REPLICATED, and the London family closes.**
+
+#### Entry 6's benchmark was doing most of the work
+
+| | Departure | z |
+|---|---|---|
+| MES under `a / (a + b)` (entry 6's figure) | +5.59 | **+2.06** |
+| MES under the corrected bootstrap | **+3.96** | **+1.47** |
+
+**Entry 6's headline result does not survive its own correction.** The
+infinite-horizon formula put the benchmark at 52.18% where the finite-horizon
+bootstrap puts it at 53.81% — and that 1.6-point difference is enough to drop
+the z from 2.06 to 1.47, below the threshold this entry pre-registered.
+
+The entry anticipated this exact outcome and recorded in advance that it would
+count as a failure to replicate: *"that recomputation can dissolve the finding
+without MNQ saying anything at all."* It largely did. **MNQ then agreed.**
+
+#### What actually happened is more interesting than either prediction
+
+The pre-registered prediction had two branches. **Neither is what occurred.**
+
+- *If signal:* MNQ shows the same sign with **z ≥ 1.65**. It did not — z = 1.12.
+- *If noise:* MNQ sits **within ±1 point** of the benchmark. It did not — the
+  departure is +3.65 points.
+
+**Both instruments show a small positive departure of nearly identical size —
++3.96 and +3.65 points — and neither reaches significance.** That is a third
+outcome: not "the effect vanished on a new instrument", but "the same small
+effect appears on both and is too small to distinguish from noise at these
+sample sizes."
+
+The distinction matters for what the log now says. This is **not** evidence that
+London breakouts are a coin flip; it is evidence that if anything is there, it
+is smaller than 686 and 438 trades can resolve, and far smaller than the spread.
+Entry 6 already showed the economic version of the same statement: a 57.77%
+target share against a 58.35% break-even loses money.
+
+**The honest prior in the entry was right about the conclusion and wrong about
+the mechanism of it.** The reasoning recorded in advance was that the reported
+z = 2.06 sat within two-hundredths of `sqrt(2 ln 8) = 2.04`, the expected
+maximum of eight noise draws. That argument predicted a null on MNQ. What the
+data shows instead is a consistent sub-threshold departure on both — the
+selection-effect argument was sound about the significance and wrong about the
+point estimate.
+
+#### A bug nearly produced a false positive, and it is worth recording
+
+The first run of this test reported **MNQ departure +16.94 points, z = +4.69,
+REPLICATED**. That was wrong, and the cause was mine.
+
+`run_london.apply_daily_limit` hardcoded the **MES** contract spec. Running MNQ
+through it marked positions at $5.00 a point instead of $2.00, inflating open
+P&L two and a half times and firing **61 spurious daily-loss exits**. Those
+exits removed would-be *stops* from the bracket — the daily-loss guard truncates
+losing trades before they reach their stop — which pushed the observed target
+share from 57.26% to 70.2% while the benchmark, which does not model the daily
+limit, stayed put.
+
+**The failure mode is the dangerous one: a silent unit mismatch that inflates
+exactly the statistic under test, in the favourable direction.** It was caught
+because the exit-reason table showed a `loss_limit_flatten` row on MNQ that MES
+did not have, and stop/target means near ±$380 against a $200 risk budget.
+`apply_daily_limit` now takes the spec as an argument.
+
+Recorded because the corrected MNQ figures are the ones above, and because
+anything that reads this log should know that a positive replication was on the
+screen for several minutes before it turned out to be a hardcoded constant.
+
+#### Entry 6's kill criteria on MNQ — for completeness, not the test
+
+| | MES | MNQ |
+|---|---|---|
+| Net P&L | −$7,702 | **+$116** |
+| Sharpe | −1.37 | 0.03 |
+| Profit factor | 0.816 | 1.005 |
+| Max drawdown | −$9,150 | −$2,686 |
+| Folds profitable | 1 of 7 | **4 of 7** |
+| Evaluations blown | 5 | **1** |
+| Pass probability | 0.83% | **13.56%** |
+
+**MNQ passes two of entry 6's three criteria and fails the first.** Net P&L is
++$116 across 438 trades — indistinguishable from zero, on a strategy that lost
+$7,702 on MES — with 4 of 7 folds profitable and 1 evaluation blown.
+
+**This does not reopen anything, and the entry pre-registered that it would
+not.** Criterion 1 fails at 13.56% against a 25% floor, so the strategy is
+rejected on MNQ as it was on MES. More to the point, entry 7's own kill
+criterion has already fired: the replication question is the significance test,
+and it failed. A near-breakeven P&L on the one instrument that was tested second
+is exactly the shape of result that invites a third instrument, and the entry
+forbids one.
+
+**No pooled MES+MNQ test is performed.** Pooling was not pre-registered, it
+would be a second test chosen after seeing that neither single test cleared, and
+running it is precisely the practice this entry exists to avoid.
+
+#### Other reporting
+
+**Exit reasons.** MES: flatten −$20.93 mean, stop −$197.31, target +$141.78.
+MNQ: flatten **−$7.53**, stop −$177.34, target +$144.67. The flatten is negative
+on both, as entry 6's geometry argument requires for a 1× arm — the surviving
+band runs from −(range + overshoot) to +range, so its midpoint is below zero.
+**Fourth confirmation of the truncation account, now on a second instrument.**
+
+**Instrument translation.** MNQ's median overnight range is **59.8 points**
+against MES's 17.0, and the $200 risk rule at $2.00 a point caps the range at
+100 points rather than 40. The cap therefore bites much harder: **668 sessions
+skipped on MNQ against 210 on MES**, leaving 438 trades against 686. The rule is
+identical in dollars; its effect on the sample is not. Realised risk stayed
+inside the budget on MNQ — median $170, max $309, **zero** trades above the $400
+daily limit, against MES's one.
+
+### What was learned
+
+**A benchmark can be the finding.** Entry 6's only non-null result lost its
+significance to the correction of its own benchmark, before MNQ was consulted at
+all. The infinite-horizon formula was not a rounding error: it moved the
+comparison point by 1.6 points and the z by 0.6.
+
+**Replication caught what a bigger sample would not have.** The point estimates
+agree closely across instruments; what failed was significance, on both. Running
+the same test on a second instrument turned "one marginal result" into "two
+consistent sub-threshold results", which is a much clearer thing to record than
+either alone.
+
+**Pre-registering the test, not just the strategy, is what made this readable.**
+Entry 6 computed a z after the fact on one of eight configurations. Entry 7 fixed
+one configuration, one benchmark, one threshold and one direction before looking.
+The difference is that entry 6's number could be argued about and entry 7's
+cannot.
+
+### Next
+
+**The London family is closed.** No further London entry, no third instrument,
+no further arm, no pooled test. Entries 1, 4, 5, 6 and 7 have now tested
+breakout continuation across two sessions, two instruments, three signal
+definitions, four holding periods and two benchmarks, and produced nothing that
+survives a pre-registered test.
+
+**Entry 1's condition has still never been met and remains the only route back.**
+Any future breakout idea must first establish the counterparty claim
+independently of backtest results — order-flow evidence about who takes the
+other side of a range break and under what constraint. That is a data purchase
+and should be priced before it is started.
+
 
 ---
 
