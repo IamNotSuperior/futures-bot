@@ -186,18 +186,62 @@ def format_thesis_review(closed: pd.DataFrame) -> str:
     return "\n".join(out)
 
 
+def readiness(closed: pd.DataFrame) -> dict:
+    """The entry-3 gate, computed once so nothing has to restate it.
+
+    Returns the three gate results alongside the numbers behind them.
+    ``strategies/registry.py`` reads this rather than recomputing the
+    thresholds: a second implementation would eventually disagree with this
+    one, and the disagreement would surface at the worst possible moment.
+    """
+    n = len(closed)
+    violations = rule_violations(closed)
+    dirty = sum(len(v) for v in violations.values())
+    # A violation resets the count to zero rather than deducting from it.
+    clean = n if dirty == 0 else 0
+
+    net = float(closed["net_pnl"].sum()) if n else 0.0
+    expectancy = net / n if n else 0.0
+
+    prob = None
+    blowup = None
+    attempts = None
+    if n >= MIN_TRADES_FOR_SIM:
+        result = simulate(daily_pnl_from_trades(closed), EvalConfig(),
+                          paths=20_000, seed=0)
+        prob = result.pass_probability
+        blowup = result.blowup_probability
+        attempts = result.expected_attempts
+
+    gates = {
+        "clean_trades": clean >= CLEAN_TRADES_REQUIRED,
+        "positive_expectancy": expectancy > 0,
+        "pass_probability": prob is not None and prob > REQUIRED_PASS_PROBABILITY,
+    }
+    return {
+        "closed_trades": n,
+        "clean_trades": clean,
+        "violations": dirty,
+        "net_pnl": net,
+        "expectancy": expectancy,
+        "pass_probability": prob,
+        "blowup_probability": blowup,
+        "expected_attempts": attempts,
+        "gates": gates,
+        "ready": all(gates.values()),
+    }
+
+
 def format_readiness(closed: pd.DataFrame) -> str:
     """Progress against the pre-registered gate for buying a Lucid eval."""
     line = "=" * 88
     out = [line, "EVALUATION READINESS (research/hypotheses.md entry 3)", line]
 
-    n = len(closed)
-    violations = rule_violations(closed)
-    dirty = sum(len(v) for v in violations.values())
-    clean = n if dirty == 0 else 0
-
-    net = float(closed["net_pnl"].sum()) if n else 0.0
-    expectancy = net / n if n else 0.0
+    r = readiness(closed)
+    n = r["closed_trades"]
+    dirty = r["violations"]
+    clean = r["clean_trades"]
+    expectancy = r["expectancy"]
 
     out += [
         f"  Rule-clean trades   {clean} / {CLEAN_TRADES_REQUIRED}"
@@ -206,35 +250,32 @@ def format_readiness(closed: pd.DataFrame) -> str:
         f"  Expectancy/trade    ${expectancy:>10,.2f}   (must be positive)",
     ]
 
-    if n < MIN_TRADES_FOR_SIM:
+    prob = r["pass_probability"]
+    if prob is None:
         out.append(
             f"  Pass probability    not run - needs {MIN_TRADES_FOR_SIM} closed "
             f"trades, have {n}"
         )
-        prob = None
     else:
-        daily = daily_pnl_from_trades(closed)
-        result = simulate(daily, EvalConfig(), paths=20_000, seed=0)
-        prob = result.pass_probability
         out += [
             f"  Pass probability    {prob:>10.2%}   "
             f"(must exceed {REQUIRED_PASS_PROBABILITY:.0%})",
-            f"  Blow-up probability {result.blowup_probability:>10.2%}",
-            f"  Expected attempts   {result.expected_attempts:>10.2f}",
+            f"  Blow-up probability {r['blowup_probability']:>10.2%}",
+            f"  Expected attempts   {r['expected_attempts']:>10.2f}",
         ]
 
-    gates = [
-        ("60+ rule-clean trades", clean >= CLEAN_TRADES_REQUIRED),
-        ("positive expectancy", expectancy > 0),
-        ("pass probability > 50%",
-         prob is not None and prob > REQUIRED_PASS_PROBABILITY),
+    labels = [
+        ("60+ rule-clean trades", "clean_trades"),
+        ("positive expectancy", "positive_expectancy"),
+        ("pass probability > 50%", "pass_probability"),
     ]
     out.append("")
-    for label, passed in gates:
-        out.append(f"    [{'PASS' if passed else 'no  '}] {label}")
-    ready = all(passed for _, passed in gates)
+    for label, key in labels:
+        out.append(f"    [{'PASS' if r['gates'][key] else 'no  '}] {label}")
     out.append("")
-    out.append(f"  VERDICT: {'READY to buy an evaluation' if ready else 'NOT READY'}")
+    out.append(
+        f"  VERDICT: {'READY to buy an evaluation' if r['ready'] else 'NOT READY'}"
+    )
     return "\n".join(out)
 
 

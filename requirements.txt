@@ -6,6 +6,10 @@ pyarrow
 python-dotenv
 databento
 
+# Bots
+discord.py
+pyyaml
+
 # Testing
 pytest
 
