@@ -1826,6 +1826,342 @@ before costs is negative.
 
 ---
 
+## 6. London open breakout of the overnight range — PROPOSED
+
+**Date:** 2026-09-05
+**Spec frozen at:** the commit adding this entry
+**Code:** not yet written
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES, 5-minute bars resampled from 1-minute, 19:00 ET through
+09:25 ET
+**Source:** YouTube, "London Breakout Strategy the Right Way", demonstrated on
+AUDUSD and translated here to MES.
+
+### Mechanism claimed
+
+The overnight range is built between 19:00 and 02:55 ET, covering the Asian
+session, when the population trading US index futures is small and liquidity is
+thin. At 03:00 ET the European cash session opens and a materially larger
+population begins repricing the index. The claim is that the first break of the
+overnight range carried by that new volume continues, because the range was
+established by too few participants to represent a price the larger population
+agrees with.
+
+**Who is on the other side:** overnight participants positioned inside the range
+who are stopped out as it breaks. Their stops are the liquidity the breakout
+consumes.
+
+**This is a behavioural claim, not a forced flow, and that is the entry's
+weakest point.** Nobody is contractually obliged to trade against it. Entry 2's
+leveraged-ETF rebalance had a genuinely forced counterparty — a fund that must
+trade at a stated time regardless of price — and it still failed. What is
+claimed here is that one group of traders is systematically slower or worse
+positioned than another, which is the same assumption entry 1 made about
+opening-range breakouts and never established.
+
+**This is the fifth breakout-continuation hypothesis in this log, after four
+rejections:** entry 1 (ORB, 5-minute close trigger), entry 4 (ORB-2, 15-minute
+candle with a trend filter), entry 5 (flat by 10:30), and the 2026-09-04 ceiling
+diagnostic, which found the opening-range breakout resolves equally badly at
+every range width — 35.46% target share on narrow days against 35.55% on wide.
+
+**Prior for survival: low.** Recorded before the run so a marginal positive
+cannot later be read as vindication rather than noise.
+
+**What is genuinely different from entries 1, 4 and 5:** a different session, a
+different participant population, a range built over nine hours rather than
+fifteen minutes, volatility-scaled stops and targets rather than fixed points,
+and risk-based position sizing. It is not a retiming of the same trade. That
+does not make the mechanism any better established.
+
+### Signal definition
+
+Fixed here. Nothing may change after results are seen.
+
+**Bars.** 5-minute candles resampled from 1-minute data, labelled by opening
+minute, left-closed.
+
+**Overnight range.** High and low of **19:00 ET through 02:55 ET inclusive**.
+The window spans midnight: the range for a trade on date D begins at 19:00 on
+**D−1**. A Monday trade is measured against a range beginning Sunday 19:00, the
+Globex reopen. **This is not the same as `rules.session_date`, and the code must
+not assume it is** — see *Session-date compatibility* below.
+
+**Entry window.** 03:00–05:00 ET. The **first 5-minute candle that closes
+outside the range** triggers; the position is taken at the **next candle's
+open**, since a candle labelled 03:00 is only known once 03:05 arrives.
+
+**First break only. One trade per day. The opposite side is never traded that
+day**, whether or not the first trade is still open.
+
+**Trend filter.** A **200-period EMA of 5-minute closes**, computed on the
+**continuous 23-hour series** (no session filter), **seeded with a 200-bar
+simple mean**, and read at 03:00 from **closes strictly before 03:00** — the
+same no-lookahead discipline `strategies/trend.py` enforces for entry 4, and
+tested the same way. A long break is taken only if the 03:00 open is above the
+EMA, a short only if below. **Pre-registered comparison: filter ON versus OFF.**
+
+**Stop.** The opposite side of the overnight range.
+
+**Target — two arms, both run, each judged independently:**
+
+- **1× arm:** target = 1× range height from entry. **This is the source
+  strategy.**
+- **2× arm:** target = 2× range height from entry. Same stop, same everything
+  else. This tests whether the signal has anything a fairer payoff could keep.
+
+**Neither arm's result licenses a third target multiple.** Two were
+pre-registered because the R:R arithmetic below made one of them near-certain to
+fail for reasons unrelated to the signal; a third would be a search.
+
+**Sizing.** `contracts = floor($200 / (range_pts × $5))`, clamped to [1, 5].
+**Skip the session if `range_pts × $5 > $200`** — an overnight range wider than
+40 points. Sizing is computed from the **range height**, not from the realised
+stop distance; see *The sizing rule under-states risk* below.
+
+**Flatten at 09:25 ET** if still open. No position is carried into the US cash
+open.
+
+**No entries on roll days.**
+
+**Costs.** $1.25 per contract per side commission. **2 ticks of slippage per
+side as the base case, reflecting overnight liquidity**, with **1 tick as an
+optimistic sensitivity**. This inverts the convention of entries 1–5, where 1
+tick was the base and 2 the stress case, and it is deliberate: the 03:00–05:00
+window is thinner than RTH and a 1-tick assumption there would flatter the
+result.
+
+**Internal limits as entry 1:** the $400 daily loss limit marked to market, the
+5-contract position cap, and the 30-second minimum hold. **No trailing-drawdown
+halt is applied**, matching entry 1 and entry 4; evaluations blown are counted
+on the continuous stream instead. Entry 5 recorded why these two are
+incompatible measurements — a permanent halt makes a blow-up count degenerate —
+and this entry takes the count.
+
+**Evaluation structure: seven out-of-sample yearly folds, 2020–2026. Nothing is
+selected**, so there is no training step and every fold is a genuine
+out-of-sample observation of one fixed rule. 2019 is partial from 2019-05-05 and
+is reportable as an extra unselected period, outside the kill criteria. **The
+2026 fold is reported separately and alongside the seven**, as it is a partial
+year ending 2026-08-31.
+
+### Rules compatibility: the first overnight strategy in this project
+
+Checked rather than assumed, because this is the first entry to trade outside
+RTH.
+
+`rules.ENTRY_CUTOFF` is 16:20 ET and `rules.FLATTEN_TIME` is 16:30 ET.
+`entry_deadline` resolves to 16:20 and `flatten_deadline` to 16:30 on a normal
+session. **`rules.is_entry_allowed` returns True at 03:00, 03:05, 04:55 and
+05:00 ET, and `must_flatten` returns False at all of them and at 09:25.**
+
+**No rule adjustment is required, and none is made.** But the reason matters:
+these entries are permitted because 03:00 is numerically before a cutoff
+designed for the *afternoon*, not because `rules.py` models an overnight
+session. The module has one RTH session per calendar day and no concept of a
+Globex session spanning two dates. The guards are satisfied here by accident of
+arithmetic rather than by design, and a future overnight strategy that trades
+later in the day could expose that. Recorded so it is not discovered as a
+surprise.
+
+### Session-date compatibility
+
+**`rules.session_date` is the calendar date of a timestamp. The overnight range
+window is not.** The range for a trade on D runs from 19:00 on D−1, so the range
+window and the session date have different definitions and the code must not
+assume they agree.
+
+This is coherent for the rest of the machinery: exactly one trade per calendar
+day, entered between 03:00 and 05:00 and exited by 09:25, so the daily loss
+limit's grouping by `session_date` is correct for the *trade*. Only the range
+construction crosses the boundary.
+
+**A test must assert that the 19:00–02:55 range is built from the prior calendar
+date's evening bars** — specifically, that a Monday session's range includes
+Sunday's 19:00–23:55 bars and that shifting those bars changes the Monday range.
+
+### The arithmetic this fixes in advance
+
+**The 1× arm's reward-to-risk is slightly worse than 1:1.** The stop is the far
+side of the range and the target is one range height from the entry. Because the
+entry is the open of the candle *after* a close outside the range, it sits beyond
+the range edge, so the distance to the stop is the range height **plus the
+overshoot** while the distance to the target is exactly the range height.
+
+At the median size of 2 contracts and 2 ticks per side, friction is $7.50 per
+contract per round turn. A typical 1× win is about **+$150** against a typical
+loss of about **−$180**, putting **break-even near 54.5%**.
+
+**The 2× arm's break-even is near 36.4%.** Target 2× range against a stop of
+about 1× range gives a 2:1 payoff; with the same friction, `p × 315 = (1 − p) ×
+180` resolves to 36.4%.
+
+**P&L is not linear in contract count here, unlike entries 4 and 5.** Size varies
+per session with the range height, so the trade stream cannot be rescaled after
+the fact. The size-linearity assertion that guards entries 4 and 5 does not
+apply and must not be carried over.
+
+### The sizing rule under-states risk, and that is being kept
+
+`contracts = floor($200 / (range_pts × $5))` computes risk from the range height,
+but the realised stop distance is the range height **plus the overshoot** from
+the entry to the range edge. **Actual risk therefore exceeds $200 on every
+trade** by the overshoot amount.
+
+This is kept as written, matching the source. It is far inside the $400 daily
+loss limit, so no guard is threatened. **The overshoot distribution and the
+realised risk distribution are both reported**, so the breach is measured rather
+than assumed small.
+
+### Prediction on record
+
+Nothing below has been computed. No backtest of this strategy has been run and
+no outcome inspected — only the range distribution in the power check.
+
+**The central prediction, and the sharpest thing in this entry.**
+
+Entry 4's opening-range bracket had a target 1.8× its stop, and its measured
+target share of bracket outcomes was **35.46% (narrow days) and 35.55% (wide)**.
+For a driftless random walk with barriers at −a and +b, the probability of
+touching the target first is `a / (a + b)`; for a 1.8:1 bracket that is
+**35.7%**.
+
+**Entry 4's breakout was therefore indistinguishable from a driftless random
+walk, to within two-tenths of a percentage point, at every range width tested.**
+That is the strongest single statement this log contains about breakout
+continuation, and it is the baseline the 03:00 volume step has to beat.
+
+So, falsifiably:
+
+1. **The 1× arm's target share lands near 50%** — the random-walk value for a
+   1:1 bracket — and specifically **inside 45–53%**, against a break-even of
+   54.5%. It therefore loses roughly the friction.
+2. **The 2× arm's target share lands near 33.3%** — the random-walk value for a
+   2:1 bracket — and specifically **inside 29–36%**, against a break-even of
+   36.4%. It also loses roughly the friction, by a smaller margin.
+3. **The 03:00 volume step adds nothing measurable to continuation.** Stated
+   against the requested benchmark: the London breakout's departure from its own
+   random-walk value will be no larger than entry 4's, which was 0.2 points.
+   **If the volume step is real, the 1× arm should clear 54.5% and the 2× arm
+   36.4%; predicted, neither does.**
+4. **Total P&L is negative in both arms at 2 ticks**, and the 1× arm loses more
+   in dollar terms than the 2× arm, because a 1:1 payoff punishes a sub-50%
+   hit rate harder than a 2:1 payoff punishes a sub-33% one.
+5. **The trend filter changes little.** Entry 4 measured its filter at
+   `dE = +$0.13` per contract, `t = +0.03`, acting as a long-only switch that was
+   *worse* like-for-like at −$5.97. A 200-period EMA on 5-minute bars is far
+   faster than a 50-day EMA and may behave differently, but nothing in this log
+   suggests a trend filter on a breakout pays for the trades it removes.
+6. **Volatility-scaled brackets do not rescue it.** The ceiling diagnostic
+   established that breakout quality is invariant to range width. Scaling the
+   bracket to the range changes the size of each outcome without changing the
+   ratio between them, which is the only thing that would help.
+
+**What would falsify the pessimism:** a target share above 54.5% in the 1× arm
+or above 36.4% in the 2× arm, sustained across a majority of the seven folds,
+with positive total P&L at 2 ticks. Predictions 1 and 2 are narrow enough that
+being wrong will be obvious immediately.
+
+### Power check, run before any strategy code
+
+Following entry 2's precedent. Signal distribution and bar coverage only; it
+never looks at what price did after 03:00.
+
+**Coverage is not a problem.** 1,895 London sessions have bars in the range
+window; **1,892 are usable**, with a median of 476 one-minute bars in the range
+window (complete is 475) and 120 in the entry window (complete is 120). Three
+sessions are too thin to use.
+
+**Overnight range height (points):**
+
+| p10 | p25 | p50 | p75 | p90 | p95 | p99 | max |
+|---|---|---|---|---|---|---|---|
+| 8.2 | 12.0 | 17.5 | 28.5 | 43.0 | 59.2 | 97.4 | 188.0 |
+
+**The 40-point cap skips 216 of 1,892 sessions — 11.4% — leaving 1,676
+tradeable.** Recorded because entry 4's 10-point opening-range ceiling skipped
+**70%** and made that strategy a low-volatility strategy by construction. This
+cap does not do that, and the test has real power.
+
+| Year | Sessions | Median range | Skipped | Tradeable |
+|---|---|---|---|---|
+| 2019 | 171 | 11.00 | 1 | 170 |
+| 2020 | 258 | 23.25 | 51 | 207 |
+| 2021 | 259 | 15.50 | 15 | 244 |
+| 2022 | 258 | 24.38 | 38 | 220 |
+| 2023 | 258 | 12.00 | 5 | 253 |
+| 2024 | 259 | 13.50 | 13 | 246 |
+| 2025 | 257 | 22.00 | 45 | 212 |
+| 2026 | 172 | 31.88 | 48 | 124 |
+
+**Sizing over the 1,676 tradeable sessions:** 1 contract 34.5%, 2 contracts
+29.2%, 3 contracts 17.2%, 4 contracts 8.7%, 5 contracts 10.3%. Median risk $165,
+mean $159, max $200; only 8 sessions risk under $100.
+
+**Regime note, recorded in advance:** 2026's median overnight range is 31.88
+points against 2023's 12.00, and 2026 skips 28% of its sessions against 2023's
+2%. Any year-to-year difference in results must be read against that before
+being attributed to the strategy.
+
+### Pre-registered tests
+
+1. **Per-fold P&L and Sharpe**, seven out-of-sample years 2020–2026, both arms,
+   filter ON and OFF.
+2. **The 2026 fold reported separately and alongside the seven.**
+3. **Pooled hit rate against the break-even implied by the realised
+   reward-to-risk** — computed from the trades' own realised stop and target
+   distances, not from the nominal multiples, since the overshoot moves it.
+4. **P&L and counts by exit reason:** stop / target / 09:25 flatten.
+5. **Sizing distribution** — contracts per trade, and the realised risk
+   distribution in dollars.
+6. **Overshoot distribution** — entry price minus range edge, in points and as a
+   fraction of range height.
+7. **`eval_sim` pass probability**, per fold and pooled.
+8. **Evaluations blown across the seven years.**
+9. **Filter ON versus OFF**, including the **long-only-versus-long-only
+   diagnostic** from entry 4: if the filter's advantage disappears when longs
+   are compared with longs, it is a directional switch rather than a trend
+   filter.
+10. Everything repeated at **1 tick** as the optimistic sensitivity.
+
+### Kill criteria — decided now
+
+Any **one** kills an arm. **Each arm is judged independently** against these,
+measured pooled over the seven out-of-sample years at the base 2 ticks per side.
+
+1. **Pooled `eval_sim` pass probability below 25%.**
+2. **More than 1 evaluation blown across the seven years.**
+3. **Fewer than 4 of 7 folds profitable, *or* total P&L negative.** Survival
+   requires **both**.
+
+Non-fatal, with a reporting obligation:
+
+4. **The verdict must state explicitly whether the breakout or the trend filter
+   is carrying any result**, in those terms, whatever the outcome. Carried over
+   from entry 4, including its obligation: a combined figure without attribution
+   does not satisfy this entry.
+
+No appeal, no re-grid, no third target multiple.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged and repeated because it governs how any accepted result would be used.
+Copying identical trades across N funded accounts **multiplies outcomes in both
+directions and is not diversification**: the same losing day draws down every
+account at once and a trailing-drawdown breach terminates all of them on the
+same date. It is one bet at N times the size with N times the fees. Only the
+evaluation *attempt* is diversified, and only while accounts start at different
+times on different price paths.
+
+### Verdict
+
+Not yet run. To be filled in after the out-of-sample runs, with the commit hash
+recorded in a one-line follow-up commit. Per this log's standing rule, the
+verdict is not revised afterwards.
+
+---
+
 ## Template for new entries
 
 ```
