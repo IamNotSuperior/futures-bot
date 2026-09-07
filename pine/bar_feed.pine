@@ -5,7 +5,8 @@
 //
 //     Condition   : Bar feed -> Any alert() function call
 //     Options     : Once Per Bar Close        <- REQUIRED, see below
-//     Webhook URL : http://127.0.0.1:8787/bar
+//     Webhook URL : the URL printed in the "Desk Tunnel" window by
+//                   start_desk.bat - hostname + /bar?token=<token>
 //     Message     : leave empty - alert() supplies the JSON
 //
 // "Once Per Bar Close" is not optional. On "Once Per Bar" TradingView fires on
@@ -14,10 +15,14 @@
 // signal derived from it would be computed on data that had not happened yet,
 // which is lookahead arriving through the feed rather than through the code.
 //
-// The desk listens on localhost, so TradingView cannot reach it without a
-// tunnel. If you open one, set DESK_WEBHOOK_TOKEN in .env and append
-// ?token=<value> to the webhook URL; that token is then the only thing in
-// front of the feed.
+// The desk binds 127.0.0.1, so TradingView cannot reach it directly. The
+// Cloudflare tunnel is what exposes it, and DESK_WEBHOOK_TOKEN is then the
+// only thing in front of the feed - bots/tunnel.py refuses to start without
+// one. On a quick tunnel the hostname changes on every restart, so the alert's
+// webhook URL has to be re-pasted each time; TradingView keeps POSTing to the
+// dead hostname otherwise and reports nothing.
+//
+// Webhook alerts require a paid TradingView plan (Pro and above).
 //
 // Timestamps are epoch milliseconds (UTC), which the desk parses unambiguously.
 // A naive local-time string would be read as ET by rules.to_et and misplaced
@@ -26,16 +31,29 @@
 //@version=5
 indicator("Bar feed", overlay = true)
 
-// time_close is the closing instant of the bar. The desk floors to the opening
-// minute itself, so both conventions land on the same label; sending the close
-// keeps the payload meaningful if it is ever read by anything else.
+show_marker = input.bool(false, "Mark confirmed bars on the chart",
+     tooltip = "Plots a tiny dot under each closed bar so you can see the " +
+               "script is attached and firing. Off by default - it marks " +
+               "every bar, which is noisy on a 1-minute chart.")
+
+// `time` is the bar's OPENING instant in epoch milliseconds, UTC. That matches
+// the desk's convention exactly: bars are left-closed and labelled by their
+// opening minute, and Bar.from_payload floors to the minute on arrival. Do not
+// swap this for `time_close` - a bar labelled 15:25 covers 15:25:00-15:25:59,
+// and sending 15:26:00 would shift every bar one minute forward.
+//
+// Number formats use "0.##########" rather than "#.##########". The leading
+// "0" forces at least one integer digit; with "#" a value below 1 formats as
+// ".5" and a zero can format as "", either of which is invalid JSON and would
+// be rejected by the desk as a non-numeric OHLCV. Volume is the realistic
+// case - it is legitimately 0 on thin overnight bars.
 payload = '{"symbol":"' + syminfo.ticker + '"' +
-          ',"time":'    + str.tostring(time,   "#") +
-          ',"open":'    + str.tostring(open,   "#.##########") +
-          ',"high":'    + str.tostring(high,   "#.##########") +
-          ',"low":'     + str.tostring(low,    "#.##########") +
-          ',"close":'   + str.tostring(close,  "#.##########") +
-          ',"volume":'  + str.tostring(nz(volume, 0), "#.##########") +
+          ',"time":'    + str.tostring(time,             "0") +
+          ',"open":'    + str.tostring(open,             "0.##########") +
+          ',"high":'    + str.tostring(high,             "0.##########") +
+          ',"low":'     + str.tostring(low,              "0.##########") +
+          ',"close":'   + str.tostring(close,            "0.##########") +
+          ',"volume":'  + str.tostring(nz(volume, 0),    "0.##########") +
           '}'
 
 // barstate.isconfirmed keeps this from firing on the forming bar even if the
@@ -45,5 +63,8 @@ payload = '{"symbol":"' + syminfo.ticker + '"' +
 if barstate.isconfirmed
     alert(payload, alert.freq_once_per_bar_close)
 
-// A visible marker so it is obvious the script is attached and firing.
-plotchar(barstate.isconfirmed, "confirmed", "", location.top, size = size.tiny)
+// Optional visual confirmation that the script is attached and firing. The
+// char is a real character rather than "" - an empty char renders nothing,
+// which makes the marker useless as a check.
+plotchar(show_marker and barstate.isconfirmed, "confirmed", "•",
+     location.belowbar, color = color.new(color.gray, 40), size = size.tiny)
