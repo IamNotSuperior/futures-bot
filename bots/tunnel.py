@@ -159,22 +159,43 @@ def start(port: int = DEFAULT_PORT, hostname: str | None = None,
 
 
 def _banner(base: str, port: int, token: str | None, stable: bool) -> None:
+    """Print the complete, ready-to-paste webhook URL.
+
+    The token is printed **in full and unmasked**. This is deliberate: the
+    banner's whole job is to be copied into a TradingView alert, and a masked
+    URL forces a detour through ``.env`` on every launch - which, on a quick
+    tunnel, is every launch.
+
+    The safety argument is about *where* it lands. This goes to the console of
+    a local process, on the machine that already holds the token in ``.env``;
+    it is not a transcript, a commit, or a network destination. Note what it
+    deliberately does **not** touch: ``journal/tunnel.log`` receives
+    cloudflared's own output via :func:`_pump` and never this banner, so the
+    token is not duplicated onto disk in a second place.
+    """
     bar = "=" * 72
-    masked = f"{token[:4]}...{token[-4:]}" if token and len(token) > 8 else "<token>"
+    url = f"{base}/bar" + (f"?token={token}" if token else "")
     print(f"\n{bar}")
     print("  DESK WEBHOOK IS NOW PUBLIC")
     print(bar)
     print(f"  Local     http://127.0.0.1:{port}/bar")
-    print(f"  Public    {base}/bar")
     print()
-    print("  TradingView webhook URL (token from .env, shown masked here):")
-    print(f"      {base}/bar?token={masked}")
+    print("  PASTE THIS INTO THE TRADINGVIEW ALERT'S WEBHOOK URL BOX:")
+    print()
+    print(f"      {url}")
+    print()
+    print("  Alert settings that matter:")
+    print("    Condition  <your indicator> -> Any alert() function call")
+    print("    Options    Once Per Bar Close   (NOT 'Once Per Bar')")
+    print("    Message    leave empty - the Pine alert() call supplies the JSON")
     if not stable:
         print()
         print("  *** THIS HOSTNAME IS TEMPORARY ***")
-        print("  A quick tunnel gets a new random hostname on every restart.")
-        print("  The TradingView alert will keep POSTing to the old one and")
-        print("  fail silently. Use a named tunnel for anything left running.")
+        print("  A quick tunnel gets a new random hostname on every restart,")
+        print("  so this URL is only valid until the desk is stopped. The")
+        print("  TradingView alert will keep POSTing to the dead hostname and")
+        print("  report nothing. Re-paste the URL above after every restart,")
+        print("  or set DESK_TUNNEL_HOSTNAME for a stable named tunnel.")
     print(bar + "\n", flush=True)
 
 

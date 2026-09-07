@@ -45,16 +45,30 @@ echo ============================================================
 echo.
 
 REM --- the tunnel, in its own window -------------------------------------
-REM Started first so the public hostname is printed before bars arrive. Its
-REM window stays open with the live cloudflared log; journal\tunnel.log has
-REM the same output if the window is closed.
+REM Started first so the public hostname is printed before bars arrive.
+REM
+REM `cmd /k` keeps that window open after tunnel.py exits. Without it a failed
+REM cloudflared start closes the window instantly and the error is unreadable -
+REM and on success the window is where the ready-to-paste TradingView URL
+REM lives, so it has to survive. cloudflared's ongoing log goes to
+REM journal\tunnel.log rather than the console, so the URL stays on screen
+REM instead of scrolling away behind connection chatter.
 echo Starting the Cloudflare Tunnel...
-start "Desk Tunnel" venv\Scripts\python.exe bots\tunnel.py
+start "Desk Tunnel - WEBHOOK URL IS HERE" cmd /k venv\Scripts\python.exe bots\tunnel.py
 
-REM Give the tunnel a moment to print its URL before the desk's own logging
-REM starts competing for the console.
-timeout /t 8 /nobreak >nul
+REM Give the tunnel time to negotiate and print its URL before the desk's own
+REM logging starts competing for attention.
+timeout /t 10 /nobreak >nul
 
+echo.
+echo ------------------------------------------------------------
+echo   The TradingView webhook URL - hostname AND token, ready to
+echo   paste - is printed in the "Desk Tunnel" window that just
+echo   opened. Copy it from there.
+echo.
+echo   On a quick tunnel that URL changes every launch, so re-copy
+echo   it into the alert each time you restart.
+echo ------------------------------------------------------------
 echo.
 echo Starting the desk bot...
 echo Webhook listens on http://127.0.0.1:8787/bar

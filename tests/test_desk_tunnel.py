@@ -110,12 +110,49 @@ def test_missing_binary_message_says_how_to_install(monkeypatch):
 
 # -- the banner -------------------------------------------------------------
 
-def test_banner_masks_the_token(capsys):
-    tunnel._banner("https://desk.example.com", 8787,
-                   "supersecrettokenvalue123", stable=True)
+def test_banner_prints_a_complete_ready_to_paste_url(capsys):
+    """The token is printed in full, on purpose.
+
+    The banner exists to be copied into a TradingView alert. A masked URL
+    forces a detour through .env on every launch, which on a quick tunnel is
+    every launch. It goes to a local console on the machine that already holds
+    the token - not a transcript, a commit, or a network destination.
+    """
+    tunnel._banner("https://abc.trycloudflare.com", 8787,
+                   "supersecrettokenvalue123", stable=False)
     out = capsys.readouterr().out
-    assert "supersecrettokenvalue123" not in out, "the token was printed in full"
-    assert "supe...e123" in out
+    assert "https://abc.trycloudflare.com/bar?token=supersecrettokenvalue123" in out
+    assert "..." not in out.split("PASTE THIS")[1].split("Alert settings")[0]
+
+
+def test_banner_includes_the_alert_settings_that_matter(capsys):
+    tunnel._banner("https://desk.example.com", 8787, "tok" * 4, stable=True)
+    out = capsys.readouterr().out
+    assert "Once Per Bar Close" in out
+    assert "alert() function call" in out
+    assert "leave empty" in out
+
+
+def test_banner_without_a_token_emits_no_query_string(capsys):
+    """Unreachable via start() - preflight refuses - but the URL must not lie."""
+    tunnel._banner("https://desk.example.com", 8787, None, stable=True)
+    out = capsys.readouterr().out
+    assert "?token=" not in out
+    assert "https://desk.example.com/bar" in out
+
+
+def test_banner_never_reaches_the_tunnel_log(tmp_path, monkeypatch, capsys):
+    """The token must not be duplicated onto disk.
+
+    ``_pump`` writes cloudflared's own output to journal/tunnel.log; the
+    banner is printed to stdout only. If that ever changes, the token gains a
+    second on-disk home beyond .env.
+    """
+    log = tmp_path / "tunnel.log"
+    monkeypatch.setattr(tunnel, "TUNNEL_LOG", log)
+    tunnel._banner("https://abc.trycloudflare.com", 8787, "s3cr3t-value", stable=False)
+    capsys.readouterr()
+    assert not log.exists() or "s3cr3t-value" not in log.read_text(encoding="utf-8")
 
 
 def test_quick_tunnel_banner_warns_the_hostname_is_temporary(capsys):

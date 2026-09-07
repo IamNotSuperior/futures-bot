@@ -129,6 +129,39 @@ def test_health_reports_counts():
                     "last_bar_at": "2026-08-24T10:05:00-04:00"}
 
 
+def test_health_is_behind_the_token_too():
+    """An open /health on a public tunnel is free reconnaissance.
+
+    The counts are not secrets, but they confirm the service exists and show
+    whether it is actively receiving bars. Every legitimate reader of this
+    endpoint can hold the token.
+    """
+    from fastapi.testclient import TestClient
+
+    client = TestClient(feed_mod.build_webhook_app(lambda b: None, token="s3cret"))
+    assert client.get("/health").status_code == 401
+    assert client.get("/health?token=wrong").status_code == 401
+    assert client.get("/health?token=s3cret").status_code == 200
+    assert client.get("/health",
+                      headers={"X-Desk-Token": "s3cret"}).status_code == 200
+
+
+def test_no_endpoint_is_open_when_a_token_is_set():
+    """Whole-surface check: adding a route must not add an unauthenticated one."""
+    from fastapi.testclient import TestClient
+
+    app = feed_mod.build_webhook_app(lambda b: None, token="s3cret")
+    client = TestClient(app)
+    paths = {r.path for r in app.routes if hasattr(r, "path")
+             and not r.path.startswith("/openapi")}
+    for path in paths:
+        for method, call in (("GET", client.get), ("POST", client.post)):
+            response = call(path)
+            assert response.status_code != 200, (
+                f"{method} {path} answered without a token"
+            )
+
+
 # -- replay -----------------------------------------------------------------
 
 def test_replay_emits_every_bar_in_order():

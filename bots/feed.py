@@ -293,7 +293,16 @@ def build_webhook_app(on_bar: Callable[[Bar], None], token: str | None = None):
             raise HTTPException(status_code=401, detail="bad or missing token")
 
     @app.get("/health")
-    async def health() -> dict:
+    async def health(
+        token_q: str | None = Query(default=None, alias="token"),
+        x_desk_token: str | None = Header(default=None),
+    ) -> dict:
+        # Behind the same token as /bar. The counts and last-bar time are not
+        # secrets, but on a public tunnel an open endpoint confirms the service
+        # exists and shows whether it is actively receiving - which is free
+        # reconnaissance for anyone who finds the hostname. There is no reader
+        # of this endpoint that cannot also hold the token.
+        _authorise(token_q or x_desk_token)
         last = app.state.last_bar_at
         return {
             "status": "ok",
