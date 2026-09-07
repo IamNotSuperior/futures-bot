@@ -36,3 +36,5 @@ __pycache__/
 #                          regenerable with `desk.py --replay`
 journal/desk_state.json
 journal/shadow_trades.jsonl
+#   tunnel.log           - cloudflared output, may contain the public hostname
+journal/tunnel.log
