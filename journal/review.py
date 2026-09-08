@@ -292,6 +292,12 @@ def main(argv=None) -> int:
     if closed.empty:
         print("No closed trades in the journal yet.")
         print(f"  {journal_path}")
+        # Decisions can exist before any manual trade does - the desk posts
+        # tickets whether or not the operator has traded by hand.
+        import decisions  # noqa: PLC0415
+
+        print()
+        print(decisions.format_decisions())
         return 0
 
     day = (pd.Timestamp(args.day).date() if args.day
@@ -310,6 +316,12 @@ def main(argv=None) -> int:
     print(format_thesis_review(closed))
     print()
     print(format_readiness(closed))
+    print()
+    # Operator button presses on desk tickets. Reported, deliberately not
+    # counted: see journal/decisions.py for why.
+    import decisions  # noqa: PLC0415 - journal/ is on sys.path above
+
+    print(decisions.format_decisions())
     print()
     print(format_report(compute_metrics(closed), "PERFORMANCE (all logged trades)"))
     return 0

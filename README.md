@@ -153,8 +153,26 @@ heartbeat every 15 minutes *during the session only*, a 16:35 daily summary
 read from the journal, and a startup reconciliation that shouts about any open
 position the state file cannot explain.
 
-Channel IDs come from `.env` — see `.env.example`. With none set the desk still
-runs and prints every post to stdout.
+**Discord is required, not a fallback.** Every post goes to one channel,
+resolved by name from `DESK_CHANNEL_NAME` in `.env` (default `general`) on the
+first connection. If the channel can't be found or the bot can't post to it,
+the desk exits with a message saying so — it never quietly prints to a window
+instead. Pass `--no-discord` to run console-only on purpose. The gateway
+dropping does not stop the feed: posts are buffered and flushed, in order, on
+reconnect, and the feed server is started exactly once regardless of how many
+times Discord reconnects.
+
+**Ticket buttons.** Each ticket embed carries **Execute** and **Don't trade**.
+Only the Discord user in `DESK_OWNER_ID` can press them; anyone else gets an
+ephemeral refusal. For a shadow ticket Execute is disabled and labelled
+*"Execute — unavailable (strategy rejected)"* — there is no order path for a
+rejected strategy, and a test asserts the decision core refuses an approve
+even if the callback is reached directly. Buttons expire when the strategy
+would cancel its entry (10:30 ET for orb2). Every press and expiry is recorded
+in `journal/decisions.jsonl` as *your* decision, and `journal/review.py`
+reports them in their own section. They do **not** count toward entry 3's
+60-trade gate: that gate is pre-registered as trades logged through
+`pretrade.py`, and changing it needs a dated addendum first.
 
 ## Setup
 

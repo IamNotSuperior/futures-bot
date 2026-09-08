@@ -64,6 +64,7 @@ import broker  # noqa: E402
 import desk_state  # noqa: E402
 import feed as feed_mod  # noqa: E402
 import tickets as tickets_mod  # noqa: E402
+import approvals  # noqa: E402
 
 log = logging.getLogger("desk")
 
@@ -88,66 +89,114 @@ SESSION_END = SUMMARY_TIME
 # Discord
 # ---------------------------------------------------------------------------
 
-@dataclass
-class Channels:
-    """Where each kind of post goes. IDs come from ``.env``."""
+DEFAULT_CHANNEL_NAME = "general"
 
-    tickets: int | None = None
-    ops: int | None = None
-    summary: int | None = None
 
-    @classmethod
-    def from_env(cls) -> "Channels":
-        def _id(name: str) -> int | None:
-            raw = (os.environ.get(name) or "").strip()
-            return int(raw) if raw.isdigit() else None
-
-        tickets = _id("DESK_TICKET_CHANNEL_ID")
-        return cls(
-            tickets=tickets,
-            # Ops and summary fall back to the ticket channel so a minimal
-            # .env with one id is a working configuration.
-            ops=_id("DESK_OPS_CHANNEL_ID") or tickets,
-            summary=_id("DESK_SUMMARY_CHANNEL_ID") or tickets,
-        )
+def channel_name_from_env() -> str:
+    return (os.environ.get("DESK_CHANNEL_NAME") or "").strip() or DEFAULT_CHANNEL_NAME
 
 
 class Poster:
-    """Posts to Discord, or to stdout when Discord is not configured.
+    """Every desk post, to one named channel, buffered while the gateway is down.
 
-    The console fallback is not a degraded mode for testing only - a replay is
-    expected to run without a Discord connection, and the summary it prints is
-    the deliverable. Every post therefore renders to text first and is wrapped
-    in an embed second.
+    Three behaviours, each deliberate:
+
+    * **One channel, resolved by name.** ``DESK_CHANNEL_NAME`` is looked up in
+      the bot's guild on first ``on_ready``. If it cannot be found, or the bot
+      cannot send to it, :meth:`resolve_channel` returns the reason and the
+      client treats that as fatal. There is no silent fallback to stdout: a
+      desk that is quietly printing to a console nobody is watching is worse
+      than one that refuses to start.
+    * **Buffering.** A post made while the gateway is disconnected - or before
+      the channel is resolved - is queued and flushed, in order, on the next
+      ``on_ready``/``on_resumed``. The feed does not stop for a Discord outage
+      and neither does the record of what it did.
+    * **Console always.** Every post is also printed, so the local window is a
+      complete transcript regardless of Discord's state. In replay and with
+      ``--no-discord`` the console is the *only* destination, and that is
+      explicit rather than a fallback.
     """
 
-    def __init__(self, client=None, channels: Channels | None = None,
+    def __init__(self, client=None, channel_name: str = DEFAULT_CHANNEL_NAME,
                  echo: bool = True) -> None:
         self.client = client
-        self.channels = channels or Channels()
+        self.channel_name = channel_name
         self.echo = echo
+        self.channel = None
+        self.ready = False
         self.posted: list[tuple[str, str]] = []
+        self.buffer: list[tuple] = []
+        self.dropped = 0
 
     async def send(self, kind: str, title: str, body: str,
-                   colour: int = 0x5A6672) -> None:
+                   colour: int = 0x5A6672, view=None):
+        """Post, or queue. Returns the Discord message when one was sent."""
         self.posted.append((kind, f"{title}\n{body}"))
         if self.echo:
             print(f"\n[{kind}] {title}\n{body}", flush=True)
-        channel_id = getattr(self.channels, kind, None) or self.channels.ops
-        if self.client is None or channel_id is None:
-            return
+        if self.client is None:
+            return None
+        if not self.ready or self.channel is None:
+            self.buffer.append((kind, title, body, colour, view))
+            return None
+        return await self._post(kind, title, body, colour, view)
+
+    async def _post(self, kind: str, title: str, body: str, colour: int, view):
         try:
             import discord  # noqa: PLC0415
 
-            channel = self.client.get_channel(channel_id)
-            if channel is None:
-                channel = await self.client.fetch_channel(channel_id)
-            embed = discord.Embed(title=title[:256],
-                                  description=body[:4000],
+            embed = discord.Embed(title=title[:256], description=body[:4000],
                                   colour=colour)
-            await channel.send(embed=embed)
+            dview = view.as_discord_view() if view is not None else None
+            message = await self.channel.send(embed=embed, view=dview)
+            if view is not None:
+                view.message = message
+            return message
         except Exception as exc:  # noqa: BLE001 - a post must never kill the desk
-            log.error("discord post failed (%s): %s", kind, exc)
+            log.error("discord post failed (%s: %s): %s", kind, title, exc)
+            self.dropped += 1
+            return None
+
+    async def flush(self) -> int:
+        """Send everything queued, in order. Returns how many went out."""
+        sent = 0
+        while self.buffer and self.ready and self.channel is not None:
+            kind, title, body, colour, view = self.buffer.pop(0)
+            if await self._post(kind, title, body, colour, view) is not None:
+                sent += 1
+        return sent
+
+    async def resolve_channel(self) -> str | None:
+        """Find ``channel_name`` in the bot's guilds. Returns an error, or None."""
+        try:
+            import discord  # noqa: PLC0415
+        except ImportError as exc:  # pragma: no cover
+            return f"discord.py unavailable: {exc}"
+        guilds = list(getattr(self.client, "guilds", []) or [])
+        if not guilds:
+            return ("the bot is not in any guild. Invite it to your server "
+                    "first (OAuth2 URL with the bot scope).")
+        matches = []
+        for guild in guilds:
+            channel = discord.utils.get(guild.text_channels, name=self.channel_name)
+            if channel is not None:
+                matches.append((guild, channel))
+        if not matches:
+            names = sorted({c.name for g in guilds for c in g.text_channels})
+            return (f"no text channel named {self.channel_name!r} in "
+                    f"{', '.join(g.name for g in guilds)}. Set DESK_CHANNEL_NAME "
+                    f"in .env to one of: {', '.join(names) or '(none visible)'}")
+        guild, channel = matches[0]
+        if len(matches) > 1:
+            log.warning("channel %r exists in %d guilds; using %s",
+                        self.channel_name, len(matches), guild.name)
+        perms = channel.permissions_for(guild.me)
+        if not (perms.send_messages and perms.embed_links):
+            return (f"the bot cannot post to #{channel.name} in {guild.name}: "
+                    f"it needs Send Messages and Embed Links there.")
+        self.channel = channel
+        log.info("posting to #%s in %s", channel.name, guild.name)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +219,10 @@ class StrategyRunner:
     status: str
     mode: str
     instrument: str = "MES"
+    #: When the strategy would cancel an unfilled entry. Ticket buttons expire
+    #: here: a decision after the order would have been pulled is not a
+    #: decision the strategy could have acted on.
+    entry_cancel_time: time_type = rules.ENTRY_CUTOFF
     resample_minutes: int = 1
     aggregator: feed_mod.BarAggregator | None = None
     session: list[feed_mod.Bar] = field(default_factory=list)
@@ -238,9 +291,12 @@ def build_runners(registry: Registry, trend_ema: pd.Series | None,
         except Exception as exc:  # noqa: BLE001
             log.error("cannot construct %s (%s); skipping", record.name, exc)
             continue
+        params = getattr(strategy, "params", None)
+        cancel_time = getattr(params, "entry_cancel_time", None) or rules.ENTRY_CUTOFF
         runners.append(StrategyRunner(
             name=record.name, strategy=strategy, status=record.status,
             mode=broker.MODE_SHADOW if mode == "shadow" else broker.MODE_PAPER,
+            entry_cancel_time=cancel_time,
         ))
         log.info("running %s (status=%s, mode=%s)", record.name, record.status, mode)
     return runners
@@ -312,6 +368,13 @@ class Desk:
         self.closed_dates = set(closed_dates)
         self.day_bars: dict[date_type, list[feed_mod.Bar]] = {}
         self.current_day: date_type | None = None
+        #: Set when the webhook server failed to start. Surfaced in every
+        #: heartbeat and posted once Discord is up - never silent.
+        self.feed_error: str | None = None
+        self.owner_id: int | None = approvals.owner_id_from_env()
+        #: Human-gated tickets awaiting Execute, by ticket id.
+        self.pending: dict[str, tuple[tickets_mod.Signal, object]] = {}
+        self.decisions_path: Path = approvals.decisions_mod.DECISIONS_PATH
 
     # -- ops ---------------------------------------------------------------
 
@@ -376,6 +439,11 @@ class Desk:
             f"**Open** {len(self.state.open_positions)} position(s), net {net:+d}\n"
             f"**Mode** shadow - no orders are placed"
         )
+        if self.feed_error:
+            # Repeated on every beat on purpose. A feed that is down is the
+            # single most important fact about the desk, and one notice at
+            # startup scrolls away.
+            body += f"\n\n**FEED DOWN** {self.feed_error}"
         await self.poster.send("ops", "Heartbeat", body)
         self.state.last_heartbeat = rules.to_et(now).isoformat()
         self.save()
@@ -500,31 +568,90 @@ class Desk:
             signal, state, now,
             self.early_close_dates, self.roll_dates, self.closed_dates,
         )
-        outcome = tickets_mod.submit(
-            signal, decision, self.adapter, self.account,
-            self._status_for(signal.strategy), now, self.journal_path,
-        )
-        if outcome.allowed and outcome.ticket is not None:
-            self.state.add_position(desk_state.OpenPosition(
-                ticket_id=outcome.ticket.ticket_id,
-                strategy=signal.strategy,
-                instrument=signal.instrument,
-                direction=signal.direction,
-                contracts=int(signal.contracts),
-                entry_price=float(outcome.ticket.entry_price),
-                stop_price=float(signal.stop_price),
-                target_price=signal.target_price,
-                entry_time=outcome.ticket.entry_time,
-                mode=signal.mode,
-                session_date=outcome.ticket.session_date,
-            ))
-            self.state.tickets_allowed += 1
-            await self.post_ticket(outcome)
-        else:
+        if not decision.allowed:
+            outcome = tickets_mod.Outcome(signal=signal, decision=decision)
             self.state.tickets_blocked += 1
             await self.post_block(outcome)
+            self.save()
+            return outcome
+
+        status = self._status_for(signal.strategy)
+        if signal.mode == broker.MODE_SHADOW:
+            # Shadow is the plumbing test: simulate immediately, exactly as
+            # before. The buttons on its embed record the operator's
+            # judgement; Execute is disabled because there is no order path
+            # for a rejected strategy, and Don't trade records a decline
+            # without touching the bot's own shadow record.
+            outcome = tickets_mod.submit(
+                signal, decision, self.adapter, self.account, status, now,
+                self.journal_path,
+            )
+            if outcome.allowed and outcome.ticket is not None:
+                self._open_from(outcome, signal)
+                self.state.tickets_allowed += 1
+                await self.post_ticket(outcome, now, status, ticket_id=None)
+            else:
+                self.state.tickets_blocked += 1
+                await self.post_block(outcome)
+            self.save()
+            return outcome
+
+        # paper / live: human-gated. Nothing is submitted until Execute is
+        # pressed; the ticket is posted under an id minted now so the journal
+        # row written later carries the id the operator saw.
+        outcome = tickets_mod.Outcome(signal=signal, decision=decision)
+        ticket_id = store.new_ticket_id()
+        self.pending[ticket_id] = (signal, decision)
+        self.state.tickets_allowed += 1
+        await self.post_ticket(outcome, now, status, ticket_id=ticket_id)
         self.save()
         return outcome
+
+    def _open_from(self, outcome: tickets_mod.Outcome,
+                   signal: tickets_mod.Signal) -> None:
+        self.state.add_position(desk_state.OpenPosition(
+            ticket_id=outcome.ticket.ticket_id,
+            strategy=signal.strategy,
+            instrument=signal.instrument,
+            direction=signal.direction,
+            contracts=int(signal.contracts),
+            entry_price=float(outcome.ticket.entry_price),
+            stop_price=float(signal.stop_price),
+            target_price=signal.target_price,
+            entry_time=outcome.ticket.entry_time,
+            mode=signal.mode,
+            session_date=outcome.ticket.session_date,
+        ))
+
+    async def execute_pending(self, ticket_id: str) -> str:
+        """Route a human-approved ticket. Called from the Execute button.
+
+        Returns a one-line note for the operator. A ``live`` approval with no
+        live adapter is **refused**, not quietly paper-filled: an approval the
+        operator believes went to a broker must never have gone somewhere
+        else instead.
+        """
+        item = self.pending.pop(ticket_id, None)
+        if item is None:
+            return f"ticket `{ticket_id}` is not pending"
+        signal, decision = item
+        status = self._status_for(signal.strategy)
+        now = pd.Timestamp.now(tz=rules.ET)
+        if status == "live":
+            try:
+                broker.adapter_for(broker.MODE_LIVE)
+            except broker.BrokerRefusal as exc:
+                return f"NOT routed - {exc}"
+        outcome = tickets_mod.submit(
+            signal, decision, self.adapter, self.account, status, now,
+            self.journal_path, ticket_id=ticket_id,
+        )
+        if outcome.allowed and outcome.ticket is not None:
+            self._open_from(outcome, signal)
+            self.save()
+            return (f"routed to {outcome.fill.adapter} (simulated="
+                    f"{outcome.fill.simulated}), ticket `{ticket_id}` open")
+        return f"NOT routed - {outcome.refusal or '; '.join(outcome.decision.blocks)}"
 
     def _status_for(self, name: str) -> str:
         try:
@@ -532,28 +659,64 @@ class Desk:
         except KeyError:
             return "unknown"
 
-    async def post_ticket(self, outcome: tickets_mod.Outcome) -> None:
-        s, t = outcome.signal, outcome.ticket
+    def _cancel_time_for(self, strategy: str) -> time_type:
+        for runner in self.runners:
+            if runner.name == strategy:
+                return runner.entry_cancel_time
+        return rules.ENTRY_CUTOFF
+
+    def ticket_view(self, signal: tickets_mod.Signal, status: str,
+                    ticket_id: str, now: pd.Timestamp) -> approvals.TicketView:
+        cancel = self._cancel_time_for(signal.strategy)
+        expires = pd.Timestamp.combine(rules.session_date(now), cancel).tz_localize(rules.ET)
+        on_execute = None
+        if status in approvals.EXECUTABLE_STATUSES:
+            async def on_execute(_tid=ticket_id) -> str:
+                return await self.execute_pending(_tid)
+        return approvals.TicketView(
+            ticket_id=ticket_id, strategy=signal.strategy, strategy_status=status,
+            mode=signal.mode, instrument=signal.instrument,
+            direction=signal.direction, entry_price=signal.entry_price,
+            stop_price=signal.stop_price, owner_id=self.owner_id,
+            expires_at=expires, on_execute=on_execute,
+            journal_path=self.decisions_path,
+        )
+
+    async def post_ticket(self, outcome: tickets_mod.Outcome, now: pd.Timestamp,
+                          status: str, ticket_id: str | None) -> None:
+        s = outcome.signal
+        t = outcome.ticket
+        tid = ticket_id or (t.ticket_id if t is not None else "?")
+        entry = t.entry_price if t is not None else s.entry_price
+        risk = t.risk_dollars if t is not None else outcome.decision.risk_dollars
         target = ("-" if s.target_price is None else f"{s.target_price:,.2f}")
         header = outcome.label or "PAPER"
+        if t is not None and outcome.fill is not None:
+            mode_line = (f"**Mode** {s.mode} - simulated by {outcome.fill.adapter}, "
+                         f"no order was placed")
+        else:
+            mode_line = (f"**Mode** {s.mode} - awaiting your decision; nothing "
+                         f"is routed until Execute is pressed")
+        cancel = self._cancel_time_for(s.strategy)
         body = (
             f"**{header}**\n\n"
-            f"**Strategy** {s.strategy} ({self._status_for(s.strategy)})\n"
+            f"**Strategy** {s.strategy} ({status})\n"
             f"**Direction** {s.direction.upper()}\n"
-            f"**Entry** {t.entry_price:,.2f}   **Stop** {s.stop_price:,.2f}   "
+            f"**Entry** {entry:,.2f}   **Stop** {s.stop_price:,.2f}   "
             f"**Target** {target}\n"
             f"**Size** {s.contracts} {s.instrument}   "
-            f"**Risk** ${t.risk_dollars:,.2f}\n"
-            f"**Mode** {s.mode} - simulated by {outcome.fill.adapter}, "
-            f"no order was placed\n"
-            f"**Ticket** `{t.ticket_id}`"
+            f"**Risk** ${risk:,.2f}\n"
+            f"{mode_line}\n"
+            f"**Ticket** `{tid}`\n"
+            f"**Buttons expire** {cancel:%H:%M} ET"
         )
         if outcome.decision.warnings:
             body += "\n\n**Notes**\n" + "\n".join(
                 f"- {w}" for w in outcome.decision.warnings)
+        view = self.ticket_view(s, status, tid, now)
         await self.poster.send("tickets", f"{s.strategy} {s.direction} "
                                           f"{s.contracts} {s.instrument}",
-                               body, colour=0x3A7D44)
+                               body, colour=0x3A7D44, view=view)
 
     async def post_block(self, outcome: tickets_mod.Outcome) -> None:
         s = outcome.signal
@@ -738,7 +901,7 @@ def build_desk(journal_path: Path, state_path: Path, echo: bool = True,
     return Desk(
         registry=registry,
         runners=runners,
-        poster=Poster(client=client, channels=Channels.from_env(), echo=echo),
+        poster=Poster(client=client, channel_name=channel_name_from_env(), echo=echo),
         state=state,
         adapter=broker.PaperAdapter(),
         account=account,
@@ -762,9 +925,37 @@ async def run_replay(desk: Desk, replay: feed_mod.ReplayFeed) -> None:
 
 
 async def run_live(desk: Desk, host: str, port: int, token: str | None) -> None:
+    """The feed: webhook server plus the bar loop. Started exactly once.
+
+    A bind failure does not kill the desk and is never silent. uvicorn
+    responds to a port already in use by logging and calling ``sys.exit`` from
+    inside the serving task - which is why the reconnect bug presented as the
+    whole process exiting. Both ``OSError`` and that ``SystemExit`` are caught
+    here, recorded on ``desk.feed_error``, shouted to the log, and posted to
+    Discord (buffered until the gateway is up). The bar loop then waits on a
+    queue nothing will ever fill, which is the correct behaviour: the desk
+    stays up, keeps heartbeating with FEED DOWN in every beat, and the
+    operator can see exactly what is wrong.
+    """
     queue: asyncio.Queue = asyncio.Queue()
     webhook = feed_mod.WebhookFeed(queue, host=host, port=port, token=token)
-    server = asyncio.create_task(webhook.run())
+
+    async def serve() -> None:
+        try:
+            await webhook.run()
+        except (OSError, SystemExit) as exc:
+            desk.feed_error = (f"webhook server failed to start on {host}:{port} "
+                               f"({type(exc).__name__}: {exc}). No bars will "
+                               f"arrive until the desk is restarted.")
+            log.critical("FEED DOWN: %s", desk.feed_error)
+            await desk.poster.send(
+                "ops", "FEED DOWN - webhook failed to start",
+                desk.feed_error + "\n\nIs another desk already running on this "
+                "port? Check with:  netstat -ano | findstr :" + str(port),
+                colour=0x9E2B25,
+            )
+
+    server = asyncio.create_task(serve())
     await desk.reconcile(pd.Timestamp.now(tz=rules.ET))
     try:
         async for bar in feed_mod.drain(queue):
@@ -773,7 +964,110 @@ async def run_live(desk: Desk, host: str, port: int, token: str | None) -> None:
                 continue
             await desk.on_bar(bar)
     finally:
-        server.cancel()
+        # Graceful first, cancel only if it will not go. See WebhookFeed.stop.
+        webhook.stop()
+        try:
+            await asyncio.wait_for(asyncio.shield(server), timeout=5)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
+            server.cancel()
+
+
+class DeskClient:
+    """The Discord side of the desk, built so it cannot restart the feed.
+
+    The feed is started from ``setup_hook``, which discord.py calls **exactly
+    once**, after login and before the first gateway connection. ``on_ready``
+    fires on the initial connection *and again on every reconnect*, and the
+    previous version started the feed from there - so a reconnect tried to
+    bind port 8787 a second time and uvicorn's ``sys.exit`` took the process
+    down. ``start_feed_once`` is additionally idempotent, and
+    ``tests/test_desk_discord.py`` calls ``on_ready`` twice and asserts the
+    feed started once and nothing exited.
+
+    Written as a mixin over ``discord.Client`` rather than a subclass at
+    module level so the module imports without discord.py (replay does not
+    need it); :func:`make_client` binds the two.
+    """
+
+    def _init_desk(self, desk: Desk, feed_factory) -> None:
+        self.desk = desk
+        self._feed_factory = feed_factory
+        self.feed_task: asyncio.Task | None = None
+        self.feed_starts = 0
+        self.ready_count = 0
+        self.fatal: str | None = None
+
+    def start_feed_once(self) -> bool:
+        if self.feed_task is not None:
+            return False
+        self.feed_starts += 1
+        self.feed_task = asyncio.create_task(self._feed_factory())
+        return True
+
+    async def setup_hook(self) -> None:
+        self.start_feed_once()
+
+    async def stop_feed(self) -> None:
+        """Wind the feed down before a fatal close, so the exit is quiet."""
+        task = self.feed_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
+            pass
+
+    async def on_ready(self) -> None:
+        self.ready_count += 1
+        poster = self.desk.poster
+        if self.ready_count == 1:
+            error = await poster.resolve_channel()
+            if error:
+                self.fatal = error
+                log.critical("cannot post to Discord: %s", error)
+                await self.stop_feed()
+                await self.close()
+                return
+            poster.ready = True
+            await poster.send(
+                "ops", "Desk online",
+                f"Connected as {self.user}. Posting to #{poster.channel.name}.\n"
+                f"Strategies: {', '.join(f'{r.name} [{r.mode}]' for r in self.desk.runners) or 'none'}\n"
+                f"Owner id: {self.desk.owner_id or 'NOT SET - no one can press ticket buttons'}",
+            )
+        else:
+            poster.ready = True
+            await poster.send(
+                "ops", f"Discord reconnected (#{self.ready_count - 1})",
+                f"Gateway session re-established as {self.user}. The bar feed "
+                f"was not interrupted; {len(poster.buffer)} buffered post(s) "
+                f"follow.",
+            )
+        await poster.flush()
+        # Never starts a second feed. Kept explicit so the invariant is a
+        # line of code rather than an absence of one.
+        assert not self.start_feed_once(), "feed must already be running"
+
+    async def on_resumed(self) -> None:
+        self.desk.poster.ready = True
+        await self.desk.poster.flush()
+
+    async def on_disconnect(self) -> None:
+        # Posts made from here until the next on_ready/on_resumed are buffered.
+        self.desk.poster.ready = False
+
+
+def make_client(desk: Desk, feed_factory):
+    """Bind :class:`DeskClient` to a real ``discord.Client``."""
+    import discord  # noqa: PLC0415
+
+    class _Client(DeskClient, discord.Client):
+        def __init__(self) -> None:
+            discord.Client.__init__(self, intents=discord.Intents.default())
+            self._init_desk(desk, feed_factory)
+
+    return _Client()
 
 
 def main(argv=None) -> int:
@@ -829,26 +1123,38 @@ def main(argv=None) -> int:
         asyncio.run(run_replay(desk, replay))
         return 0
 
-    token = os.environ.get("DISCORD_TOKEN") if not args.no_discord else None
+    webhook_token = os.environ.get("DESK_WEBHOOK_TOKEN")
+    token = (os.environ.get("DISCORD_TOKEN") or "").strip()
+    if not args.no_discord and not token:
+        # Checked before build_desk loads 40 MB of bars: a configuration
+        # error should fail in a second, not a minute. And it is not a
+        # fallback to stdout - a desk you believe is posting to Discord while
+        # it prints to a window is the failure mode being refused.
+        print("\nERROR: DISCORD_TOKEN is not set in .env.\n"
+              "  Either add it, or pass --no-discord to run console-only on "
+              "purpose.\n", file=sys.stderr)
+        return 2
+
     desk = build_desk(Path(args.journal), Path(args.state), echo=not args.quiet)
-    if not token:
-        log.warning("no DISCORD_TOKEN; posting to stdout only")
-        asyncio.run(run_live(desk, args.host, args.port,
-                             os.environ.get("DESK_WEBHOOK_TOKEN")))
+
+    if args.no_discord:
+        # Explicitly console-only. This is the one legitimate stdout mode.
+        asyncio.run(run_live(desk, args.host, args.port, webhook_token))
         return 0
 
-    import discord  # noqa: PLC0415
+    if desk.owner_id is None:
+        log.warning("DESK_OWNER_ID is not set: ticket buttons will refuse "
+                    "everyone. Set it in .env (Discord > Developer Mode > "
+                    "Copy User ID).")
 
-    client = discord.Client(intents=discord.Intents.default())
+    client = make_client(desk, lambda: run_live(desk, args.host, args.port,
+                                                webhook_token))
     desk.poster.client = client
-
-    @client.event
-    async def on_ready() -> None:  # noqa: D401
-        log.info("connected to discord as %s", client.user)
-        asyncio.create_task(run_live(desk, args.host, args.port,
-                                     os.environ.get("DESK_WEBHOOK_TOKEN")))
-
     client.run(token, log_handler=None)
+
+    if client.fatal:
+        print(f"\nERROR: {client.fatal}\n", file=sys.stderr)
+        return 2
     return 0
 
 

@@ -95,6 +95,42 @@ and `close.close_ticket`. `tests/test_desk_rules.py` asserts the decisions are
 identical check-for-check, so a guard added to one path and not the other is a
 failing test rather than a silent divergence.
 
+**Ticket buttons and the decisions journal (added 2026-09-08).** Every ticket
+embed carries **Execute** and **Don't trade**, pressable only by the Discord
+user in `DESK_OWNER_ID`. Presses and expiries go to `journal/decisions.jsonl`
+as the *operator's* record, separate from the bot's shadow journal, and
+`journal/review.py` reports them in their own section. Three things a future
+session must not undo:
+
+- **They are reported, not counted.** Entry 3's gate is pre-registered as
+  trades logged through `pretrade.py`, and its own text allows only a dated
+  addendum, never an edit. A click on an orb2 signal is not a discretionary
+  trade — the mechanism is rejected and the thesis is the bot's — and a gate
+  that counted approved orb2 signals could be passed by an idea the log has
+  already killed. The operator asked for them to count; this was declined on
+  those grounds and the addendum offered instead. If the addendum is written,
+  the count changes *after* it, not before.
+- **No order path for a rejected strategy, at two layers.** The Execute button
+  is disabled with the label `Execute — unavailable (strategy rejected)`, and
+  `approvals.TicketView.decide` refuses an approve on any status but
+  `paper`/`live` even when reached directly. A `live` approval with no live
+  adapter is refused, not quietly paper-filled. `tests/test_desk_discord.py`
+  asserts all three.
+- **Shadow and paper flow differently, on purpose.** Shadow signals are
+  simulated immediately (the plumbing test, unchanged). Paper/live signals are
+  posted and held in `Desk.pending` until Execute; `tickets.submit` then
+  writes the journal row under the id the operator saw.
+
+**Discord is now required and the feed starts once.** `DESK_CHANNEL_NAME` is
+resolved by name on the first `on_ready`; not found or not postable is fatal
+at startup, and a missing `DISCORD_TOKEN` exits before the parquet loads.
+`--no-discord` is the one explicit console-only mode. The feed server is
+started from `setup_hook`, which discord.py calls exactly once — it used to
+start from `on_ready`, which fires on every reconnect, so a reconnect bound
+port 8787 twice and uvicorn's `sys.exit` took the process down. Posts made
+while the gateway is down are buffered and flushed in order; a bind failure is
+recorded on `desk.feed_error` and repeated in every heartbeat.
+
 **One known gap is pinned rather than fixed.** `rules.py` still has no
 session-*open* guard, so a signal at 08:00 passes every check — 08:00 is
 numerically before an afternoon cutoff. `orb2` slices to `09:30–15:59` and

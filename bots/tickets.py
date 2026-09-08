@@ -158,8 +158,14 @@ def submit(
     strategy_status: str,
     now: pd.Timestamp,
     journal_path: Path = SHADOW_JOURNAL,
+    ticket_id: str | None = None,
 ) -> Outcome:
     """Place an allowed signal, or record why it was not placed.
+
+    ``ticket_id`` lets a human-gated ticket keep the id it was posted under:
+    the desk posts the embed first, the operator presses Execute later, and
+    the journal row must carry the id the operator saw and the decisions
+    journal recorded. Omitted, a fresh id is minted as before.
 
     A blocked decision writes nothing. ``pretrade`` takes the same position -
     "the journal records trades you were permitted to take, so a blocked idea
@@ -199,6 +205,8 @@ def submit(
         )
 
     ticket = pretrade.build_ticket(signal.as_request(), decision, rules.to_et(now))
+    if ticket_id:
+        ticket.ticket_id = str(ticket_id)
     # Re-stamp the fields the desk owns. `build_ticket` is reused for its
     # id/field construction; entry price and time come from the fill, and the
     # provenance fields below are what keep a shadow row identifiable forever.

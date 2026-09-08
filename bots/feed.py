@@ -363,9 +363,22 @@ class WebhookFeed:
         self._loop = asyncio.get_running_loop()
         config = uvicorn.Config(self.app, host=self.host, port=self.port,
                                 log_level="warning", access_log=False)
-        server = uvicorn.Server(config)
+        self.server = uvicorn.Server(config)
         log.info("webhook listening on http://%s:%d/bar", self.host, self.port)
-        await server.serve()
+        await self.server.serve()
+
+    def stop(self) -> None:
+        """Ask uvicorn to exit cleanly.
+
+        Cancelling the serving task instead works, but uvicorn's lifespan
+        handler logs the CancelledError as a full traceback - which, on a
+        deliberate fatal exit, buries the one line the operator needs under
+        twenty lines of noise. ``should_exit`` lets ``serve()`` return on its
+        own.
+        """
+        server = getattr(self, "server", None)
+        if server is not None:
+            server.should_exit = True
 
 
 async def drain(queue: "asyncio.Queue[Bar | None]") -> AsyncIterator[Bar]:
