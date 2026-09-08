@@ -34,7 +34,7 @@ from engine import (  # noqa: E402
 )
 from metrics import compute_metrics  # noqa: E402
 from london import LondonBreakout, LondonParams  # noqa: E402
-from run_london import apply_daily_limit  # noqa: E402
+from run_london import apply_daily_limit, fold_frame  # noqa: E402
 from scan import slice_by_date  # noqa: E402
 from trend import intraday_ema  # noqa: E402
 
@@ -118,10 +118,28 @@ def main() -> int:
     ap.add_argument("--slippage-ticks", type=float, default=2.0)
     ap.add_argument("--replications", type=int, default=bb.REPLICATIONS)
     ap.add_argument("--paths", type=int, default=20_000)
+    ap.add_argument("--folds-only", action="store_true",
+                    help="rebuild the per-fold CSVs from the saved trade "
+                         "streams and exit; seconds rather than the ~15 "
+                         "minutes the bootstrap takes")
     args = ap.parse_args()
 
     costs = CostModel(commission_per_side=1.25, slippage_ticks=args.slippage_ticks)
     RESULTS.mkdir(parents=True, exist_ok=True)
+
+    if args.folds_only:
+        written = 0
+        for name in ("mes", "mnq"):
+            stream = RESULTS / f"entry7_{name}_1x_on.csv"
+            if not stream.exists():
+                print(f"  skip {stream.name} - not on disk")
+                continue
+            trades = pd.read_csv(stream)
+            out = RESULTS / f"entry7_{name}_folds.csv"
+            fold_frame(trades, args.paths).to_csv(out, index=False)
+            print(f"  wrote {out.name} from {len(trades):,} trades")
+            written += 1
+        return 0 if written else 1
 
     print(LINE)
     print("ENTRY 7 - replication of entry 6's non-null finding, on MNQ")
@@ -162,6 +180,13 @@ def main() -> int:
             naive_departure=100 * (obs - naive),
         )
         trades.to_csv(RESULTS / f"entry7_{name.lower()}_1x_on.csv", index=False)
+        # Per-fold table, in walkforward.py's column vocabulary so the bot can
+        # render it with the same code it uses for ORB. Shares run_london's
+        # fold_frame so entry 6 and entry 7 cannot disagree about what a fold
+        # is - this entry is a replication, and a second definition of the
+        # yearly split would quietly make it a different test.
+        fold_frame(trades, args.paths).to_csv(
+            RESULTS / f"entry7_{name.lower()}_folds.csv", index=False)
 
     print()
     print(LINE)

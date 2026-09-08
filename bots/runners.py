@@ -59,10 +59,19 @@ class WorkError(RuntimeError):
 
 @dataclass(frozen=True)
 class Runner:
-    """How to build and run one registry strategy."""
+    """How to build and run one registry strategy.
+
+    ``build`` is optional. A strategy that sizes per session - entry 6 sets
+    contracts from the overnight range height - cannot be replayed through
+    ``engine.price_trades``, which takes one scalar ``contracts`` for the whole
+    trade list. Those entries carry ``build=None``, which makes ``/backtest``
+    refuse with a reason rather than quietly reporting a uniform-size run that
+    was never the strategy. ``/walkforward`` and ``/evalsim`` read saved
+    outputs and work regardless.
+    """
     bar_minutes: int      # 1 means the raw 1-minute bars
     contracts: int
-    build: object         # (bars, roll_dates, early_closes) -> Strategy
+    build: object | None  # (bars, roll_dates, early_closes) -> Strategy
     walkforward_csv: str | None
     oos_csv: str | None
     note: str = ""
@@ -105,6 +114,27 @@ RUNNERS: dict[str, Runner] = {
     "orb_flat_1030": Runner(1, 4, _orb_flat, None, "orb_flat_7yr_slip1.csv",
                             note="entry 5, guards active; no fold table - "
                                  "entry 5 has no walk-forward, only OOS years"),
+    # Entry 6 and 7. Read-only: build is None because these size per session
+    # from the overnight range, which the scalar-contracts engine cannot
+    # replay. See the Runner docstring.
+    #
+    # All three are the 2-tick arm. That is entry 6's pre-registered BASE
+    # CASE, not the optimistic sensitivity, and it is the arm each verdict
+    # quotes - london_1x reproduces -$7,702 with 1 of 7 folds, london_2x
+    # -$20,781 with 2 of 7, entry 7's MNQ +$116 with 4 of 7. Pointing these at
+    # the slip1 files would show numbers that appear in no verdict.
+    "london_1x": Runner(1, 0, None, "london_1x_on_folds_slip2.csv",
+                        "london_1x_on_slip2.csv",
+                        note="entry 6, 1x target, filter ON, 2 ticks/side "
+                             "(base case); risk-based per-session sizing"),
+    "london_2x": Runner(1, 0, None, "london_2x_off_folds_slip2.csv",
+                        "london_2x_off_slip2.csv",
+                        note="entry 6, 2x target, filter OFF, 2 ticks/side - "
+                             "the unfiltered arm the verdict quotes"),
+    "london_mnq_replication": Runner(1, 0, None, "entry7_mnq_folds.csv",
+                                     "entry7_mnq_1x_on.csv",
+                                     note="entry 7, MNQ, entry 6's 1x/ON spec "
+                                          "reproduced unchanged, 2 ticks/side"),
 }
 
 
@@ -153,6 +183,15 @@ def parse_day(text: str, label: str) -> date:
 def run_backtest(name: str, start_text: str, end_text: str) -> tuple[dict, bytes]:
     """Metrics and an equity-curve PNG for one strategy over one window."""
     run = _runner(name)
+    if run.build is None:
+        raise WorkError(
+            f"`{name}` cannot be re-run here: it sizes per session, and the "
+            f"backtest engine takes one contract count for the whole trade "
+            f"list. Reporting it at a uniform size would be a different "
+            f"strategy from the one that was tested. "
+            f"Use `/walkforward {name}` or `/evalsim {name}`, which read the "
+            f"saved run.{(' ' + run.note) if run.note else ''}"
+        )
     start, end = parse_day(start_text, "start"), parse_day(end_text, "end")
     if start > end:
         raise WorkError(f"start {start} is after end {end}")
@@ -244,11 +283,17 @@ def run_walkforward(name: str) -> str:
         )
     path = RESULTS / run.walkforward_csv
     if not path.exists():
+        how = {
+            "london_1x": "backtests\\run_london.py --folds-only",
+            "london_2x": "backtests\\run_london.py --folds-only",
+            "london_mnq_replication": "backtests\\run_entry7.py --folds-only",
+        }.get(name, "backtests\\walkforward.py")
         raise WorkError(
             f"no saved walk-forward for `{name}` - expected "
-            f"`backtests/results/{run.walkforward_csv}`. Run it from the CLI; "
-            f"the ORB one takes about 55 minutes, which is why this command "
-            f"reads the saved output rather than starting one."
+            f"`backtests/results/{run.walkforward_csv}`. Regenerate with "
+            f"`venv\\Scripts\\python.exe {how}`. This command reads the saved "
+            f"output rather than starting a run: the ORB walk-forward alone "
+            f"takes about 55 minutes."
         )
     df = pd.read_csv(path)
     produced = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")

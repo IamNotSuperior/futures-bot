@@ -184,28 +184,83 @@ def arm_stats(trades: pd.DataFrame, diag: pd.DataFrame, paths: int) -> dict:
     }
 
 
-def fold_table(trades: pd.DataFrame, label: str, paths: int) -> tuple[str, int]:
-    out = [LINE, f"PER-FOLD - {label}", LINE,
-           f"{'year':>6}{'trades':>8}{'net P&L':>12}{'Sharpe':>9}{'PF':>8}"
-           f"{'hit%':>8}{'maxDD':>11}{'pass p':>9}  flag"]
-    t = trades.assign(year=pd.to_datetime(trades["entry_time"]).dt.year)
-    profitable = 0
+def fold_frame(trades: pd.DataFrame, paths: int) -> pd.DataFrame:
+    """Per-year fold statistics as a frame, one row per year in :data:`YEARS`.
+
+    Column names deliberately match ``backtests/walkforward.py``'s output
+    (``test_year``, ``test_net_pnl``, ...) so that ``bots/runners.py`` can
+    render a London fold table with the same code it uses for ORB. A second
+    column vocabulary would mean a second renderer, and the two would drift.
+
+    A year with no trades is kept as a zero row rather than dropped: "2021 had
+    no trades" and "2021 is missing from the table" read identically once
+    rendered, and only one of them is true.
+
+    This is the single source of the fold numbers - :func:`fold_table` renders
+    it rather than recomputing, so the printed table and the saved CSV cannot
+    disagree.
+    """
+    # utc=True, then back to ET. Two reasons, both load-bearing:
+    #
+    # A saved stream read back from CSV carries mixed offsets - -04:00 in EDT,
+    # -05:00 in EST - and pandas refuses to parse that into one column without
+    # `utc=True`. The live path passes tz-aware timestamps and never hit it.
+    #
+    # And the fold year must be the *ET* year. This strategy trades 19:00 to
+    # 09:25, so a 31 December evening entry is 1 January in UTC and would be
+    # counted in the following year's fold.
+    t = trades.assign(
+        year=pd.to_datetime(trades["entry_time"], utc=True)
+              .dt.tz_convert(rules.ET).dt.year
+    )
+    rows = []
     for year in YEARS:
         g = t[t["year"] == year]
         if g.empty:
-            out.append(f"{year:>6}{0:>8}{'-':>12}")
+            rows.append({
+                "test_year": year, "test_trades": 0, "test_net_pnl": 0.0,
+                "test_sharpe": 0.0, "test_profit_factor": 0.0,
+                "test_win_rate_pct": 0.0, "test_max_drawdown": 0.0,
+                "test_pass_probability": 0.0, "low_confidence": True,
+            })
             continue
         m = compute_metrics(g)
         daily = eval_sim.daily_pnl_from_trades(g)
         p = eval_sim.simulate(daily, paths=max(2000, paths // 5)).pass_probability
-        if m["net_pnl"] > 0:
-            profitable += 1
-        flag = "low-confidence" if len(g) < 20 else ""
+        rows.append({
+            "test_year": year,
+            "test_trades": len(g),
+            "test_net_pnl": float(m["net_pnl"]),
+            "test_sharpe": float(m["sharpe"]),
+            "test_profit_factor": float(m["profit_factor"]),
+            "test_win_rate_pct": float(m["win_rate_pct"]),
+            "test_max_drawdown": float(m["max_drawdown"]),
+            "test_pass_probability": float(p),
+            "low_confidence": len(g) < 20,
+        })
+    return pd.DataFrame(rows)
+
+
+def fold_table(trades: pd.DataFrame, label: str, paths: int,
+               frame: pd.DataFrame | None = None) -> tuple[str, int]:
+    """The printed per-fold table. Rendered from :func:`fold_frame`."""
+    folds = fold_frame(trades, paths) if frame is None else frame
+    out = [LINE, f"PER-FOLD - {label}", LINE,
+           f"{'year':>6}{'trades':>8}{'net P&L':>12}{'Sharpe':>9}{'PF':>8}"
+           f"{'hit%':>8}{'maxDD':>11}{'pass p':>9}  flag"]
+    for _, r in folds.iterrows():
+        if int(r["test_trades"]) == 0:
+            out.append(f"{int(r['test_year']):>6}{0:>8}{'-':>12}")
+            continue
+        flag = "low-confidence" if r["low_confidence"] else ""
         out.append(
-            f"{year:>6}{len(g):>8}{m['net_pnl']:>12,.0f}{m['sharpe']:>9.2f}"
-            f"{m['profit_factor']:>8.2f}{m['win_rate_pct']:>8.1f}"
-            f"{m['max_drawdown']:>11,.0f}{pct(p):>9}  {flag}"
+            f"{int(r['test_year']):>6}{int(r['test_trades']):>8}"
+            f"{r['test_net_pnl']:>12,.0f}{r['test_sharpe']:>9.2f}"
+            f"{r['test_profit_factor']:>8.2f}{r['test_win_rate_pct']:>8.1f}"
+            f"{r['test_max_drawdown']:>11,.0f}"
+            f"{pct(r['test_pass_probability']):>9}  {flag}"
         )
+    profitable = int((folds["test_net_pnl"] > 0).sum())
     out += ["-" * 104,
             f"  total ${trades['net_pnl'].sum():>+,.2f}   "
             f"folds profitable {profitable} of {len(YEARS)}   "
@@ -231,13 +286,47 @@ def kill_block(stats: dict, profitable: int, label: str) -> str:
     ])
 
 
+def rebuild_folds(tag: str, paths: int) -> int:
+    """Regenerate the per-fold CSVs from already-saved trade streams.
+
+    The fold table depends only on the trades, so it does not need the signal
+    generation the full run does. This exists because the streams were saved
+    before the fold CSVs were, and re-running the strategy for twenty minutes
+    to recover a table already implied by the data on disk is waste.
+    """
+    written = 0
+    for arm in ARMS:
+        for filt in FILTERS:
+            stream = RESULTS / f"london_{arm}_{filt.lower()}_{tag}.csv"
+            if not stream.exists():
+                print(f"  skip {stream.name} - not on disk")
+                continue
+            trades = pd.read_csv(stream)
+            out = RESULTS / f"london_{arm}_{filt.lower()}_folds_{tag}.csv"
+            fold_frame(trades, paths).to_csv(out, index=False)
+            print(f"  wrote {out.name} from {len(trades):,} trades")
+            written += 1
+    if not written:
+        print(f"No saved streams for {tag}; run without --folds-only first.")
+        return 1
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--slippage-ticks", type=float, default=2.0,
                     help="2 is entry 6's base case; 1 is the optimistic run")
     ap.add_argument("--commission", type=float, default=1.25)
     ap.add_argument("--paths", type=int, default=20_000)
+    ap.add_argument("--folds-only", action="store_true",
+                    help="rebuild the per-fold CSVs from the saved trade "
+                         "streams and exit; seconds rather than the ~20 "
+                         "minutes a full run takes, because the fold table is "
+                         "a function of the trades alone")
     args = ap.parse_args()
+
+    if args.folds_only:
+        return rebuild_folds(f"slip{args.slippage_ticks:g}", args.paths)
 
     costs = CostModel(commission_per_side=args.commission,
                       slippage_ticks=args.slippage_ticks)
@@ -281,7 +370,12 @@ def main() -> int:
             key = (arm, filt)
             label = f"target {arm}, filter {filt}, {tag}"
             print()
-            table, profitable = fold_table(streams[key], label, args.paths)
+            frame = fold_frame(streams[key], args.paths)
+            frame.to_csv(
+                RESULTS / f"london_{arm}_{filt.lower()}_folds_{tag}.csv",
+                index=False)
+            table, profitable = fold_table(streams[key], label, args.paths,
+                                           frame=frame)
             folds[key] = profitable
             print(table)
 

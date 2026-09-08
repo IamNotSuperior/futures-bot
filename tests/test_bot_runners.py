@@ -48,6 +48,120 @@ class TestStrategyResolution:
         for name in runners.RUNNERS:
             assert reg.get(name).class_path, f"{name} has no class_path"
 
+    def test_every_registry_entry_with_a_class_is_runnable(self):
+        """The other direction, and the one that catches a new strategy.
+
+        ``test_every_runner_is_in_the_registry`` stops a runner naming a
+        strategy that does not exist. This stops the opposite and far more
+        likely mistake: a strategy added to ``registry.yaml`` with a
+        ``class_path`` and no entry in ``RUNNERS``, which is invisible until
+        someone types ``/walkforward <name>`` in Discord and gets "no runnable
+        configuration" for a strategy that plainly exists.
+
+        Entries with ``class_path: null`` are exempt - ``manual_discretionary``
+        is a log entry, not code, and has nothing to run.
+        """
+        reg = runners.registry()
+        missing = [r.name for r in reg.all()
+                   if r.class_path and r.name not in runners.RUNNERS]
+        assert not missing, (
+            f"registry entries with a class but no runner: {missing}. "
+            f"Add each to RUNNERS in bots/runners.py - with build=None if it "
+            f"cannot be replayed through the scalar-contracts engine - so the "
+            f"bot can answer for it."
+        )
+
+    def test_saved_outputs_named_by_a_runner_exist(self):
+        """Every CSV a runner points at is on disk, where results exist.
+
+        These commands read saved output rather than recomputing, so a typo in
+        a filename is a runtime error in Discord and nothing else.
+
+        ``backtests/results/*`` is gitignored - the outputs are regenerable but
+        slow - so on a fresh clone there is nothing to check and this skips.
+        It is a check on *this* tree's ability to serve the commands, not a
+        claim about the repository.
+        """
+        present = [(n, lab, csv) for n, run in runners.RUNNERS.items()
+                   for lab, csv in (("walkforward", run.walkforward_csv),
+                                    ("oos", run.oos_csv))
+                   if csv is not None]
+        if not any((runners.RESULTS / csv).exists() for _, _, csv in present):
+            pytest.skip("backtests/results/ is empty (gitignored); nothing to check")
+        missing = [f"{n} {lab}: {csv}" for n, lab, csv in present
+                   if not (runners.RESULTS / csv).exists()]
+        assert not missing, (
+            f"runners name files that are not in backtests/results/: {missing}"
+        )
+
+    def test_per_session_sized_strategies_refuse_backtest(self):
+        """Entry 6 and 7 size per session; a uniform-size replay is not them."""
+        for name in ("london_1x", "london_2x", "london_mnq_replication"):
+            assert runners.RUNNERS[name].build is None
+            with pytest.raises(WorkError, match="sizes per session"):
+                runners.run_backtest(name, "2024-01-01", "2024-12-31")
+
+    def test_london_runners_point_at_the_two_tick_base_case(self):
+        """Entry 6's pre-registered base case is 2 ticks, not the optimistic 1.
+
+        The slip1 files exist and are the sensitivity arm; reporting them
+        would show numbers that appear in no verdict in the log.
+        """
+        for name in ("london_1x", "london_2x"):
+            run = runners.RUNNERS[name]
+            assert "slip2" in run.walkforward_csv
+            assert "slip2" in run.oos_csv
+
+
+def _require(name: str, attr: str = "walkforward_csv"):
+    """The saved file for ``name``, or skip. See the note on gitignore above."""
+    csv = getattr(runners.RUNNERS[name], attr)
+    path = runners.RESULTS / csv
+    if not path.exists():
+        pytest.skip(f"{csv} not present; regenerate with "
+                    f"run_london.py/run_entry7.py --folds-only")
+    return path
+
+
+class TestLondonSavedOutputs:
+    """The saved fold tables must still say what the verdicts say.
+
+    These are regression tests on the *numbers in the log*. entry 6 and 7 are
+    rejected and their verdicts are never revised, so a fold table that stops
+    reproducing -$7,702 / 1 of 7 means the regeneration path changed what a
+    fold means - which would quietly make the bot report something no verdict
+    ever said.
+    """
+
+    @pytest.mark.parametrize("name,net,profitable", [
+        ("london_1x", -7702, 1),
+        ("london_2x", -20781, 2),
+        ("london_mnq_replication", 116, 4),
+    ])
+    def test_fold_table_reproduces_the_recorded_verdict(self, name, net, profitable):
+        import pandas as pd
+
+        folds = pd.read_csv(_require(name))
+        assert len(folds) == 7, "entry 6 and 7 both use 2020-2026"
+        assert round(folds["test_net_pnl"].sum()) == pytest.approx(net, abs=2)
+        assert int((folds["test_net_pnl"] > 0).sum()) == profitable
+
+    @pytest.mark.parametrize("name", ["london_1x", "london_2x",
+                                      "london_mnq_replication"])
+    def test_walkforward_renders(self, name):
+        _require(name)
+        text = runners.run_walkforward(name)
+        assert "folds profitable" in text
+        assert "2020" in text and "2026" in text
+
+    @pytest.mark.parametrize("name", ["london_1x", "london_2x",
+                                      "london_mnq_replication"])
+    def test_evalsim_runs_off_the_saved_stream(self, name):
+        _require(name, "oos_csv")
+        fields = runners.run_evalsim(name, paths=2000)
+        assert fields["Source"].startswith(runners.RUNNERS[name].oos_csv)
+        assert "%" in fields["Pass probability"]
+
 
 class TestDateParsing:
     def test_parses_an_iso_date(self):
@@ -71,6 +185,7 @@ class TestDateParsing:
 
 class TestWalkforward:
     def test_renders_the_saved_orb_table(self):
+        _require("orb")
         text = runners.run_walkforward("orb")
         assert "walk-forward" in text
         for year in ("2020", "2026"):
@@ -89,12 +204,14 @@ class TestWalkforward:
 
 class TestEvalsim:
     def test_orb_pass_probability_renders(self):
+        _require("orb", "oos_csv")
         fields = runners.run_evalsim("orb", paths=2_000)
         assert "Pass probability" in fields
         assert "Expected attempts" in fields
         assert fields["Pass probability"].endswith("%")
 
     def test_reports_its_source_and_when_it_was_produced(self):
+        _require("orb", "oos_csv")
         fields = runners.run_evalsim("orb", paths=1_000)
         assert "orb_oos_stream_slip1.csv" in fields["Source"]
         assert "produced" in fields["Source"]
