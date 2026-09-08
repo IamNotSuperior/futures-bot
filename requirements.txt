@@ -10,6 +10,10 @@ databento
 discord.py
 pyyaml
 
+# /submit sends strategy submissions to the Claude API and writes the
+# generated code into strategies/generated/. See bots/generate.py.
+anthropic
+
 # Desk bot webhook receiver. uvicorn serves the FastAPI app that TradingView
 # alerts POST 1-minute bars to; httpx backs fastapi.testclient.TestClient, which
 # tests/test_desk_feed.py uses to drive the endpoint without opening a socket.

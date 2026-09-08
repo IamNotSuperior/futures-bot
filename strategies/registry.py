@@ -43,7 +43,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # That order matters: there are two modules called `review`, and journal's one
 # imports backtests' one by bare name. If journal came first, that import would
 # resolve to itself.
-for _folder in ("journal", "backtests", "strategies"):
+for _folder in ("journal", "backtests", "strategies", "strategies/generated"):
     _p = str(PROJECT_ROOT / _folder)
     if _p in sys.path:
         sys.path.remove(_p)
@@ -408,6 +408,56 @@ class Registry:
                     f"no-order plumbing test"
                 )
         return problems
+
+    # -- creating a record ------------------------------------------------
+
+    def add(self, name: str, class_path: str | None,
+            hypothesis_entry: int) -> StrategyRecord:
+        """Register a new strategy at ``proposed``. Never higher.
+
+        There is deliberately no ``status`` argument. If a caller could choose
+        the starting status, ``add`` would be a complete bypass of
+        :meth:`promote` and every gate behind it - a new record at ``live``
+        would reach a broker without an ACCEPTED walk-forward ever existing.
+        Everything above ``proposed`` is reached by promotion or not at all,
+        and ``tests/test_registry.py`` asserts that signature by introspection
+        the same way it does for ``promote``.
+
+        The hypothesis entry must already exist in the log. CLAUDE.md rule 12
+        requires the entry before any code, so a record whose entry number
+        points at nothing is a record that skipped the rule.
+        """
+        if name in self._records:
+            raise RegistryError(f"{name!r} is already in the registry")
+        entries = self.hypotheses()
+        if hypothesis_entry not in entries:
+            raise RegistryError(
+                f"hypotheses.md has no entry {hypothesis_entry}. Rule 12 wants "
+                f"the entry written before the code; register after it exists."
+            )
+        record = StrategyRecord(
+            name=name, class_path=class_path,
+            hypothesis_entry=int(hypothesis_entry), status="proposed",
+            verdict_commit=None, walkforward_verdict="",
+        )
+        self._records[name] = record
+        self.save()
+        return record
+
+    def set_verdict(self, name: str, verdict: str,
+                    verdict_commit: str | None = None) -> StrategyRecord:
+        """Record a walk-forward verdict against an existing record.
+
+        Does not change ``status`` - a verdict is evidence, and acting on it
+        is :meth:`promote`'s job. Keeping them apart means writing a verdict
+        can never advance anything by itself.
+        """
+        record = self.get(name)
+        updated = replace(record, walkforward_verdict=verdict.strip(),
+                          verdict_commit=verdict_commit or record.verdict_commit)
+        self._records[name] = updated
+        self.save()
+        return updated
 
     # -- the only way status changes --------------------------------------
 

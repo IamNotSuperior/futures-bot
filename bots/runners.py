@@ -26,7 +26,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-for _folder in ("journal", "backtests", "data", "strategies"):
+for _folder in ("journal", "backtests", "data", "strategies",
+                "strategies/generated", "bots"):
     _p = str(PROJECT_ROOT / _folder)
     if _p in sys.path:
         sys.path.remove(_p)
@@ -143,7 +144,10 @@ def registry() -> Registry:
 
 
 def known_strategies() -> list[str]:
-    return [n for n in registry().names() if n in RUNNERS]
+    import submissions  # noqa: PLC0415
+
+    return [n for n in registry().names()
+            if n in RUNNERS or submissions.is_generated(n)]
 
 
 def _runner(name: str) -> Runner:
@@ -274,8 +278,43 @@ def equity_png(trades: pd.DataFrame, title: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+def run_walkforward_generated(name: str, progress=None):
+    """Actually run the folds for a generated strategy. Returns the result.
+
+    Generated strategies have no saved output to read, so this is the one path
+    that computes. It is deliberately separate from :func:`run_walkforward` -
+    the existing entries' verdicts are frozen in the log, and a command that
+    recomputed them could report a number no verdict ever said.
+    """
+    import submissions  # noqa: PLC0415
+
+    if not submissions.is_generated(name):
+        raise WorkError(f"`{name}` is not a generated strategy")
+    record = registry().get(name)
+    if record.status not in ("testing", "paper", "live"):
+        raise WorkError(
+            f"`{name}` is at `{record.status}` status. A walk-forward runs "
+            f"after approval moves it to `testing`."
+        )
+    sys.path.insert(0, str(PROJECT_ROOT / "strategies" / "generated"))
+    import run_generated  # noqa: PLC0415
+
+    try:
+        return run_generated.run(name, record.class_path, progress=progress)
+    except (ValueError, FileNotFoundError) as exc:
+        raise WorkError(str(exc)) from None
+
+
 def run_walkforward(name: str) -> str:
     """The saved per-fold table. Never recomputed - see the module docstring."""
+    import submissions  # noqa: PLC0415
+
+    if submissions.is_generated(name):
+        raise WorkError(
+            f"`{name}` is a generated strategy - its walk-forward runs rather "
+            f"than being read from a cached table. Use the /walkforward "
+            f"command, which dispatches it as a background job."
+        )
     run = _runner(name)
     if not run.walkforward_csv:
         raise WorkError(

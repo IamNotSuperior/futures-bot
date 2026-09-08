@@ -174,10 +174,83 @@ async def backtest(interaction: discord.Interaction, strategy: str,
 @app_commands.describe(strategy="registry name")
 @app_commands.autocomplete(strategy=strategy_autocomplete)
 async def walkforward(interaction: discord.Interaction, strategy: str) -> None:
+    import submissions  # noqa: PLC0415
+
+    if submissions.is_generated(strategy):
+        await interaction.response.send_message(
+            f"running the walk-forward for `{strategy}` - this computes rather "
+            f"than reading a cached table, so it takes a few minutes.")
+        asyncio.create_task(_run_generated_walkforward(interaction, strategy))
+        return
+
     await ack(interaction, f"walk-forward `{strategy}`")
     try:
         text = await asyncio.to_thread(runners.run_walkforward, strategy)
         await interaction.edit_original_response(content=text[:1990])
+    except Exception as exc:
+        await report_error(interaction, exc)
+
+
+async def _run_generated_walkforward(interaction, name: str) -> None:
+    """Run the folds, freeze the verdict, then post. Order matters.
+
+    The verdict is written into hypotheses.md and committed **before** the
+    embed goes out, so there is never a window in which a human has seen a
+    number that is not yet frozen in the log.
+    """
+    import run_generated  # noqa: PLC0415
+    import submissions  # noqa: PLC0415
+
+    updates: list = []
+
+    def progress(message: str) -> None:
+        updates.append(message)
+
+    try:
+        result = await asyncio.to_thread(
+            runners.run_walkforward_generated, name, progress)
+        await interaction.edit_original_response(
+            content=f"`{name}`: {len(result.trades):,} trades scored. "
+                    f"Writing the verdict to the log before posting it ...")
+
+        record = runners.registry().get(name)
+        block = run_generated.verdict_block(result, record.hypothesis_entry)
+        summary = (
+            f"{'ACCEPTED' if result.accepted else 'REJECTED'}. "
+            f"${result.net_pnl:,.2f} over {len(result.trades):,} trades, "
+            f"{result.profitable_folds} of {run_generated.TOTAL_FOLDS} folds "
+            f"profitable, pass probability {result.pass_probability:.2%}, "
+            f"{result.blowups} evaluation(s) blown."
+        )
+        # Frozen first. Only then is anything posted.
+        commit = await asyncio.to_thread(
+            submissions.record_verdict, name, record.hypothesis_entry,
+            block, summary)
+
+        embed = _embed(
+            f"{name} walk-forward - "
+            f"{'ACCEPTED' if result.accepted else 'REJECTED'}",
+            {
+                "Verdict commit": f"`{commit}` - written to entry "
+                                  f"{record.hypothesis_entry} before this post",
+                "Trades": f"{len(result.trades):,}",
+                "Net P&L": f"${result.net_pnl:,.2f}",
+                "Folds profitable":
+                    f"{result.profitable_folds} of {run_generated.TOTAL_FOLDS}",
+                "Sharpe": f"{result.metrics['sharpe']:.2f}",
+                "Profit factor": f"{result.metrics['profit_factor']:.3f}",
+                "Max drawdown": f"${result.metrics['max_drawdown']:,.2f}",
+                "Worst day": f"${result.metrics['max_daily_loss']:,.2f}",
+                "Pass probability": f"{result.pass_probability:.2%}",
+                "Evaluations blown": f"{result.blowups}",
+                "Costs": "2 ticks/side slippage, $1.25/side commission",
+            },
+            COLOUR_OK if result.accepted else COLOUR_BAD)
+        if result.reasons:
+            embed.add_field(name="Why rejected",
+                            value="\n".join(f"- {r}" for r in result.reasons)[:1000],
+                            inline=False)
+        await interaction.edit_original_response(content=None, embed=embed)
     except Exception as exc:
         await report_error(interaction, exc)
 
@@ -207,6 +280,133 @@ async def hypotheses(interaction: discord.Interaction, n: int | None = None) -> 
         await interaction.edit_original_response(content=text[:1990])
     except Exception as exc:
         await report_error(interaction, exc)
+
+
+#: Submissions awaiting approval, by strategy name. In memory: a restart loses
+#: the pending set, which is the safe direction - the log entry and any
+#: registry row are already on disk, and approval can be re-driven from there.
+PENDING: dict = {}
+
+
+@bot.tree.command(name="submit",
+                  description="Submit a strategy: pre-registers it, generates "
+                              "code, runs the suite")
+@app_commands.describe(name="lowercase identifier, e.g. vwap_fade",
+                       description="what the strategy does",
+                       pine="optional .pine file")
+async def submit(interaction: discord.Interaction, name: str,
+                 description: str = "",
+                 pine: discord.Attachment | None = None) -> None:
+    import sandbox  # noqa: PLC0415
+    import submit_view  # noqa: PLC0415
+
+    try:
+        name = sandbox.validate_name(name)
+    except sandbox.SandboxError as exc:
+        await interaction.response.send_message(str(exc), ephemeral=True)
+        return
+
+    pine_source = ""
+    if pine is not None:
+        if not pine.filename.lower().endswith((".pine", ".txt")):
+            await interaction.response.send_message(
+                f"`{pine.filename}` is not a .pine or .txt file.", ephemeral=True)
+            return
+        if pine.size > 200_000:
+            await interaction.response.send_message(
+                "that attachment is too large (200 KB limit).", ephemeral=True)
+            return
+        pine_source = (await pine.read()).decode("utf-8", errors="replace")
+
+    async def on_modal(modal_interaction, submission) -> None:
+        await modal_interaction.response.send_message(
+            f"**{submission.name}** submitted. Pre-registering the entry "
+            f"before any code is generated ...")
+        asyncio.create_task(_run_submission(modal_interaction, submission))
+
+    # The modal must be the FIRST response to the slash command - Discord does
+    # not allow a modal after a deferral or another response.
+    await interaction.response.send_modal(
+        submit_view.build_modal(name, description, pine_source, on_modal))
+
+
+async def _run_submission(interaction, submission) -> None:
+    """Pre-register, generate, sandbox-write, test, register. Posts progress."""
+    import generate as generate_mod  # noqa: PLC0415
+    import sandbox  # noqa: PLC0415
+    import submissions  # noqa: PLC0415
+    import submit_view  # noqa: PLC0415
+
+    async def say(text: str) -> None:
+        try:
+            await interaction.edit_original_response(content=text[:1990])
+        except Exception:  # noqa: BLE001
+            log.info("progress: %s", text)
+
+    try:
+        run = await asyncio.to_thread(submissions.pre_register, submission)
+        await say(f"**{submission.name}** - entry {run.entry_number} "
+                  f"pre-registered and committed (`{run.pretrade_commit}`).\n"
+                  f"Asking Claude for an implementation ...")
+
+        result = await asyncio.to_thread(generate_mod.generate, submission)
+        await say(f"**{submission.name}** - entry {run.entry_number} committed "
+                  f"(`{run.pretrade_commit}`).\nGenerated "
+                  f"{len(result.strategy_source):,} chars of strategy and "
+                  f"{len(result.test_source):,} of tests. Screening ...")
+
+        await asyncio.to_thread(submissions.write_generated, run, result)
+        await say(f"**{submission.name}** - written to the sandbox. Running the "
+                  f"full suite (this takes a couple of minutes) ...")
+
+        passed, output = await asyncio.to_thread(submissions.run_tests)
+        if not passed:
+            run.status = submissions.STATUS_FAILED
+            embed = discord.Embed(
+                title=f"{submission.name} - tests FAILED, not registered",
+                description="The strategy stays unregistered. The entry is in "
+                            "the log; the code is on disk but nothing points "
+                            "at it.",
+                colour=COLOUR_BAD)
+            embed.add_field(name="pytest",
+                            value=f"```\n{submissions.tail(output)}\n```",
+                            inline=False)
+            await interaction.edit_original_response(content=None, embed=embed)
+            return
+
+        await asyncio.to_thread(submissions.register_proposed, run)
+        PENDING[run.registry_name] = run
+
+        embed = discord.Embed(
+            title=f"{submission.name} - suite passed, registered as proposed",
+            description=f"Entry {run.entry_number}, committed "
+                        f"`{run.pretrade_commit}` before any code existed.\n"
+                        f"Approve to freeze the implementation and move it to "
+                        f"`testing`.",
+            colour=COLOUR_OK)
+        embed.add_field(name="Draft entry",
+                        value=run.draft_entry[:1000] or "(none)", inline=False)
+        embed.add_field(
+            name="Files",
+            value=f"`strategies/generated/{submission.name}.py`\n"
+                  f"`tests/generated/test_{submission.name}.py`", inline=False)
+        view = submit_view.ApprovalView(
+            run, approvals.owner_id_from_env()).as_discord_view()
+        await interaction.edit_original_response(content=None, embed=embed,
+                                                 view=view)
+    except (sandbox.SandboxError, generate_mod.GenerationError,
+            submissions.SubmissionError) as exc:
+        await interaction.edit_original_response(
+            content=None,
+            embed=discord.Embed(title=f"{submission.name} - stopped",
+                                description=str(exc)[:4000], colour=COLOUR_BAD))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("submission failed")
+        await interaction.edit_original_response(
+            content=None,
+            embed=discord.Embed(title=f"{submission.name} - failed",
+                                description=_traceback_block(exc)[:4000],
+                                colour=COLOUR_BAD))
 
 
 @bot.tree.command(name="read",

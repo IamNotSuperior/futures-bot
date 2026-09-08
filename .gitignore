@@ -42,3 +42,9 @@ journal/tunnel.log
 # Live-bar mirror written by the desk for the research bot's /read.
 # Regenerated every session; the parquet cache is the durable copy.
 journal/live_bars/
+
+# Generated strategy artefacts. The .py files ARE tracked - an approved
+# strategy is frozen in a commit and must be reviewable - but their run
+# outputs are not.
+strategies/generated/__pycache__/
+tests/generated/__pycache__/

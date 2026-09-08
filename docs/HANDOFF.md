@@ -167,6 +167,49 @@ says so with the as-of date**, which matters because the cache ends
 yesterday's. `desk.live_bars_dir` is set to `None` for replays so a historical
 run cannot overwrite today's file.
 
+**`/submit`: strategies arrive through Discord (added 2026-09-08).** The
+pipeline is `bots/submissions.py`, with `bots/generate.py` (the Claude API
+call), `bots/sandbox.py` (what generated code may write and contain),
+`bots/submit_view.py` (modal + approval buttons) and
+`backtests/run_generated.py` (the walk-forward that actually runs).
+
+The ordering is the product, and a future session must not rearrange it:
+
+1. **Pre-register first.** The operator's mechanism, counterparty and kill
+   criteria are written to `hypotheses.md` as PROPOSED and **committed before
+   the API is called** — rule 12 says the entry comes before any code, and an
+   entry written afterwards is a description of what was produced rather than
+   a prediction. This is a deliberate departure from the brief, which put the
+   commit at approval; approval commits the *status change* and freezes the
+   implementation.
+2. Generate → sandbox-write → full suite → register at `proposed`.
+3. Approve (owner only) → `testing`, frozen in a commit.
+4. Walk forward → **verdict written and committed before the embed posts.**
+   `record_verdict` returns the hash the embed prints, so the hash cannot
+   exist before the freeze. Tested by `TestVerdictOrdering`.
+
+**The sandbox is two layers, and the second one matters more than the brief
+implies.** `safe_write` confines writes to `strategies/generated/` and
+`tests/generated/`, resolving before comparing so `..`, absolute paths and
+symlinks are refused. But the brief's write-sandbox does **not** contain the
+generated code, which pytest then imports and executes — it could read `.env`
+at import time and no path check would see it. So `screen_source` AST-screens
+imports, `eval`/`exec`/`open`, and dunder reflection, and `run_tests` runs the
+suite in a subprocess with every secret stripped from the environment. **The
+screen is a guard against mistakes and drift, not a security boundary against
+an adversary** — a determined attacker with code execution defeats an AST
+screen. The scrubbed environment is what makes that survivable.
+
+`Registry.add` creates records at `proposed` and takes **no status argument**
+— a status parameter would be a complete bypass of `promote` and every gate
+behind it. A test asserts the signature by introspection, as it does for
+`promote`. `set_verdict` records evidence and never touches status.
+
+`/walkforward` dispatches: a generated strategy **runs** (yearly folds,
+2 ticks/side, eval_sim, blow-up count, as a background job); everything else
+keeps reading saved output, because those verdicts are frozen in the log and
+recomputing them could report a number no verdict ever said.
+
 **One known gap is pinned rather than fixed.** `rules.py` still has no
 session-*open* guard, so a signal at 08:00 passes every check — 08:00 is
 numerically before an afternoon cutoff. `orb2` slices to `09:30–15:59` and
