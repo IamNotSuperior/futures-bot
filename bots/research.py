@@ -17,9 +17,16 @@ and the connection would drop mid-answer.
 **It never dies.** Every command body is wrapped, and anything unexpected is
 posted as a traceback rather than raised into the event loop.
 
-**It changes nothing.** This bot reads. There is no command here that promotes a
-strategy, writes to the journal, or places an order - promotion goes through
-``Registry.promote``, which is deliberately not exposed over chat.
+**It promotes nothing and places nothing.** No command here advances a
+strategy or reaches a broker - promotion goes through ``Registry.promote``,
+which is deliberately not exposed over chat.
+
+**One command does write.** ``/read`` carries "Log long" / "Log short"
+buttons, and pressing one appends a ticket to ``journal/trades.jsonl`` after
+``pretrade.evaluate`` allows it. That is the manual journal, and those trades
+count toward hypothesis entry 3 - see ``bots/read_log.py`` for why that is
+correct where the desk's ticket buttons are not. Only ``DESK_OWNER_ID`` may
+press them, and a blocked window writes nothing.
 """
 
 from __future__ import annotations
@@ -39,6 +46,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import approvals  # noqa: E402
 import runners  # noqa: E402
 from runners import WorkError  # noqa: E402
 
@@ -197,6 +205,32 @@ async def hypotheses(interaction: discord.Interaction, n: int | None = None) -> 
     try:
         text = await asyncio.to_thread(runners.hypothesis_text, n)
         await interaction.edit_original_response(content=text[:1990])
+    except Exception as exc:
+        await report_error(interaction, exc)
+
+
+@bot.tree.command(name="read",
+                  description="Describe the chart: levels, volatility, "
+                              "session state. Not a signal.")
+@app_commands.describe(symbol="MES or MNQ", timeframe="1m 3m 5m 15m 30m 60m")
+async def read(interaction: discord.Interaction, symbol: str = "MES",
+               timeframe: str = "5m") -> None:
+    await ack(interaction, f"read {symbol} {timeframe}")
+    try:
+        import chart_read  # noqa: PLC0415
+        import read_log  # noqa: PLC0415
+
+        result, fields = await asyncio.to_thread(
+            runners.run_read, symbol, timeframe)
+        embed = _embed(f"{result.symbol} {result.timeframe} read", fields)
+        # Always first, always present. A read that lost this line would look
+        # exactly like a recommendation.
+        embed.description = chart_read.DISCLAIMER
+        view = read_log.ReadLogView(
+            result, approvals.owner_id_from_env(), **result.calendar
+        ).as_discord_view()
+        await interaction.edit_original_response(content=None, embed=embed,
+                                                 view=view)
     except Exception as exc:
         await report_error(interaction, exc)
 

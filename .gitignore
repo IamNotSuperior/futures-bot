@@ -38,3 +38,7 @@ journal/desk_state.json
 journal/shadow_trades.jsonl
 #   tunnel.log           - cloudflared output, may contain the public hostname
 journal/tunnel.log
+
+# Live-bar mirror written by the desk for the research bot's /read.
+# Regenerated every session; the parquet cache is the durable copy.
+journal/live_bars/

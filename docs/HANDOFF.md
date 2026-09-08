@@ -131,6 +131,42 @@ port 8787 twice and uvicorn's `sys.exit` took the process down. Posts made
 while the gateway is down are buffered and flushed in order; a bind failure is
 recorded on `desk.feed_error` and repeated in every heartbeat.
 
+**`/read` and the manual journal (added 2026-09-08).** The research bot's
+`/read` describes a chart — EMA stack, prior-day and overnight levels, opening
+range, VWAP, round numbers, ATR, session clock and budget — and offers a
+bracket for **both** directions sized from `rules.py`. It carries no bias
+label, confidence score or opinion, by instruction and by test
+(`test_render_carries_no_opinion_bias_or_score`). Every embed leads with
+`chart_read.DISCLAIMER`.
+
+Three things a future session should not undo:
+
+- **`/read`'s "Log long" / "Log short" buttons DO count toward entry 3, and
+  the desk's ticket buttons do not.** This is not an inconsistency. A desk
+  ticket is an `orb2` signal — rejected mechanism, the bot's thesis — so
+  counting it would let a killed idea pass the gate. A `/read` is a
+  description with nothing to agree with: the operator picks the direction,
+  writes their own thesis in a modal, and the ticket goes through
+  `pretrade.evaluate` into `trades.jsonl`, which is exactly the mechanism
+  entry 3 pre-registered. The reasoning is in `bots/read_log.py`'s docstring.
+- **Logging re-evaluates at submit time.** Minutes pass between the embed and
+  the modal, and 16:20 can fall in that gap, so the bracket from the read is
+  re-run through `pretrade.evaluate` when the ticket is actually written. A
+  blocked window writes nothing at all — same position `pretrade.py` takes.
+- **A blocked window produces no bracket, only the reasons.** The blocks come
+  from `pretrade.evaluate` rather than a second implementation, so "the rules
+  would block this" means the same thing in the read, the journal and the desk.
+
+The desk and the research bot are **separate processes**, so `/read` cannot
+see the desk's in-memory bars. The desk mirrors each completed bar to
+`journal/live_bars/<date>.csv` (gitignored) and `/read` merges those over the
+parquet history — parquet supplies the 200-EMA and 20-day range history that
+one session cannot seed. With the desk down it falls back to parquet **and
+says so with the as-of date**, which matters because the cache ends
+2026-08-31: a silent fallback would present a week-old "prior day close" as
+yesterday's. `desk.live_bars_dir` is set to `None` for replays so a historical
+run cannot overwrite today's file.
+
 **One known gap is pinned rather than fixed.** `rules.py` still has no
 session-*open* guard, so a signal at 08:00 passes every check — 08:00 is
 numerically before an afternoon cutoff. `orb2` slices to `09:30–15:59` and

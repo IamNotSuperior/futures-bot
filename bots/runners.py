@@ -405,6 +405,38 @@ def _verdict_paragraph(body: str) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------
+# /read
+# ---------------------------------------------------------------------------
+
+
+def run_read(symbol: str = "MES", timeframe: str = "5m", now=None):
+    """A chart read. Returns ``(ChartRead, embed fields)``.
+
+    The calendar comes from ``pretrade.calendar_dates`` - the same three
+    sources the manual pre-trade check uses - so a roll day or an early close
+    reads identically here and there.
+    """
+    import chart_read  # noqa: PLC0415
+    import pretrade  # noqa: PLC0415
+
+    symbol = (symbol or "MES").strip().upper()
+    if not rules.is_allowed_instrument(symbol):
+        raise WorkError(
+            f"`{symbol}` is not permitted; rule 1 allows "
+            f"{', '.join(sorted(rules.ALLOWED_INSTRUMENTS))}"
+        )
+    now = now or pd.Timestamp.now(tz=rules.ET)
+    early, rolls, closed, _ = pretrade.calendar_dates(False, rules.session_date(now))
+    try:
+        result = chart_read.read(symbol, timeframe, now=now,
+                                 early_close_dates=early, roll_dates=rolls,
+                                 closed_dates=closed)
+    except chart_read.ReadError as exc:
+        raise WorkError(str(exc)) from None
+    return result, chart_read.format_read(result)
+
+
 def status_text() -> str:
     reg = registry()
     lines = ["**Strategy registry**", "```", reg.status_table(), "```"]

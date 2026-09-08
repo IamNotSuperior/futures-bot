@@ -65,6 +65,7 @@ import desk_state  # noqa: E402
 import feed as feed_mod  # noqa: E402
 import tickets as tickets_mod  # noqa: E402
 import approvals  # noqa: E402
+import chart_read  # noqa: E402
 
 log = logging.getLogger("desk")
 
@@ -372,6 +373,10 @@ class Desk:
         #: heartbeat and posted once Discord is up - never silent.
         self.feed_error: str | None = None
         self.owner_id: int | None = approvals.owner_id_from_env()
+        #: Where completed bars are mirrored for the research bot's /read.
+        #: None disables the mirror - replay sets it so a historical run does
+        #: not overwrite today's live file with week-old bars.
+        self.live_bars_dir: Path | None = chart_read.LIVE_BARS_DIR
         #: Human-gated tickets awaiting Execute, by ticket id.
         self.pending: dict[str, tuple[tickets_mod.Signal, object]] = {}
         self.decisions_path: Path = approvals.decisions_mod.DECISIONS_PATH
@@ -816,6 +821,19 @@ class Desk:
         self.state.bars_seen += 1
         self.state.last_bar_at = now.isoformat()
 
+        # Persist the bar for the research bot's /read. The two run as
+        # separate processes, so a file is the only buffer they can share;
+        # one append a minute is not a cost worth optimising. A failure here
+        # must never stop the desk - /read degrades to the parquet cache and
+        # says so, which is strictly better than dropping a bar.
+        if self.live_bars_dir is not None:
+            try:
+                chart_read.append_live_bar(
+                    bar.symbol, bar.timestamp, bar.open, bar.high, bar.low,
+                    bar.close, bar.volume, self.live_bars_dir)
+            except OSError as exc:
+                log.error("could not append live bar for /read: %s", exc)
+
         if self.current_day != day:
             self.current_day = day
         if self.state.needs_premarket(day) and now.time() >= PREMARKET_TIME:
@@ -1118,6 +1136,9 @@ def main(argv=None) -> int:
         desk = build_desk(Path(args.journal), Path(args.state),
                           echo=not args.quiet,
                           day=pd.Timestamp(args.start).date())
+        # A replay must not write to the live-bar mirror: /read would then
+        # present a 2026-08 session as though it were today's tape.
+        desk.live_bars_dir = None
         print(f"Replaying {len(replay):,} bars, {args.start} to {args.end}, "
               f"speed {args.speed}x\n")
         asyncio.run(run_replay(desk, replay))

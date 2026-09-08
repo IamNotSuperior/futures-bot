@@ -107,6 +107,35 @@ one that says where its numbers came from.
   4:30 PM ET force-flatten), order routing, and eventually the Tradovate API
   integration for live/paper trading.
 
+### `/read` — a chart description
+
+`/read [symbol=MES] [timeframe=5m]` posts trend context (20/50/200 EMA stack,
+prior close, daily 50-EMA side), the level ladder (prior-day high/low/close,
+overnight high/low, opening range, session VWAP, nearest round numbers — each
+marked above or below with its distance), volatility (ATR-14, today's range vs
+the 20-day average), session state (time to cutoff and flatten, roll/early
+close, today's realised P&L and remaining budget), and a bracket for **both**
+directions sized from `rules.py`.
+
+**It carries no bias label, confidence score or opinion**, and every embed
+leads with: *"This is a description of the chart, not a signal. No tested
+strategy is behind this read."* If the rules would block an entry right now it
+says so, with the reasons, instead of a bracket — and the reasons come from
+`pretrade.evaluate`, so they are the same ones the journal would give.
+
+Two buttons, owner-only (`DESK_OWNER_ID`): **Log long** and **Log short** open
+a modal asking for a one-line thesis, then write the ticket to
+`journal/trades.jsonl` through `pretrade.evaluate`. **These count toward
+hypothesis entry 3** — unlike the desk's ticket buttons, which do not; see
+`bots/read_log.py` for why the distinction holds. The guards are re-run when
+the modal is submitted, not when the read was posted, so a cutoff crossed in
+between blocks the trade and writes nothing.
+
+Bars come from the desk's live mirror (`journal/live_bars/`) merged over the
+parquet history. With the desk down it falls back to parquet and **says so,
+with the as-of date** — the cache ends 2026-08-31, so a silent fallback would
+present a week-old prior-day close as yesterday's.
+
 ### The desk bot — SHADOW MODE
 
 `start_desk.bat` launches `bots/desk.py` in its own console window. It consumes
