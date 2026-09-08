@@ -546,6 +546,41 @@ class TestResponseParsing:
         assert "Intraday CME Futures Trading Bot" in text or "Hard rules" in text
         assert "generate_signals" in text
 
+    def test_tls_verification_is_not_weakened(self):
+        """The truststore workaround must never become `verify=False`.
+
+        anthropic 1.x installs truststore, which on Python 3.14 / Windows
+        recurses forever in ssl.verify_mode and makes every request fail as
+        APIConnectionError. The fix supplies a certifi-backed context so the
+        handshake never reaches truststore. The tempting "fix" for a TLS error
+        is to turn verification off, so the properties are asserted here
+        rather than trusted to the comment.
+        """
+        import ast
+        import inspect
+        import ssl
+        import textwrap
+
+        # AST, not a substring scan: the docstring above deliberately contains
+        # the phrase it warns against, and a text check would trip on prose
+        # while missing `verify = False` written with spaces.
+        tree = ast.parse(textwrap.dedent(inspect.getsource(generate_mod._http_client)))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.keyword) and node.arg in ("verify",
+                                                              "check_hostname"):
+                assert not (isinstance(node.value, ast.Constant)
+                            and node.value.value is False), \
+                    f"{node.arg}=False disables TLS verification"
+            if isinstance(node, ast.Attribute):
+                assert node.attr != "CERT_NONE", "CERT_NONE disables verification"
+
+        client = generate_mod._http_client()
+        if client is None:
+            pytest.skip("certifi unavailable; the SDK builds its own client")
+        context = ssl.create_default_context()
+        assert context.verify_mode == ssl.CERT_REQUIRED
+        assert context.check_hostname is True
+
     def test_the_model_is_not_asked_for_an_opinion(self):
         system = generate_mod.SYSTEM.lower()
         for banned in ("confidence", "how likely", "rate the", "score the"):

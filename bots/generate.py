@@ -214,6 +214,36 @@ def _strip_fence(block: str) -> str:
     return block.strip()
 
 
+def _http_client():
+    """An HTTP client that does not route TLS through ``truststore``.
+
+    ``anthropic`` 1.x installs ``truststore``, which reads the Windows system
+    certificate store. On this machine - Python 3.14 on Windows - truststore's
+    ``_set_ssl_context_verify_mode`` recurses into ``ssl.py``'s ``verify_mode``
+    property without terminating, so *every* request dies with a
+    ``RecursionError`` that the SDK reports as ``APIConnectionError``. The same
+    request through ``urllib`` succeeds, which is how it was isolated.
+
+    The fix supplies an explicit certifi-backed context, so the handshake never
+    reaches truststore. **Verification is not weakened**: the context is
+    ``ssl.create_default_context``, which is ``CERT_REQUIRED`` with hostname
+    checking on - a test asserts both, because "fix the TLS error" is exactly
+    the change that tends to arrive as ``verify=False``.
+
+    Returns None when certifi is unavailable, which lets the SDK build its own
+    client - correct on a machine where truststore works.
+    """
+    try:
+        import certifi  # noqa: PLC0415
+        from anthropic import DefaultHttpxClient  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - certifi ships with httpx2
+        return None
+    import ssl  # noqa: PLC0415
+
+    return DefaultHttpxClient(verify=ssl.create_default_context(
+        cafile=certifi.where()))
+
+
 def generate(submission: Submission, api_key: str | None = None,
              model: str = MODEL) -> Generated:
     """One streaming call to the Messages API. Raises GenerationError."""
@@ -232,7 +262,7 @@ def generate(submission: Submission, api_key: str | None = None,
             "the Claude API; add it and restart the bot."
         )
 
-    client = anthropic.Anthropic(api_key=key)
+    client = anthropic.Anthropic(api_key=key, http_client=_http_client())
     try:
         # Streaming because the three artefacts together are long, and a
         # non-streaming request at this max_tokens risks an HTTP timeout.
