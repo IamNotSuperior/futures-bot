@@ -2887,6 +2887,35 @@ and should be priced before it is started.
 
 ---
 
+## 8. orborb flat 1030 — PROPOSED
+
+**Date:** 2026-09-08
+**Submitted via:** `/submit` in Discord
+**Code:** `strategies/generated/orborb_flat_1030.py` (generated; not yet written at the time this entry was committed)
+
+### Mechanism claimed
+
+Plumbing test — reproduces entry 5. Breakout continuation, not established.
+
+**Who is on the other side:**
+
+None claimed. This is a pipeline test
+
+### Kill criteria, pre-registered
+
+Pooled eval_sim pass probability below 25%; more than 1 eval blown; fewer than 4 of 7 folds profitable or total P&L negative.
+
+### Description as submitted
+
+15-minute opening range breakout on MES. Range = 9:30–9:45 candle high/low. At 9:45 place a buy stop 1 point above the high and a sell stop 1 point below the low; first fill wins, other cancels. Skip the day if range is over 10 points. Fixed 10-point stop, 18-point target, 4 contracts. Cancel unfilled orders and flatten any open position at 10:30 ET. One trade per day.
+
+### Verdict
+
+Not yet run. To be filled in by the walk-forward, with the commit
+hash recorded in a follow-up commit.
+
+---
+
 ## Template for new entries
 
 ```
