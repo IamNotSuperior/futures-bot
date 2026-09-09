@@ -2887,7 +2887,7 @@ and should be priced before it is started.
 
 ---
 
-## 8. orborb flat 1030 — PROPOSED
+## 8. orborb flat 1030 — REJECTED
 **Date:** 2026-09-08
 **Submitted via:** `/submit` in Discord
 **Code:** `strategies/generated/orborb_flat_1030.py` (generated; not yet written at the time this entry was committed)
@@ -2924,6 +2924,36 @@ unchanged and is still the claim being tested - only the
 implementation was regenerated. A retry that altered the mechanism,
 the counterparty or the kill criteria would be a different
 hypothesis and needs its own entry.
+
+### Verdict: REJECTED
+
+**Date:** 2026-09-09
+**Code:** `strategies/generated/orborb_flat_1030.py`
+**Reports:** `backtests/results/orborb_flat_1030_folds.csv`, `orborb_flat_1030_trades.csv`
+
+Walk-forward over 7 yearly folds at 2 ticks of slippage per side and $1.25 commission per side.
+
+| | |
+|---|---|
+| Trades | 588 |
+| Net P&L | $-4,587.50 |
+| Folds profitable | 0 of 7 |
+| Sharpe | -3.40 |
+| Profit factor | 0.580 |
+| Max drawdown | $-4,716.25 |
+| Worst day | $-57.50 |
+| Avg duration | 30.3 min |
+| Profit from <=5s holds | 0.00% |
+| Pass probability | 0.00% |
+| Evaluations blown | 2 |
+
+**Rule 13 is not satisfied:**
+
+- profitable in 0 of 7 folds, needs 4
+- total walk-forward P&L $-4,587.50 is not positive
+
+In-sample results are never evidence, and this is the out-of-sample answer.
+
 
 ## Template for new entries
 
