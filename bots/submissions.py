@@ -74,6 +74,34 @@ def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, check=check)
 
 
+def dirty(path: Path) -> bool:
+    """Does ``path`` have uncommitted changes (staged or not)?"""
+    relative = str(Path(path).relative_to(PROJECT_ROOT)).replace("\\", "/")
+    out = git("status", "--porcelain", "--", relative).stdout
+    return bool(out.strip())
+
+
+def require_clean_log(path: Path = HYPOTHESES) -> None:
+    """Refuse to touch the log while someone else's edit to it is uncommitted.
+
+    Every bot write to ``hypotheses.md`` ends in ``git add`` of the whole file,
+    so any uncommitted edit already in the working tree would be swept into a
+    commit whose message describes something else - "Pre-register entry 9"
+    carrying an unrelated diagnostic, which is exactly what happened once.
+    That is not data loss, but it is misattribution in a file whose whole
+    value is that its history means what it says. The bot only ever commits
+    its own append, and the way to guarantee that is to refuse to start while
+    the file is dirty.
+    """
+    if dirty(path):
+        relative = str(Path(path).relative_to(PROJECT_ROOT)).replace("\\", "/")
+        raise SubmissionError(
+            f"`{relative}` has uncommitted changes in the working tree. The bot "
+            f"only commits its own append, and would sweep those changes into "
+            f"its next commit. Commit or stash them, then try again."
+        )
+
+
 def commit(paths: list[Path], message: str) -> str:
     """Stage exactly ``paths`` and commit. Returns the short hash.
 
@@ -302,6 +330,8 @@ def pre_register(submission: generate_mod.Submission,
             f"An idea that cannot name its counterparty is a pattern, not a "
             f"hypothesis."
         )
+    if do_commit:
+        require_clean_log(path)
     reg = Registry.load()
     if submission.name in reg.names():
         status = reg.get(submission.name).status
@@ -360,8 +390,31 @@ def write_generated(run: SubmissionRun, result: generate_mod.Generated) -> None:
     run.draft_entry = result.entry_markdown
 
 
-def run_tests(paths: list[str] | None = None, timeout: int = 900) -> tuple[bool, str]:
-    """The full suite, in a subprocess with the secrets removed.
+def test_command(own_test: Path | None = None,
+                 paths: list[str] | None = None) -> list[str]:
+    """The pytest argv: the base suite plus this submission's own test.
+
+    ``tests/generated/`` is ignored as a directory and the submission's own
+    file is added back explicitly. Without that, every generated test on disk
+    runs for every submission - so one failed attempt's leftover test file
+    would fail every later submission's suite, and a passing strategy could
+    be refused for a stranger's assertion. Each submission is judged on the
+    base suite and its own test, nothing else.
+    """
+    argv = [str(PROJECT_ROOT / "venv" / "Scripts" / "python.exe"), "-m", "pytest"]
+    if paths:
+        argv += list(paths)
+    else:
+        argv += ["tests/", "--ignore=tests/generated"]
+        if own_test is not None:
+            argv.append(str(Path(own_test).relative_to(PROJECT_ROOT))
+                        .replace("\\", "/"))
+    return argv + ["-q", "--no-header"]
+
+
+def run_tests(paths: list[str] | None = None, timeout: int = 900,
+              own_test: Path | None = None) -> tuple[bool, str]:
+    """The base suite plus this submission's test, secrets removed.
 
     Secrets are stripped rather than trusted to the AST screen: the screen
     catches mistakes, and this makes the consequence of one that slips through
@@ -369,8 +422,7 @@ def run_tests(paths: list[str] | None = None, timeout: int = 900) -> tuple[bool,
     """
     env = sandbox.scrubbed_env(dict(os.environ))
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    command = [str(PROJECT_ROOT / "venv" / "Scripts" / "python.exe"),
-               "-m", "pytest", *(paths or ["tests/"]), "-q", "--no-header"]
+    command = test_command(own_test, paths)
     try:
         proc = subprocess.run(command, cwd=str(PROJECT_ROOT), env=env,
                               capture_output=True, text=True, timeout=timeout)
@@ -415,6 +467,7 @@ def approve(run: SubmissionRun) -> str:
         raise SubmissionError(
             f"`{run.registry_name}` is {run.status}, not awaiting approval"
         )
+    require_clean_log()
     set_entry_status(run.entry_number, "PROPOSED")
     reg = Registry.load()
     reg.promote(run.registry_name, "testing")
@@ -437,6 +490,7 @@ def approve(run: SubmissionRun) -> str:
 
 def reject(run: SubmissionRun) -> None:
     """Terminal, as everywhere else. The entry stays in the log."""
+    require_clean_log()
     set_entry_status(run.entry_number, "REJECTED")
     append_to_entry(
         run.entry_number,
@@ -470,6 +524,7 @@ def record_verdict(name: str, entry_number: int, verdict_block: str,
     one-line follow-up recording its own hash (which cannot be known until the
     first commit exists).
     """
+    require_clean_log()
     rejected = "REJECTED" in verdict_block
     set_entry_status(entry_number, "REJECTED" if rejected else "ACCEPTED")
     append_to_entry(entry_number, verdict_block)

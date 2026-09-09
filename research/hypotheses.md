@@ -3036,6 +3036,48 @@ What it establishes is that the pipeline reproduced entry 5's *signal* to
 within two sessions in seven years, and that the headline discrepancy was an
 artefact of comparing different spans.
 
+### Addendum, 2026-09-09 — re-scored on the corrected span
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** The diagnostic above found that `run_generated.py` scored the whole
+parquet from 2019-05-05 while every other entry was scored on 2020–2026.
+`run_generated.SCORE_START` is now imported from `walkforward.build_folds()`
+— 2020-01-01 — with earlier bars supplied to the strategy as indicator history
+only. This is the same strategy, the same code, the same 1 contract, the same
+2 ticks per side; the only change is the span.
+
+| | Original run (2019-05 .. 2026-08) | Corrected span (2020-01 .. 2026-08) |
+|---|---|---|
+| Trades | 588 | **476** |
+| Net P&L | −$4,587.50 | **−$3,531.25** |
+| Folds profitable | 0 of 7 | **0 of 7** |
+| Sharpe | — | **−3.08** |
+| Profit factor | — | **0.615** |
+| Max drawdown | — | **−$3,592.50** |
+| Pass probability | 0.00% | **0.00%** |
+| Evaluations blown | 2 | **1** |
+
+The 476 is the figure the diagnostic predicted from entry 5's own window
+(476 generated against entry 5's 478), which is the check that the correction
+did what it claims. The 112 trades removed were all 2019 and were never part
+of any comparable entry; one of the two blown evaluations was among them.
+
+Per fold, corrected span:
+
+| Year | Trades | Net P&L | Sharpe | PF | Max DD |
+|---|---|---|---|---|---|
+| 2020 | 91 | −$1,057.50 | −5.70 | 0.41 | −$1,087.50 |
+| 2021 | 112 | −$192.50 | −0.87 | 0.86 | −$388.75 |
+| 2022 | 14 | −$180.00 | −5.51 | 0.41 | −$255.00 |
+| 2023 | 86 | −$356.25 | −1.52 | 0.79 | −$458.75 |
+| 2024 | 117 | −$1,122.50 | −3.62 | 0.58 | −$1,173.75 |
+| 2025 | 44 | −$586.25 | −5.38 | 0.43 | −$608.75 |
+| 2026 | 12 | −$36.25 | −0.88 | 0.88 | −$167.50 |
+
+Rule 13 fails on both counts on either span: 0 of 7 folds profitable and a
+negative total. REJECTED stands. Recorded so the verdict's numbers can be
+read against the log's other entries, which they could not before.
+
 ## 9. orb full day test — PROPOSED
 
 **Date:** 2026-09-09
@@ -3065,6 +3107,17 @@ Not yet run. To be filled in by the walk-forward, with the commit
 hash recorded in a follow-up commit.
 
 ---
+
+### Addendum, 2026-09-09 — scored span corrected before any run
+
+No walk-forward has been run for this entry: the attempt never reached the
+registry, because its generated test suite failed
+(`test_opening_range_only_uses_pre_0945_bars`, the model's own no-lookahead
+check against its own strategy). Between that attempt and the next,
+`run_generated.py`'s scored span was corrected to 2020-01-01 onward, matching
+every other entry — see entry 8's diagnostic and addendum. Whatever verdict
+this entry eventually receives will be on the corrected span from the start;
+there are no earlier numbers to reconcile.
 
 ## Template for new entries
 

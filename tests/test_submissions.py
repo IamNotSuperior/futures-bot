@@ -419,6 +419,174 @@ class TestResubmission:
         assert "beta" not in submissions.entry_body(2, log)
 
 
+class TestScoredSpan:
+    """A generated verdict is scored on the span every other entry used.
+
+    The first run scored the whole parquet from 2019-05-05 and reported 588
+    trades against entry 5's 478 on the same signals - the gap was entirely
+    the span. Entry 8 carries the diagnostic. The fix imports the span from
+    walkforward.py rather than writing 2020 down a second time.
+    """
+
+    def test_span_is_walkforwards_first_test_year(self):
+        import run_generated
+        import walkforward
+
+        assert run_generated.SCORE_START == walkforward.build_folds()[0].test_start
+
+    def test_span_is_not_a_restated_date(self):
+        import inspect
+
+        import run_generated
+
+        source = inspect.getsource(run_generated)
+        assert "SCORE_START = walkforward.build_folds()" in source
+        assert "SCORE_START = date(" not in source
+
+    def test_2019_is_history_not_sample(self):
+        """Signals generated over 2019 are dropped; bars before it stay."""
+        import pandas as pd
+        import run_generated
+
+        index = pd.date_range("2019-11-01 09:30", "2020-02-01 09:30",
+                              freq="1D", tz=rules.ET)
+        frame = pd.DataFrame({"entry_long": True}, index=index)
+        sliced = run_generated.score_slice(frame, pd.Timestamp("2026-08-31").date())
+        assert sliced.index.min().date() >= run_generated.SCORE_START
+        assert len(sliced) < len(frame)
+        assert (frame.index.date < run_generated.SCORE_START).any(), \
+            "the fixture must actually contain pre-span rows"
+
+    def test_the_verdict_block_states_the_span(self):
+        import pandas as pd
+        from datetime import date
+
+        import run_generated
+
+        result = run_generated.WalkforwardResult(
+            name="x", folds=pd.DataFrame({"test_net_pnl": [1.0] * 7}),
+            trades=pd.DataFrame({"net_pnl": [10.0]}),
+            metrics={"sharpe": 1.0, "profit_factor": 1.5, "max_drawdown": -10.0,
+                     "max_daily_loss": -5.0, "avg_duration_seconds": 600.0,
+                     "microscalp_profit_pct": 0.0},
+            pass_probability=0.3, blowups=0, profitable_folds=5,
+            accepted=True, reasons=[], contracts=1, size_note="1",
+            span=(date(2020, 1, 1), date(2026, 8, 31)))
+        block = run_generated.verdict_block(result, 9)
+        assert "| Scored span | 2020-01-01 .. 2026-08-31" in block
+        assert "indicator history only" in block
+
+
+class TestCleanLogGuard:
+    """The bot only ever commits its own append.
+
+    Every bot commit of hypotheses.md is `git add` of the whole file, so an
+    uncommitted edit already in the tree would ride along under a message
+    that describes something else. That happened once - a diagnostic on entry
+    8 was committed under "Pre-register entry 9". Not data loss; misattribution
+    in a file whose value is that its history means what it says.
+    """
+
+    def _porcelain(self, monkeypatch, text):
+        class Result:
+            stdout = text
+
+        monkeypatch.setattr(submissions, "git",
+                            lambda *a, **k: Result())
+
+    def test_a_dirty_log_is_refused_with_the_reason(self, monkeypatch):
+        self._porcelain(monkeypatch, " M research/hypotheses.md\n")
+        with pytest.raises(submissions.SubmissionError) as exc:
+            submissions.require_clean_log()
+        message = str(exc.value)
+        assert "uncommitted changes" in message
+        assert "research/hypotheses.md" in message
+        assert "only commits its own append" in message
+
+    def test_a_staged_edit_counts_as_dirty(self, monkeypatch):
+        self._porcelain(monkeypatch, "M  research/hypotheses.md\n")
+        with pytest.raises(submissions.SubmissionError):
+            submissions.require_clean_log()
+
+    def test_a_clean_log_passes(self, monkeypatch):
+        self._porcelain(monkeypatch, "")
+        submissions.require_clean_log()
+
+    def test_submit_refuses_before_writing_anything(self, monkeypatch, tmp_path):
+        """The check runs before the append, or the refusal would itself
+        dirty the file it is refusing over."""
+        order = []
+        monkeypatch.setattr(submissions, "require_clean_log",
+                            lambda path=None: order.append("check") or
+                            (_ for _ in ()).throw(
+                                submissions.SubmissionError("dirty")))
+        monkeypatch.setattr(submissions, "append_entry",
+                            lambda text, path=None: order.append("write"))
+        log = tmp_path / "h.md"
+        log.write_text("# Log\n", encoding="utf-8")
+        with pytest.raises(submissions.SubmissionError, match="dirty"):
+            submissions.pre_register(submission(name="fresh_idea"), log,
+                                     do_commit=True)
+        assert order == ["check"]
+
+    @pytest.mark.parametrize("func", ["pre_register", "approve", "reject",
+                                      "record_verdict"])
+    def test_every_log_writer_guards(self, func):
+        """All four bot paths that commit the log check first."""
+        import inspect
+
+        source = inspect.getsource(getattr(submissions, func))
+        assert "require_clean_log" in source, f"{func} does not guard the log"
+
+    def test_the_refusal_renders_as_a_message_in_discord(self):
+        import inspect
+
+        import research
+
+        source = inspect.getsource(research.report_error)
+        assert "SubmissionError" in source
+
+
+class TestSuiteScoping:
+    """Each submission is judged on the base suite plus its own test.
+
+    Entry 9's attempt left a failing model-written test in tests/generated/.
+    Because run_tests ran `tests/` wholesale, that file would have failed
+    every later submission - and did fail the operator's plain `pytest tests/`.
+    """
+
+    def test_other_generated_tests_are_ignored(self):
+        argv = submissions.test_command(
+            own_test=sandbox.TEST_DIR / "test_mine.py")
+        assert "tests/" in argv
+        assert "--ignore=tests/generated" in argv
+        assert "tests/generated/test_mine.py" in argv
+
+    def test_the_own_test_comes_after_the_ignore(self):
+        """pytest honours an explicit path over --ignore of its parent."""
+        argv = submissions.test_command(own_test=sandbox.TEST_DIR / "test_mine.py")
+        assert argv.index("--ignore=tests/generated") < \
+            argv.index("tests/generated/test_mine.py")
+
+    def test_without_an_own_test_only_the_base_suite_runs(self):
+        argv = submissions.test_command()
+        assert "--ignore=tests/generated" in argv
+        assert not any("tests/generated/" in a for a in argv)
+
+    def test_explicit_paths_bypass_the_scoping(self):
+        argv = submissions.test_command(paths=["tests/test_rules.py"])
+        assert "tests/test_rules.py" in argv
+        assert "--ignore=tests/generated" not in argv
+
+    def test_the_pipeline_passes_its_own_test_path(self):
+        import inspect
+
+        import research
+
+        source = inspect.getsource(research._run_submission)
+        assert "run.test_path" in source
+
+
 class TestDeclaredContracts:
     """A generated strategy transcribes the size the submission stated.
 
@@ -667,6 +835,10 @@ class TestRegistryAdd:
 class TestVerdictOrdering:
     def test_record_verdict_commits_before_returning(self, monkeypatch):
         """The hash the embed prints cannot exist until the commit does."""
+        # The clean-log guard is tested on its own; here it would read the
+        # real working tree and refuse whenever the developer has an
+        # uncommitted edit to the log - an environment-dependent failure.
+        monkeypatch.setattr(submissions, "require_clean_log", lambda path=None: None)
         order = []
         monkeypatch.setattr(submissions, "set_entry_status",
                             lambda n, s, path=None: order.append(f"status:{s}"))
@@ -706,6 +878,7 @@ class TestVerdictOrdering:
     def test_an_accepted_verdict_does_not_auto_promote_to_paper(self, monkeypatch):
         """`paper` unblocks the desk bot; reaching it is an act, not a side
         effect of a background job finishing."""
+        monkeypatch.setattr(submissions, "require_clean_log", lambda path=None: None)
         promotions = []
         monkeypatch.setattr(submissions, "set_entry_status",
                             lambda n, s, path=None: None)
@@ -735,6 +908,7 @@ class TestVerdictOrdering:
         assert promotions == [], "an accepted walk-forward promoted itself"
 
     def test_the_posted_hash_is_the_one_written_to_the_log(self, monkeypatch):
+        monkeypatch.setattr(submissions, "require_clean_log", lambda path=None: None)
         written = []
         monkeypatch.setattr(submissions, "set_entry_status",
                             lambda n, s, path=None: None)

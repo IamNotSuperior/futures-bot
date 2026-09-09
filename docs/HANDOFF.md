@@ -210,6 +210,31 @@ behind it. A test asserts the signature by introspection, as it does for
 keeps reading saved output, because those verdicts are frozen in the log and
 recomputing them could report a number no verdict ever said.
 
+**The scored span is imported, not written down (2026-09-09).**
+`run_generated.SCORE_START` is `walkforward.build_folds()[0].test_start` —
+2020-01-01 — so a generated verdict is scored on the span every other entry
+used. The first run scored the whole parquet from 2019-05-05 and reported 588
+trades where entry 5 had 478 on the same signals; the gap was entirely the
+span, and entry 8 carries the diagnostic and a dated addendum with the
+corrected numbers. Signals are still generated over the full history so a
+50-day EMA is seeded by January 2020; 2019 is indicator history, not sample.
+A test asserts the constant equals walkforward's and that no literal `date(`
+restates it.
+
+**The bot only ever commits its own append.** Every bot write to
+`hypotheses.md` ends in `git add` of the whole file, so an uncommitted edit
+already in the tree would be swept into a commit whose message describes
+something else — which happened once: a diagnostic on entry 8 rode along under
+"Pre-register entry 9". Not data loss, but misattribution in a file whose
+value is that its history means what it says. `require_clean_log()` now runs
+before every bot write to the log (`pre_register`, `approve`, `reject`,
+`record_verdict`) and refuses with the reason, which Discord shows as a
+message rather than a traceback. **If you are editing `hypotheses.md` by
+hand, commit it before using `/submit`** — the bot will refuse until you do.
+`registry.yaml` is deliberately *not* guarded the same way: `register_proposed`
+leaves the bot's own registry change uncommitted until `approve`, and a guard
+there would refuse the bot's own pending work.
+
 **One known gap is pinned rather than fixed.** `rules.py` still has no
 session-*open* guard, so a signal at 08:00 passes every check — 08:00 is
 numerically before an afternoon cutoff. `orb2` slices to `09:30–15:59` and

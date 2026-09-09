@@ -32,14 +32,30 @@ for _folder in ("data", "strategies", "strategies/generated", "backtests"):
 import eval_sim  # noqa: E402
 import loader  # noqa: E402
 import rules  # noqa: E402
+import walkforward  # noqa: E402
 from engine import (  # noqa: E402
     MES, MNQ, CostModel, build_trades, count_evaluation_blowups,
     enforce_daily_loss_limit, price_trades,
 )
 from metrics import compute_metrics  # noqa: E402
 from run_london import fold_frame  # noqa: E402
+from scan import slice_by_date  # noqa: E402
 
 RESULTS = PROJECT_ROOT / "backtests" / "results"
+
+#: The first scored day. Imported from walkforward.py's own fold construction
+#: rather than written as a date, so a generated verdict is scored on exactly
+#: the span every other entry in the log was scored on. The first run of this
+#: module scored the whole parquet from 2019-05-05 and reported 588 trades
+#: where entry 5 had 478 - a gap that was entirely this span, and is recorded
+#: as a diagnostic on entry 8. Bars before this date are still handed to the
+#: strategy: a 50-day EMA needs 2019 to be seeded by January 2020.
+SCORE_START = walkforward.build_folds()[0].test_start
+
+
+def score_slice(frame, data_end):
+    """``frame`` restricted to the scored span. Pure; used on signals and bars."""
+    return slice_by_date(frame, SCORE_START, data_end)
 
 #: Entry 6's base case and rule 13's survival bar. Not a parameter.
 BASE_SLIPPAGE_TICKS = 2.0
@@ -64,6 +80,7 @@ class WalkforwardResult:
     reasons: list
     contracts: int = 1
     size_note: str = ""
+    span: tuple = ()
 
     @property
     def net_pnl(self) -> float:
@@ -148,14 +165,20 @@ def run(name: str, class_path: str, symbol: str = "MES",
     strategy = build_strategy(class_path, bars, rolls, early)
     contracts, size_note = resolve_contracts(strategy, contracts)
 
+    # Signals are generated over the FULL history so indicators are seeded,
+    # then the scored span starts at SCORE_START. 2019 is history, not sample.
     say(f"generating signals over {len(bars):,} bars ...")
     signals = strategy.generate_signals(bars)
+    data_end = rules.session_date(bars.index[-1])
+    signal_bars = bars.loc[signals.index] if len(signals) != len(bars) else bars
+    signals = score_slice(signals, data_end)
+    signal_bars = score_slice(signal_bars, data_end)
 
-    say(f"pricing {contracts} contract(s) at 2 ticks/side ...")
+    say(f"pricing {contracts} contract(s) at 2 ticks/side, "
+        f"{SCORE_START} .. {data_end} ...")
     spec = MES if symbol.upper() == "MES" else MNQ
     costs = CostModel(commission_per_side=COMMISSION_PER_SIDE,
                       slippage_ticks=BASE_SLIPPAGE_TICKS)
-    signal_bars = bars.loc[signals.index] if len(signals) != len(bars) else bars
     trades = price_trades(build_trades(signals, signal_bars), spec, costs, contracts)
     if trades.empty:
         raise ValueError(
@@ -194,6 +217,7 @@ def run(name: str, class_path: str, symbol: str = "MES",
         pass_probability=sim.pass_probability, blowups=int(blow["blowups"]),
         profitable_folds=profitable, accepted=not reasons, reasons=reasons,
         contracts=contracts, size_note=size_note,
+        span=(SCORE_START, data_end),
     )
 
 
@@ -215,6 +239,9 @@ def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
         "",
         "| | |",
         "|---|---|",
+        f"| Scored span | {result.span[0]} .. {result.span[1]} "
+        f"(earlier bars used as indicator history only) |"
+        if result.span else "| Scored span | full data |",
         f"| Contracts | {result.size_note or result.contracts} |",
         f"| Trades | {len(result.trades):,} |",
         f"| Net P&L | ${result.net_pnl:,.2f} |",

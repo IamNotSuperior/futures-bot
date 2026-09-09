@@ -111,7 +111,11 @@ bot = ResearchBot()
 
 async def report_error(interaction: discord.Interaction, exc: BaseException) -> None:
     """Post the failure to the channel and keep the bot alive."""
-    friendly = isinstance(exc, WorkError)
+    import submissions  # noqa: PLC0415
+
+    # A SubmissionError is a refusal with a reason - "the log has uncommitted
+    # changes" - and should read as one, not as a traceback.
+    friendly = isinstance(exc, (WorkError, submissions.SubmissionError))
     body = str(exc) if friendly else _traceback_block(exc)
     title = "Cannot do that" if friendly else "Command failed"
     embed = discord.Embed(title=title, description=body[:4000], colour=COLOUR_BAD)
@@ -360,7 +364,8 @@ async def _run_submission(interaction, submission) -> None:
         await say(f"**{submission.name}** - written to the sandbox. Running the "
                   f"full suite (this takes a couple of minutes) ...")
 
-        passed, output = await asyncio.to_thread(submissions.run_tests)
+        passed, output = await asyncio.to_thread(
+            submissions.run_tests, None, 900, run.test_path)
         if not passed:
             run.status = submissions.STATUS_FAILED
             embed = discord.Embed(
