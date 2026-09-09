@@ -3119,6 +3119,16 @@ every other entry — see entry 8's diagnostic and addendum. Whatever verdict
 this entry eventually receives will be on the corrected span from the start;
 there are no earlier numbers to reconcile.
 
+### Attempt 2 — 2026-09-09
+
+The previous attempt did not reach review: generation, screening or the test suite failed.
+
+Re-submitted under the same name. The pre-registration above is
+unchanged and is still the claim being tested - only the
+implementation was regenerated. A retry that altered the mechanism,
+the counterparty or the kill criteria would be a different
+hypothesis and needs its own entry.
+
 ## Template for new entries
 
 ```
