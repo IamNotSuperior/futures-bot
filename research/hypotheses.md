@@ -2888,7 +2888,6 @@ and should be priced before it is started.
 ---
 
 ## 8. orborb flat 1030 — PROPOSED
-
 **Date:** 2026-09-08
 **Submitted via:** `/submit` in Discord
 **Code:** `strategies/generated/orborb_flat_1030.py` (generated; not yet written at the time this entry was committed)
