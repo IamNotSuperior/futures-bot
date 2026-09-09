@@ -2957,6 +2957,115 @@ In-sample results are never evidence, and this is the out-of-sample answer.
 
 **Verdict commit:** `9c638fe`
 
+### Diagnostic, 2026-09-09 — where the 110-trade gap against entry 5 comes from
+
+Added after the run. **This changes neither strategy** and is not a
+pre-registered test; it exists because the reproduction reported 588 trades
+against entry 5's 478 and an unexplained gap of that size would undermine the
+claim that the pipeline reproduces anything.
+
+**The signal logic is not the explanation.** Run over identical bars, entry 5's
+`orb_flat_1030` (`ORB2` with `entry5_params()`) and the generated
+`orborb_flat_1030` differ on **four sessions in seven years**, and the
+generated one trades *fewer*, never more.
+
+| Window | `orb_flat_1030` | `orborb_flat_1030` |
+|---|---|---|
+| Full parquet, 2019-05-05 .. 2026-08-31 | 592 | 588 |
+| **Entry 5's window, 2020-01-01 .. 2026-08-31** | **478** | **476** |
+| 2019 only, 2019-05-05 .. 2019-12-31 | 114 | 112 |
+
+The reference reproduces entry 5's recorded 478 exactly on entry 5's window.
+
+**110 of the gap is the evaluation window, not the strategy.**
+`backtests/run_generated.py` scores the whole parquet, which begins
+2019-05-05. Entry 5 was scored on 2020–2026, so the 112 sessions the generated
+run took in 2019 were never in entry 5's count. 112 extra from 2019 minus the
+2 below is the 110 observed.
+
+**This is a defect in `run_generated.py`, not in the generated strategy.** A
+walk-forward that silently uses a wider span than the entry it is compared
+against produces numbers that cannot be read alongside the log. It is recorded
+here rather than fixed silently; fixing it changes every future generated
+verdict, so it belongs in its own change.
+
+**Contract size does not affect the trade count at all.** The generated
+strategy scored 476 trades on entry 5's window at both 1 and 4 contracts —
+sizing scales P&L, not the number of signals. The reported "588 at 1 contract
+vs 478 at 4" therefore compares two things that differ by window, not by size.
+Size does matter downstream: entry 5's trailing-drawdown halt cut the run to
+**45 trades at 4 contracts** where the same signals at 1 contract leave 169,
+which is the effect entry 5 already records.
+
+#### The two sessions that are a genuine difference of interpretation
+
+Both are cases where the generated strategy **stands aside and entry 5 trades**.
+Neither adds trades.
+
+**1. A trigger on the last bar of the entry window (3 sessions:
+2019-06-06, 2019-09-06, 2020-02-18).** All three trigger on the 10:29 bar.
+Entry 5 fills intrabar at the stop level on that bar and exits at the 10:30
+open — a 60-second trade. The generated strategy fills at the *next* bar's
+open, so its action timestamp is 10:30, which is not before the cancel, and it
+declines: `if action_ts.time() >= window_end: return  # nothing left to act on
+before the cancel`.
+
+The disagreement is over what a resting stop order does in the window's final
+minute — filled where it rests, or not worth opening one minute before the
+flatten. Entry 5 transcribes a Pine script that fills at the level; the
+generated module reads "cancel unfilled orders and flatten at 10:30" as
+closing the entry window too. Both are defensible readings of the same
+sentence, and one of them produces trades whose entire life is one bar.
+
+**2. A single bar spanning both triggers (1 session: 2023-05-23).** The 09:45
+bar ran 4181.50 to 4194.75, through the buy stop at 4193.25 *and* the sell stop
+at 4184.25. One-minute bars carry no intrabar path, so which filled first is
+unknowable. Entry 5 resolves it and takes the long; the generated strategy
+returns rather than guess: `if hit_up and hit_dn: return  # which stop filled
+first is unresolvable; stand aside`.
+
+Entry 4 recorded this same case as `ambiguous_both_stops` and counted it. The
+generated module declines it instead — the more conservative reading, and the
+one that does not manufacture a fill the data cannot support.
+
+#### What this does not say
+
+It does not say either strategy is correct. Entry 5 is REJECTED and its verdict
+stands; nothing here revises it, and this entry's own verdict is unaffected.
+What it establishes is that the pipeline reproduced entry 5's *signal* to
+within two sessions in seven years, and that the headline discrepancy was an
+artefact of comparing different spans.
+
+## 9. orb full day test — PROPOSED
+
+**Date:** 2026-09-09
+**Submission name:** `orb_full_day_test`
+**Submitted via:** `/submit` in Discord
+**Code:** `strategies/generated/orb_full_day_test.py` (generated; not yet written at the time this entry was committed)
+
+### Mechanism claimed
+
+Plumbing test — reproduces entry 4, filter OFF arm. Breakout continuation not established; not claimed.
+
+**Who is on the other side:**
+
+None claimed. Pipeline test against a known verdict.
+
+### Kill criteria, pre-registered
+
+Pooled eval_sim pass probability below 25%; more than 1 eval blown across seven years; fewer than 4 of 7 folds profitable or total 7-year P&L negative.
+
+### Description as submitted
+
+15-minute opening range breakout on MES. Range = 9:30–9:45 candle high/low. At 9:45 place a buy stop 1 point above the high and a sell stop 1 point below the low; first fill wins, other cancels. Skip the day if range is over 10 points. Fixed 10-point stop, 18-point target, 4 contracts. Cancel unfilled entry orders at 11:30 ET. Hold any open position until stop, target, or a forced flatten at 15:55 ET. One trade per day. No trend filter.
+
+### Verdict
+
+Not yet run. To be filled in by the walk-forward, with the commit
+hash recorded in a follow-up commit.
+
+---
+
 ## Template for new entries
 
 ```
