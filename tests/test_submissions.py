@@ -33,7 +33,11 @@ import submissions
 import submit_view
 from registry import Registry, RegistryError
 
-OWNER = 491708157341466624
+#: A fake snowflake, as in test_desk_discord.py. The real DESK_OWNER_ID is
+#: configuration in .env and has no business in a test - the first version of
+#: this file hard-coded the operator's actual id, which is what a pre-push
+#: scan for .env values caught.
+OWNER = 123456789012345678
 STRANGER = 12345
 
 CLEAN_STRATEGY = '''\
