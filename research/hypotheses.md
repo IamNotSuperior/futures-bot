@@ -2955,6 +2955,8 @@ Walk-forward over 7 yearly folds at 2 ticks of slippage per side and $1.25 commi
 In-sample results are never evidence, and this is the out-of-sample answer.
 
 
+**Verdict commit:** `9c638fe`
+
 ## Template for new entries
 
 ```

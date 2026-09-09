@@ -73,7 +73,8 @@ strategies:
   class_path: orborb_flat_1030:OpeningRangeBreakoutFlat1030
   hypothesis_entry: 8
   status: testing
-  verdict_commit: null
-  walkforward_verdict: ''
+  verdict_commit: 9c638fe
+  walkforward_verdict: REJECTED. $-4,587.50 over 588 trades, 0 of 7 folds profitable, pass
+    probability 0.00%, 2 evaluation(s) blown.
 shadow:
 - orb2
