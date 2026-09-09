@@ -1,332 +1,370 @@
 # Handoff
 
-Rewritten 2026-09-05. For a session starting fresh on this repository.
+Rewritten 2026-09-09. For a session starting fresh on this repository.
 
 This file holds only what is **not** already in `CLAUDE.md` (the hard rules and
 the firm/internal limit table), `README.md` (structure, how to run things, the
-research bot), or `research/hypotheses.md` (what has been tested and rejected,
-and why). Read those three first; this is the delta.
+bots), or `research/hypotheses.md` (what has been tested and rejected, and
+why). Read those three first; this is the delta.
 
 ---
 
 ## 1. Current state
 
-**Branch** `master`. **Working tree clean.** **587 tests pass** —
-`venv\Scripts\python.exe -m pytest tests\ -q`, about 40 seconds.
+**Branch** `master`, tracking `origin/master` at
+<https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
+**963 tests pass**, 1 skipped (a symlink test the OS refuses) —
 
-**Nothing is pending.** No failing test, no half-finished refactor, no branch
-other than `master`.
+```powershell
+venv\Scripts\python.exe -m pytest tests\ --ignore=tests\generated tests\generated\test_orborb_flat_1030.py -q
+```
 
-**Seven hypothesis entries. Six rejected, one open and untouched.**
+about 65 seconds. That is the same contract the `/submit` pipeline runs: the
+base suite plus the *tracked* generated test. A plain `pytest tests\` also
+collects `tests/generated/test_orb_full_day_test.py`, which is **untracked,
+belongs to entry 9's failed attempt, and fails on its own strategy** — see §3.6.
+That failure is the pipeline's verdict on entry 9, not a regression.
+
+**Working tree is clean except two untracked files** from that attempt:
+`strategies/generated/orb_full_day_test.py` and
+`tests/generated/test_orb_full_day_test.py`. They are the model's output,
+left for the operator's retry, which overwrites them. Do not commit them and
+do not delete them without asking.
+
+**Nine hypothesis entries. Seven rejected, one open and untouched, one awaiting
+a retry.** No strategy has ever reached `paper`.
 
 | # | Idea | Status |
 |---|---|---|
 | 1 | Opening Range Breakout | REJECTED |
 | 2 | Leveraged ETF end-of-day rebalance drift | REJECTED |
-| 3 | Manual discretionary trading | **PROPOSED — still open, zero trades logged** |
+| 3 | Manual discretionary trading | **PROPOSED — open, zero trades logged** |
 | 4 | ORB-2, fixed bracket with a daily trend filter | REJECTED |
 | 5 | ORB flat by 10:30 | REJECTED |
 | 6 | London breakout of the overnight range | REJECTED |
 | 7 | Replication of entry 6's non-null finding, on MNQ | REJECTED (not replicated) |
+| 8 | `orborb_flat_1030` — entry 5 re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
+| 9 | `orb_full_day_test` — submitted through `/submit` | **PROPOSED — failed its own generated test, awaits retry** |
 
-**No strategy has ever reached `paper` status in the registry.** Everything
-downstream of that — the desk bot, execution, multi-account fan-out — is gated
-on it and none of it is built. See §6.
+`venv\Scripts\python.exe strategies\registry.py` prints the registry; it agrees
+with the log. Entry 9 has **no registry record** — a submission is registered
+only after its suite passes, and this one's did not.
 
 ### Files on disk that are not in git
 
-`.gitignore` excludes these deliberately. They are **expensive or slow to
+`.gitignore` excludes these deliberately. The first two are **expensive to
 recreate** — do not delete them casually.
 
-- `data/mes_v_0_ohlcv_1m_2019-05_2026-08.parquet` — 40 MB, 2.58M bars,
+- `data/mes_v_0_ohlcv_1m_2019-05_2026-08.parquet` — 40.3 MB, 2.58M bars,
   2019-05-05 to 2026-08-31.
-- `data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet` — 42.6 MB, 2.58M bars, same
-  span. Pulled for entry 7 at **$9.4256**.
-- `backtests/results/*` — scan CSVs, walk-forward outputs, trade streams,
-  report text files, heatmaps, trade charts. Regenerable, but the ORB
-  walk-forward takes ~55 minutes and the entry 6 run about 20.
-- `.env` — `DATABENTO_API_KEY` and `DISCORD_TOKEN`. Ignored at `.gitignore:2`;
-  `.env.example` is the tracked template.
+- `data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet` — 44.6 MB, same span. Pulled
+  for entry 7 at **$9.4256**.
+- `backtests/results/*` — 70 files: scan CSVs, walk-forward fold tables, trade
+  streams, reports, charts. Regenerable; the ORB walk-forward takes ~55 minutes,
+  entry 6 about 20. The London and entry 7 fold tables rebuild in seconds with
+  `--folds-only`.
+- `.env` — five keys: `DATABENTO_API_KEY`, `DISCORD_TOKEN`,
+  `DESK_WEBHOOK_TOKEN`, `DESK_OWNER_ID`, `ANTHROPIC_API_KEY`. All set. Ignored
+  at `.gitignore:2`; `.env.example` documents each.
+- `journal/desk_state.json`, `journal/tunnel.log`, `journal/live_bars/*.csv` —
+  desk runtime. `live_bars/` holds one file per session date the desk has seen;
+  `/read` reads only today's, so a stale file is inert.
 
-`journal/trades.jsonl` **is tracked** but **does not exist yet** — no paper
-trades have been logged. It appears on the first `pretrade.py` ALLOW.
+`journal/trades.jsonl` **is tracked and does not exist** — no manual paper
+trade has ever been logged, by CLI or by `/read`. `journal/decisions.jsonl`
+(desk ticket button presses) does not exist either. Both appear on first use.
 
-**Databento spend is about $21.43** — roughly $12 on MES across three pulls, and
-$9.43 on MNQ. `data/fetch.py` estimates first and refuses above a cap; the cap
-is a `--max-cost` argument now, defaulting to $10.
+**Databento spend is about $21.43.** `data/fetch.py` estimates first and refuses
+above `--max-cost`, default $10.
 
 ---
 
 ## 2. What exists that is worth knowing about
 
-**The desk bot exists, in shadow mode, and its existence is not evidence that
-§6's gate was met.** It was not. `bots/desk.py` was built on 2026-09-06 as a
-deliberate pre-gate exception, on the operator's explicit instruction, to test
-the plumbing rather than to trade. Read §6 before touching it — the gate there
-still stands and nothing about this build relaxes it.
+### The `/submit` pipeline — validated on one known verdict, one pending
 
-What keeps the exception honest:
+Strategies now arrive through Discord. `bots/submissions.py` is the pipeline;
+`bots/generate.py` calls the Claude API (`claude-opus-5`, streaming, adaptive
+thinking); `bots/sandbox.py` is what generated code may write and contain;
+`bots/submit_view.py` is the modal and approval buttons;
+`backtests/run_generated.py` is the walk-forward that actually runs.
 
-- The only strategy it runs is **`orb2`, which entry 4 REJECTED**. That is the
-  point rather than an accident: a shadow ticket must never be mistakable for
-  a result, and the cheapest guarantee is a strategy whose verdict is already
-  terminal. Every ticket carries `SHADOW - strategy rejected, no orders`.
-- **`shadow:` in `registry.yaml` is not a status.** It is a list of names, it is
-  absent from `STATUSES`, and `Registry.promote` neither reads it nor is
-  influenced by it. `Registry.load` refuses a `shadow` entry that happens to be
-  a status name, because that would be someone reaching for it as one.
-- **Tickets go to `journal/shadow_trades.jsonl`, never `trades.jsonl`.** Entry
-  3's 60-trade gate counts the manual journal and is untouched. The separation
-  is a different file rather than a filtered column, because a column the
-  reader must remember to filter is one bug away from inflating the count that
-  licenses buying an evaluation. Both the shadow journal and `desk_state.json`
-  are gitignored: they are test output, not evidence.
-- **`PaperAdapter` is the only adapter.** There is no `TradersPost` class, not
-  even a stub — a test asserts `BrokerAdapter.__subclasses__()` has exactly one
-  member, so adding one is a red test. `broker.require_live_eligible` checks
-  registry status **first** and the per-account `live_enabled` flag second, so
-  a flag switched on by accident still refuses and the message names the
-  status. `AccountConfig.__post_init__` refuses a live account pointed at the
-  shadow journal.
-
-The desk reuses rather than reimplements: `tickets.evaluate_signal` calls
-`pretrade.evaluate`, and `tickets.close_position` calls `close.find_open_ticket`
-and `close.close_ticket`. `tests/test_desk_rules.py` asserts the decisions are
-identical check-for-check, so a guard added to one path and not the other is a
-failing test rather than a silent divergence.
-
-**Ticket buttons and the decisions journal (added 2026-09-08).** Every ticket
-embed carries **Execute** and **Don't trade**, pressable only by the Discord
-user in `DESK_OWNER_ID`. Presses and expiries go to `journal/decisions.jsonl`
-as the *operator's* record, separate from the bot's shadow journal, and
-`journal/review.py` reports them in their own section. Three things a future
-session must not undo:
-
-- **They are reported, not counted.** Entry 3's gate is pre-registered as
-  trades logged through `pretrade.py`, and its own text allows only a dated
-  addendum, never an edit. A click on an orb2 signal is not a discretionary
-  trade — the mechanism is rejected and the thesis is the bot's — and a gate
-  that counted approved orb2 signals could be passed by an idea the log has
-  already killed. The operator asked for them to count; this was declined on
-  those grounds and the addendum offered instead. If the addendum is written,
-  the count changes *after* it, not before.
-- **No order path for a rejected strategy, at two layers.** The Execute button
-  is disabled with the label `Execute — unavailable (strategy rejected)`, and
-  `approvals.TicketView.decide` refuses an approve on any status but
-  `paper`/`live` even when reached directly. A `live` approval with no live
-  adapter is refused, not quietly paper-filled. `tests/test_desk_discord.py`
-  asserts all three.
-- **Shadow and paper flow differently, on purpose.** Shadow signals are
-  simulated immediately (the plumbing test, unchanged). Paper/live signals are
-  posted and held in `Desk.pending` until Execute; `tickets.submit` then
-  writes the journal row under the id the operator saw.
-
-**Discord is now required and the feed starts once.** `DESK_CHANNEL_NAME` is
-resolved by name on the first `on_ready`; not found or not postable is fatal
-at startup, and a missing `DISCORD_TOKEN` exits before the parquet loads.
-`--no-discord` is the one explicit console-only mode. The feed server is
-started from `setup_hook`, which discord.py calls exactly once — it used to
-start from `on_ready`, which fires on every reconnect, so a reconnect bound
-port 8787 twice and uvicorn's `sys.exit` took the process down. Posts made
-while the gateway is down are buffered and flushed in order; a bind failure is
-recorded on `desk.feed_error` and repeated in every heartbeat.
-
-**`/read` and the manual journal (added 2026-09-08).** The research bot's
-`/read` describes a chart — EMA stack, prior-day and overnight levels, opening
-range, VWAP, round numbers, ATR, session clock and budget — and offers a
-bracket for **both** directions sized from `rules.py`. It carries no bias
-label, confidence score or opinion, by instruction and by test
-(`test_render_carries_no_opinion_bias_or_score`). Every embed leads with
-`chart_read.DISCLAIMER`.
-
-Three things a future session should not undo:
-
-- **`/read`'s "Log long" / "Log short" buttons DO count toward entry 3, and
-  the desk's ticket buttons do not.** This is not an inconsistency. A desk
-  ticket is an `orb2` signal — rejected mechanism, the bot's thesis — so
-  counting it would let a killed idea pass the gate. A `/read` is a
-  description with nothing to agree with: the operator picks the direction,
-  writes their own thesis in a modal, and the ticket goes through
-  `pretrade.evaluate` into `trades.jsonl`, which is exactly the mechanism
-  entry 3 pre-registered. The reasoning is in `bots/read_log.py`'s docstring.
-- **Logging re-evaluates at submit time.** Minutes pass between the embed and
-  the modal, and 16:20 can fall in that gap, so the bracket from the read is
-  re-run through `pretrade.evaluate` when the ticket is actually written. A
-  blocked window writes nothing at all — same position `pretrade.py` takes.
-- **A blocked window produces no bracket, only the reasons.** The blocks come
-  from `pretrade.evaluate` rather than a second implementation, so "the rules
-  would block this" means the same thing in the read, the journal and the desk.
-
-The desk and the research bot are **separate processes**, so `/read` cannot
-see the desk's in-memory bars. The desk mirrors each completed bar to
-`journal/live_bars/<date>.csv` (gitignored) and `/read` merges those over the
-parquet history — parquet supplies the 200-EMA and 20-day range history that
-one session cannot seed. With the desk down it falls back to parquet **and
-says so with the as-of date**, which matters because the cache ends
-2026-08-31: a silent fallback would present a week-old "prior day close" as
-yesterday's. `desk.live_bars_dir` is set to `None` for replays so a historical
-run cannot overwrite today's file.
-
-**`/submit`: strategies arrive through Discord (added 2026-09-08).** The
-pipeline is `bots/submissions.py`, with `bots/generate.py` (the Claude API
-call), `bots/sandbox.py` (what generated code may write and contain),
-`bots/submit_view.py` (modal + approval buttons) and
-`backtests/run_generated.py` (the walk-forward that actually runs).
-
-The ordering is the product, and a future session must not rearrange it:
+The ordering is the product, and must not be rearranged:
 
 1. **Pre-register first.** The operator's mechanism, counterparty and kill
-   criteria are written to `hypotheses.md` as PROPOSED and **committed before
-   the API is called** — rule 12 says the entry comes before any code, and an
-   entry written afterwards is a description of what was produced rather than
-   a prediction. This is a deliberate departure from the brief, which put the
-   commit at approval; approval commits the *status change* and freezes the
-   implementation.
-2. Generate → sandbox-write → full suite → register at `proposed`.
-3. Approve (owner only) → `testing`, frozen in a commit.
-4. Walk forward → **verdict written and committed before the embed posts.**
-   `record_verdict` returns the hash the embed prints, so the hash cannot
-   exist before the freeze. Tested by `TestVerdictOrdering`.
+   criteria go into `hypotheses.md` as PROPOSED, in their own words, and are
+   **committed before the API is called** (rule 12). The model's draft is
+   appended under its own heading, labelled as not the pre-registration.
+2. Generate → sandbox-write → suite → register at `proposed` (`Registry.add`,
+   which has **no status argument** — a test asserts the signature, as for
+   `promote`).
+3. Approve (owner only) → `testing`, implementation frozen in a commit.
+   Reject → REJECTED, terminal, entry stays.
+4. `/walkforward` runs the folds and **writes and commits the verdict before
+   the embed posts** — `record_verdict` returns the hash the embed prints. A
+   REJECTED verdict promotes the record to `rejected`; an ACCEPTED one
+   deliberately does *not* promote to `paper`, because `paper` unblocks the
+   desk and reaching it should be an act, not a background job's side effect.
 
-**The sandbox is two layers, and the second one matters more than the brief
-implies.** `safe_write` confines writes to `strategies/generated/` and
-`tests/generated/`, resolving before comparing so `..`, absolute paths and
-symlinks are refused. But the brief's write-sandbox does **not** contain the
-generated code, which pytest then imports and executes — it could read `.env`
-at import time and no path check would see it. So `screen_source` AST-screens
-imports, `eval`/`exec`/`open`, and dunder reflection, and `run_tests` runs the
-suite in a subprocess with every secret stripped from the environment. **The
-screen is a guard against mistakes and drift, not a security boundary against
-an adversary** — a determined attacker with code execution defeats an AST
-screen. The scrubbed environment is what makes that survivable.
+**Retry.** A name whose attempt died before review is re-submitted against the
+same entry with a dated `### Attempt N` note; the pre-registration is never
+rewritten. A name that reached the registry is taken.
 
-`Registry.add` creates records at `proposed` and takes **no status argument**
-— a status parameter would be a complete bypass of `promote` and every gate
-behind it. A test asserts the signature by introspection, as it does for
-`promote`. `set_verdict` records evidence and never touches status.
+**Where it stands.** Entry 8 re-submitted entry 5's description as a plumbing
+test and **reproduced entry 5's signal to within 2 trades in seven years** on
+the corrected span — 476 against entry 5's 478, both REJECTED, 0 of 7 folds
+either way. Entry 8's diagnostic and addendum carry the full accounting. Entry
+9 (`orb_full_day_test`) failed its own model-written no-lookahead test and
+awaits a retry. **If its retry lands near entry 4's −$3,930 over ~504 trades,
+the pipeline is validated on two known verdicts** and can be trusted on a new
+idea.
 
-`/walkforward` dispatches: a generated strategy **runs** (yearly folds,
-2 ticks/side, eval_sim, blow-up count, as a background job); everything else
-keeps reading saved output, because those verdicts are frozen in the log and
-recomputing them could report a number no verdict ever said.
+**The sandbox is two layers.** `safe_write` confines writes to
+`strategies/generated/` and `tests/generated/`, resolving before comparing so
+`..`, absolute paths and symlinks are refused. That does not contain the code,
+which pytest imports and executes — so `screen_source` AST-screens imports
+(only pandas/numpy/base/rules/pytest and stdlib maths; a generated *test* may
+additionally import its own strategy, bare or dotted, and no other),
+`eval`/`exec`/`open`/`__import__` and dunder reflection, and `run_tests`
+executes in a subprocess with every secret stripped from the environment. The
+screen guards against mistakes and drift; **it is not a security boundary
+against an adversary.** The scrubbed environment is what makes a miss
+survivable.
 
-**The scored span is imported, not written down (2026-09-09).**
-`run_generated.SCORE_START` is `walkforward.build_folds()[0].test_start` —
-2020-01-01 — so a generated verdict is scored on the span every other entry
-used. The first run scored the whole parquet from 2019-05-05 and reported 588
-trades where entry 5 had 478 on the same signals; the gap was entirely the
-span, and entry 8 carries the diagnostic and a dated addendum with the
-corrected numbers. Signals are still generated over the full history so a
-50-day EMA is seeded by January 2020; 2019 is indicator history, not sample.
-A test asserts the constant equals walkforward's and that no literal `date(`
-restates it.
+### The desk bot — shadow mode, and its existence is not evidence the gate was met
 
-**The bot only ever commits its own append.** Every bot write to
-`hypotheses.md` ends in `git add` of the whole file, so an uncommitted edit
-already in the tree would be swept into a commit whose message describes
-something else — which happened once: a diagnostic on entry 8 rode along under
-"Pre-register entry 9". Not data loss, but misattribution in a file whose
-value is that its history means what it says. `require_clean_log()` now runs
-before every bot write to the log (`pre_register`, `approve`, `reject`,
-`record_verdict`) and refuses with the reason, which Discord shows as a
-message rather than a traceback. **If you are editing `hypotheses.md` by
-hand, commit it before using `/submit`** — the bot will refuse until you do.
-`registry.yaml` is deliberately *not* guarded the same way: `register_proposed`
-leaves the bot's own registry change uncommitted until `approve`, and a guard
-there would refuse the bot's own pending work.
+`bots/desk.py` was built 2026-09-06 as a deliberate pre-gate exception to test
+plumbing. The only strategy it runs is **`orb2`, which entry 4 REJECTED** — a
+shadow ticket must never be mistakable for a result. `shadow:` in
+`registry.yaml` is a list of names, not a status; `Registry.promote` never
+reads it. Tickets go to `journal/shadow_trades.jsonl`, never `trades.jsonl`, so
+entry 3's count is untouched. `PaperAdapter` is the only adapter — a test
+asserts `BrokerAdapter.__subclasses__()` has exactly one member — and
+`broker.require_live_eligible` checks registry status before the account flag,
+so a flag flipped by accident still refuses.
 
-**One known gap is pinned rather than fixed.** `rules.py` still has no
-session-*open* guard, so a signal at 08:00 passes every check — 08:00 is
-numerically before an afternoon cutoff. `orb2` slices to `09:30–15:59` and
-cannot produce one, so nothing is unsafe today;
-`test_desk_rules.py::test_premarket_signal_is_not_blocked_by_rules_py` asserts
-the current behaviour so the day a strategy *can* signal pre-market, it is a
-red test rather than a surprise fill. This is the same gap §5 already records.
+The desk reuses rather than reimplements: `tickets.evaluate_signal` calls
+`pretrade.evaluate` and `tests/test_desk_rules.py` asserts the decisions match
+check-for-check. Ticket embeds carry **Execute / Don't trade** buttons, owner
+only; presses go to `journal/decisions.jsonl` as the operator's record and are
+**reported by `review.py`, not counted toward entry 3** — a click on a
+rejected strategy's signal is not a discretionary trade. Execute is disabled
+and refused for anything below `paper`/`live`.
 
-**The strategy registry** (`strategies/registry.py` + `registry.yaml`) is the
-machine-readable record of where every idea stands, and `Registry.promote` is
-the only way a status changes. It takes **two arguments and no override** — a
-test asserts that signature by introspection so a `force=` cannot be added
-quietly. `rejected` is terminal, because the log's standing rule is that a
-verdict is never revised. `testing -> paper` requires an ACCEPTED walk-forward
-in `hypotheses.md`; `paper -> live` calls `journal/review.readiness`, which is
-the same function the CLI prints from. `verify()` cross-checks the registry
-against the log and `/status` prints the result.
+Discord is required (`DESK_CHANNEL_NAME`, default `general`); a missing
+channel or token is fatal at startup, never a silent stdout fallback. The feed
+server starts from `setup_hook`, exactly once, whatever Discord's reconnects
+do. Bars arrive from a TradingView alert (`pine/bar_feed.pine`) through a
+Cloudflare tunnel (`bots/tunnel.py`), which refuses to start without
+`DESK_WEBHOOK_TOKEN`. The desk mirrors each bar to `journal/live_bars/` for
+`/read`, which runs in the other process.
 
-**The research bot** (`bots/research.py`) is live and read-only. Launch it with
-`start_bot.bat`. Commands, the registry, and the design are documented in
-`README.md`. Nothing it exposes promotes a strategy, writes to the journal, or
-places an order.
+### The research bot
 
-**The evidence pipeline**, in the order it is actually used:
+`bots/research.py`: `/backtest`, `/walkforward`, `/evalsim`, `/hypotheses`,
+`/status`, `/read`, `/submit`. `/read` describes a chart with no bias label,
+score or opinion (by test), and its **Log long / Log short** buttons write to
+the manual journal through `pretrade.evaluate` — those **do** count toward
+entry 3, because the operator picks the direction and writes the thesis, which
+is exactly the mechanism entry 3 pre-registered. Guards re-run at submit time.
+`/walkforward` runs the folds for a generated strategy and reads saved output
+for everything else, because those verdicts are frozen.
 
-> video or screenshots → a hypothesis entry in `research/hypotheses.md` with a
-> stated mechanism, a named counterparty and kill criteria decided **before**
-> any code → freeze it in a commit → build → `/walkforward` → verdict written
-> into the entry before anyone sees numbers → verdict commit hash recorded in a
-> one-line follow-up commit.
+### The registry and the log
 
-That loop is the product. Six of seven entries died in it, which is the point.
+`Registry.promote` takes two arguments and no override; `rejected` is
+terminal; `testing → paper` requires an ACCEPTED walk-forward in the log;
+`paper → live` calls `journal/review.readiness`. `verify()` cross-checks the
+registry against the log and is how a real drift bug was caught this session.
+
+**The evidence pipeline** is unchanged and is the product: entry with
+mechanism, counterparty and kill criteria → committed → build → walk-forward →
+verdict frozen before anyone sees numbers → hash recorded in a follow-up. Seven
+of nine entries died in it.
 
 ---
 
 ## 3. Open items
 
 **3.1 Verify the CME holiday dates before trading them — still the highest
-priority.** `data/cme_calendar.py` was constructed from standard US market
-holiday rules, not read from an exchange feed. Check every date against
-<https://www.cmegroup.com/tools-information/holiday-calendar.html>. A wrong date
-fails in the dangerous direction: a half-day recorded as normal allows a late
-entry that should be blocked. **2026-11-26 and 2026-11-27** are the first dates
-a live paper run would reach.
+priority.** `data/cme_calendar.py` was constructed from standard US holiday
+rules, not an exchange feed. Check every date against
+<https://www.cmegroup.com/tools-information/holiday-calendar.html>. A wrong
+date fails in the dangerous direction: a half-day recorded as normal permits a
+late entry that should be blocked. **2026-11-26 and 2026-11-27** are the first
+dates a live paper run reaches.
 
-**3.2 The 13:00 versus 13:15 early-close approximation.** `rules.EARLY_SESSION_CLOSE`
-models a single 13:00 close where CME equity index closes 13:15 on some
-half-days. Over-blocking is the safe error; fixing it loosens a limit and needs
-stating as such.
+**3.2 Verify Lucid/Tradovate's actual MES commission.** Every strategy in the
+log sat within about a point of break-even at the assumed **$1.25 per side**
+(`engine.CostModel`). If the real all-in number is materially different, every
+verdict's margin moves with it. **This is the biggest unknown in the log.** It
+is a phone call or a statement, not a backtest, and it should be settled
+before any new entry is scored.
 
-**3.3 The `NEEDS_VERIFICATION` dates in late 2027** (2027-12-23/24/31). Extend
-the calendar before 2028.
+**3.3 The 13:00 versus 13:15 early-close approximation.**
+`rules.EARLY_SESSION_CLOSE` models a single 13:00 close where CME equity index
+closes 13:15 on some half-days. Over-blocking is the safe error; fixing it
+loosens a limit and must be stated as such.
 
-**3.4 `enforce_trailing_drawdown_halt` lives in `backtests/run_orb_flat.py`,
-not the engine.** `engine.py` has `enforce_daily_loss_limit` and no trailing
-equivalent. Rule 9 wants it as shared runtime logic; promote it when a second
-caller needs it.
+**3.4 The `NEEDS_VERIFICATION` dates in late 2027.** Extend the calendar
+before 2028.
 
-**3.5 Entry 3's gate has never been started.** Sixty rule-clean paper trades,
-positive expectancy, `eval_sim` pass probability above 50%. Zero trades logged.
+**3.5 `enforce_trailing_drawdown_halt` lives in `backtests/run_orb_flat.py`,
+not the engine.** `run_generated.py` does not apply it either — a generated
+verdict has the daily loss limit but no trailing halt, which is more
+permissive than entry 5's run. Promote it to `engine.py` when the next caller
+needs it; that caller is `run_generated.py`.
+
+**3.6 Entry 9's retry.** `/submit orb_full_day_test` with the same three
+fields reuses entry 9. Its previous attempt's generated test failed
+`test_opening_range_only_uses_pre_0945_bars`. If the retry passes and is
+approved, `/walkforward orb_full_day_test` produces the second validation
+point (§2).
+
+**3.7 Entry 3's gate has never been started.** Sixty rule-clean paper trades,
+positive expectancy, `eval_sim` pass probability above 50%. Zero trades logged,
+and `/read`'s buttons now make logging one click — which makes the discipline
+of only logging trades actually taken matter more, not less.
+
+**3.8 `rules.py` has no session-open guard.** A signal at 08:00 passes every
+check; nothing today can produce one;
+`test_premarket_signal_is_not_blocked_by_rules_py` pins it.
+
+**3.9 The Discord user id in commit `9dc95c2`.** `tests/test_submissions.py`
+once hard-coded the operator's real `DESK_OWNER_ID`; the tip uses a fake id.
+The real one remains in that commit's history, which was already pushed. A
+Discord snowflake is not a credential — it authorises nothing and is visible
+to anyone sharing a server. **It stays; do not rewrite history for it.**
 
 ---
 
-## 4. What the operator is doing next
+## 4. Open directions
 
-Nothing is running. The research bot is available for querying the existing
-work. **The manual paper-trading loop (entry 3) is the only path currently open
-that could move a strategy toward `paper` status**, and it has not been started.
+None is started. In the order the operator raised them:
+
+**A portfolio layer in the desk.** Today each runner is its own book: one
+position at a time per strategy, the daily budget checked per signal. A
+portfolio layer would hold **one position across strategies**, draw on a
+**shared daily budget**, and check **consistency at the account level** (rule
+8) rather than per stream. This is real engine work — `engine.price_trades`
+takes one scalar `contracts` per trade list (§5) — and it changes what a
+"blocked" signal means, so it needs a design before code.
+
+**A selector diagnostic on the seven rejected OOS streams.** Seven
+out-of-sample trade streams exist in `backtests/results/`. A diagnostic that
+asks whether *any* selection rule across them — by regime, by day, by
+volatility — would have produced a positive stream is worth one run,
+**pre-registered as a diagnostic with no verdict**, because a selector fitted
+to seven known-negative streams is the textbook way to manufacture an edge.
+
+**The commission number (§3.2)** gates both of the above: a portfolio of
+break-even strategies at the wrong cost assumption is not worth assembling.
+
+**The desk bot's gate (§6) is unchanged** — no strategy is at `paper`, and
+nothing above relaxes that.
 
 ---
 
 ## 5. What a fresh session would get wrong
 
-The rest of this file. Each of these has already cost time at least once.
+Each of these has already cost time at least once. The first five are new this
+session.
+
+### `truststore` recurses forever on Python 3.14 / Windows — and the fix must never become `verify=False`
+
+`anthropic` 1.x installs `truststore` to read the Windows certificate store.
+On this machine its `_set_ssl_context_verify_mode` recurses into `ssl.py`'s
+`verify_mode` property without terminating, so **every SDK request dies as
+`APIConnectionError`** while the same request through `urllib` returns 200.
+`httpx2` alone fails the same way; that is how it was isolated.
+
+`generate._http_client()` supplies a certifi-backed `ssl.create_default_context`
+— `CERT_REQUIRED`, hostname checking on — so the handshake never reaches
+truststore. **Verification is not weakened; a CA bundle is added, not a check
+removed.** "Fix the TLS error" is exactly the change that tends to arrive as
+`verify=False`, so `test_tls_verification_is_not_weakened` walks the
+function's AST and fails on a `False` `verify`/`check_hostname` keyword or a
+`CERT_NONE` reference — AST rather than substring, because the docstring
+deliberately names the thing it forbids.
+
+### `run_tests` runs the base suite plus the submitting strategy's own test — nothing else
+
+`tests/generated/` holds every submission's generated test. Running `tests/`
+wholesale meant one failed attempt's leftover file would fail **every later
+submission**, and did fail the operator's plain `pytest`. `test_command`
+passes `--ignore=tests/generated` and adds the submitting strategy's own file
+back explicitly. Judge a submission on the base suite and its own test. When
+you run the suite yourself, use the same contract (§1) or expect entry 9's
+untracked test to be red.
+
+### The bot commits the *whole* of `hypotheses.md` — never leave it dirty while the bot runs
+
+Every bot write to the log ends in `git add` of the file, so an uncommitted
+edit already in the tree rides into the bot's next commit under a message
+that describes something else. That happened once: a diagnostic on entry 8
+was committed under "Pre-register entry 9". Not data loss — misattribution, in
+a file whose value is that its history means what it says.
+`require_clean_log()` now runs before `pre_register`, `approve`, `reject` and
+`record_verdict` and refuses with the reason, rendered in Discord as a message.
+**If you edit `hypotheses.md` by hand, commit before using `/submit`.**
+`registry.yaml` is deliberately *not* guarded: `register_proposed` leaves the
+bot's own registry change uncommitted until `approve`, and a guard there would
+refuse the bot's own work.
+
+### The scored span is imported from `walkforward.py`, not restated
+
+`run_generated.SCORE_START` is `walkforward.build_folds()[0].test_start`
+(2020-01-01). Signals are generated over the **full** history so a 50-day EMA
+is seeded by January 2020; the scored trades start at that date. A test
+asserts the constant equals walkforward's and that no literal `date(` restates
+it. This is the same discipline as "never restate a threshold", applied to a
+date.
+
+### The 110-trade gap was the span, not the strategy
+
+Entry 8's first run reported 588 trades against entry 5's 478 and looked like
+a rule interpreted differently. It was not. On identical bars the two
+strategies differ on **four sessions in seven years**, and the generated one
+trades fewer, never more (three triggers on the 10:29 bar it declines to act
+on at 10:30; one bar spanning both stops it refuses to resolve). The 110 was
+2019: `run_generated.py` scored from 2019-05-05 and entry 5 from 2020. On entry
+5's own window the numbers are 478 and 476. **Contract size does not change a
+trade count** — 476 at both 1 and 4 contracts; sizing scales P&L. Before
+attributing a count discrepancy to logic, check the span and the halts.
+
+### Slippage is applied in one place: `engine.price_trades`
+
+`PaperAdapter` once slipped the entry a tick *and* `price_trades` slipped both
+fills again — $1.25 per contract of phantom cost, found by hand-checking one
+ticket against the engine. The adapter reports the signal level; the cost
+model owns costs. A future live adapter reports a *real* fill and will need a
+zero-slippage cost model, or the same double-count returns.
+
+### `from __future__ import annotations` breaks a FastAPI `Request` imported inside a function
+
+String annotations resolve against module globals. A `Request` bound only as a
+function local is unresolvable, FastAPI silently treats the parameter as a
+query field, and every valid POST returns **422 blaming a missing query
+parameter named `request`**. Import FastAPI symbols at module level.
 
 ### Imports: flat modules, no packages
 
 There are **no `__init__.py` files and no package imports.** Modules are
 imported by bare name — `import rules`, `import store`, `from engine import ...`
 — and directories are put on `sys.path` by each entry point and by
-`tests/conftest.py`.
+`tests/conftest.py`, which now also adds `strategies/generated`.
 
 `from strategies.rules import ...` **will fail.** Follow the existing pattern.
+A submission may not be named after an existing module (`sandbox.RESERVED_NAMES`):
+a generated `rules.py` would shadow the guard module.
 
 ### There are two modules called `review`, and import order decides which you get
 
 `backtests/review.py` and `journal/review.py` both exist, and `journal/review.py`
 imports the backtests one **by bare name**. Whichever directory is earlier on
-`sys.path` wins. `strategies/registry.py` needs the journal one and cannot get
-it by name, so it loads it by file path under a distinct module name and builds
-`sys.path` in reverse to keep `backtests` ahead of `journal`. If you add a third
-consumer, do the same rather than reordering the path globally.
+`sys.path` wins. `strategies/registry.py` loads the journal one by file path
+under a distinct module name (`_journal_review()`); tests that need it do the
+same. If you add a third consumer, do that rather than reordering the path.
 
 ### Two limit sets, and the guards read only one
 
@@ -341,7 +379,8 @@ Every limit lives in `rules.py` and is imported. This has already caused a real
 bug once (`enforce_daily_loss_limit` carried a hardcoded `limit=300.0` default).
 The same discipline is why `journal/review.readiness` was extracted: the CLI,
 the registry and the bot all read one definition of the 60-trade, positive-
-expectancy and 50% gates.
+expectancy and 50% gates. Rule 13's acceptance test lives in
+`run_generated.py` and nowhere else.
 
 ### Hardcoded contract specs are the same bug wearing a different hat
 
@@ -396,15 +435,16 @@ as an edge, and do not design a bracket without asking what its midpoint is.
 ### Per-trade sizing does not fit the engine's scalar `contracts`
 
 `engine.price_trades` takes one `contracts` integer for the whole trade list.
-Entry 6 sizes per session from the range height, so it does not fit.
+Entry 6 sizes per session from the range height, so it does not fit — which is
+why `london_*` runners carry `build=None` and `/backtest` refuses them.
 
 **The workaround, which needs no engine change:** P&L is exactly linear in
 contracts *within* a trade — `net_pnl = contracts × (net_points × point_value −
 2.5)` — so price at one contract and scale each row by its own size. The daily
 loss limit is then applied **per contract-size group**, which is exact *only*
-because entry 6 takes at most one trade a day, so no day mixes sizes and
-grouping by size cannot split a day. A strategy taking two trades a day at
-different sizes would break that and needs a real engine change.
+because entry 6 takes at most one trade a day. A strategy taking two trades a
+day at different sizes would break that and needs a real engine change — as
+would the portfolio layer in §4.
 
 Related: **the size-linearity assertion that guards entries 4 and 5 does not
 apply to entry 6.** Those two can be rescaled after the fact; entry 6 cannot.
@@ -414,21 +454,17 @@ apply to entry 6.** Those two can be rescaled after the fact; entry 6 cannot.
 `rules.session_date` is the calendar date of a timestamp. **Entry 6's overnight
 range window is not:** bars from 19:00 ET onward belong to the *next* day's
 London session, so a Monday trade is measured against a range that began Sunday
-at the Globex reopen.
-
-`london_date()` in `strategies/london.py` is the only place that mapping lives,
-and `tests/test_london.py` asserts both that it differs from `session_date` and
-that moving the *prior evening's* bars moves the Monday range. The daily loss
-limit still groups by calendar date, which is correct for the trade — only the
-range construction crosses the boundary. Do not assume the two agree.
+at the Globex reopen. `london_date()` in `strategies/london.py` is the only
+place that mapping lives. The same trap bit `run_london.fold_frame` when read
+back from CSV: the fold year must be the **ET** year, parsed with `utc=True`
+and converted, or a 31 December evening entry lands in the next year's fold.
 
 ### rules.py has no concept of an overnight session
 
 `is_entry_allowed` returns True at 03:00 ET — but because 03:00 is numerically
 before a cutoff designed for the *afternoon*, not because the module models an
 overnight session. It has one RTH session per calendar day. The guards are
-satisfied by accident of arithmetic. A future overnight strategy trading later
-in the day could expose that.
+satisfied by accident of arithmetic. See §3.8.
 
 ### Backtest numbers from before `4a14a83` are not comparable
 
@@ -436,10 +472,10 @@ That commit moved the daily loss limit $300 → $400 and the position cap 2 → 
 
 ### Every breakout entry is rejected — do not "improve" them
 
-Entries 1, 4, 5, 6 and 7 have tested breakout continuation across two sessions,
-two instruments, three signal definitions, four holding periods and two
-benchmarks. **All rejected.** Each entry's `Next` section forbids the obvious
-follow-up, and entry 7 closes the London family explicitly.
+Entries 1, 4, 5, 6, 7 and 8 have tested breakout continuation across two
+sessions, two instruments, three signal definitions, four holding periods, two
+benchmarks and now two implementations. **All rejected.** Each entry's `Next`
+section forbids the obvious follow-up, and entry 7 closes the London family.
 
 **Entry 1's condition has never been met and is the only route back:** establish
 the counterparty claim independently of backtest results — order-flow evidence
@@ -448,152 +484,161 @@ is a data purchase, not a backtest, and should be priced before it is started.
 
 ### Do not propose order-placement or automation code yet
 
-**Not until EITHER (a) the 60-trade paper-trading gate is met, for automating
-discretionary trading, OR (b) a pre-registered hypothesis has passed
-walk-forward validation with kill criteria stated in advance.** Neither holds.
-The registry enforces this in code; `Registry.promote` will refuse.
+**Not until EITHER (a) the 60-trade paper-trading gate is met, OR (b) a
+pre-registered hypothesis has passed walk-forward with kill criteria stated in
+advance.** Neither holds. The registry enforces this in code; `Registry.promote`
+will refuse, and `Registry.add` cannot create anything above `proposed`.
 
 The failure mode is offering to wire up a broker because the scaffolding exists
 and looks ready. It is ready in the sense that the guards work; it is not ready
-in the sense that there is nothing with demonstrated positive expectancy.
+in the sense that there is nothing with demonstrated positive expectancy. The
+desk bot's existence in shadow mode makes this temptation stronger, not weaker.
 
 ### Bar labelling: left-closed, labelled by opening minute
 
 A 5-minute bar labelled `15:25` covers 15:25–15:29 and **closes at 15:29:59**.
-So "the price as of 15:30" is the close of the `15:25` bar. A corollary that has
-bitten test fixtures repeatedly: **to make a 5-minute candle close at a value,
-set the *last* one-minute bar in its bucket**, not the bar at the label.
+So "the price as of 15:30" is the close of the `15:25` bar. To make a 5-minute
+candle close at a value, **set the *last* one-minute bar in its bucket**, not
+the bar at the label. `feed.BarAggregator` publishes a bucket only when a bar
+from the *next* bucket arrives, which is what keeps the desk free of lookahead.
 
 ### Naive timestamps are read as ET, not UTC
 
 `rules.to_et` interprets a naive timestamp as America/New_York. Passing a naive
-**UTC** timestamp will be misread by five hours with no error.
+**UTC** timestamp will be misread by five hours with no error. The Pine feed
+sends epoch milliseconds for this reason.
 
 ### Signals are session-independent — exploit it, it is tested
 
 Generating signals once over the whole history and slicing by date gives exactly
 the same result as generating per window. `tests/test_scan.py` and
-`tests/test_orb2.py` assert this. Regenerating per window is roughly four times
-slower for no benefit.
+`tests/test_orb2.py` assert this; the desk relies on it, regenerating over the
+accumulated session each bar.
 
 ### Long runs, and where the time actually goes
 
 The ORB walk-forward is ~55 minutes; entry 6's four-arm run about 20; entry 7's
-bootstrap about 15. Run them in the background.
+bootstrap about 15; a generated strategy's walk-forward two to three. The desk
+loads the 40 MB parquet twice at startup (trend EMA, then replay) — about a
+minute. Run long things in the background.
 
 **One performance trap, already hit:** `bootstrap_benchmark._by_day` pre-slices
 the bars once. The first version scanned the whole 1.7M-row frame inside the
-per-trade loop — O(trades × bars), about 1.2 billion row comparisons — and
-turned a minute of work into an hour with no output to show for it.
+per-trade loop and turned a minute of work into an hour with no output.
 
 ### Data costs real money
 
 `MES.v.0` and `MNQ.v.0` — volume-rolled continuous, never `.c.0`: the
 front-month series has **no RTH bars at all on the 8 quarterly expiry days**.
 Bare `MES`/`MNQ` does not resolve. **Always run `--estimate` and show the number
-before pulling.** Metadata calls are free; timeseries calls are not.
+before pulling.** Metadata calls are free; timeseries calls are not. The Claude
+API costs money too: `/submit` is one streaming call per attempt.
 
 ### `venv` and pinned versions
 
 Python 3.14.7, virtualenv at `venv/`. Invoke it explicitly:
 `venv\Scripts\python.exe`. **`plotly` is pinned below 6** because vectorbt
 registers themes using a trace type plotly 6 renamed. `vectorbt` is installed
-but effectively unused — the engine is plain pandas, deliberately, because ORB
-computes exact intrabar stop/target fills.
+but effectively unused — the engine is plain pandas, deliberately. `fastapi`,
+`uvicorn`, `httpx` (the desk webhook and its TestClient) and `anthropic`
+(`/submit`) were added this session and are in `requirements.txt`.
 
 ### Windows encoding and shell escaping will destroy files
 
 `pathlib.Path.write_text(s)` defaults to **cp1252** and raises on any non-ASCII
 character *after* truncating the file. **Always pass `encoding="utf-8"`.**
+`json.dumps` escapes non-ASCII by default, which hides this until a real
+non-ASCII value arrives — `desk_state.py` writes with `ensure_ascii=False` so
+the explicit encoding is load-bearing.
 
-**Backslash escapes are worse.** Writing `bots\research.py` or
-`strategies\registry.py` through a shell heredoc into Python turns `\r` into a
-carriage return — silently producing `botsesearch.py`. This has happened three
-times. **Write files with the editor tool, or write a script to a file and run
-it; do not pass Windows paths through a shell heredoc into Python string
-literals.**
+**Backslash escapes are worse.** Writing `bots\research.py` through a shell
+heredoc into Python turns `\r` into a carriage return — silently producing
+`botsesearch.py`. A heredoc also mangled a 150-line append this session.
+**Write files with the editor tool, or write a script to a file and run it.**
+Also: `-c` snippets are in cp1252 on the console — an em dash in a label
+renders as `?`; the string itself is fine.
 
 ### matplotlib parses `$` as math
 
 Any label containing paired dollar signs gets silently italicised. Set
 `plt.rcParams["text.parse_math"] = False` on any new chart with currency labels.
 
+### Pine: `"#"` number formats emit invalid JSON
+
+`str.tostring(x, "#.##")` renders zero as an empty string and values below 1
+as `.5` — both unparseable, and a zero-volume overnight bar is routine. Use
+`"0.##########"`. `pine/bar_feed.pine` sends `time` (the bar's *opening*
+minute), not `time_close`; swapping them shifts every bar forward a minute.
+
 ---
 
-## 6. Next direction — the desk bot and multi-account fan-out
+## 6. The gate — desk bot and multi-account fan-out
 
-**Neither is built. Both are gated, and the gate is not met.**
+**The desk exists in shadow mode (§2). The gate is unchanged and not met.**
 
-The operator intends:
+Both the desk trading a strategy and multi-account fan-out **wait on a strategy
+reaching `paper` status in the registry. None has.** `Registry.promote` will
+not put one there without an ACCEPTED walk-forward in `hypotheses.md`, and
+`/walkforward`'s ACCEPTED path stops at `testing` on purpose.
 
-**A desk bot** — a 24/7 live scanner that posts tickets to Discord. Paper mode
-first. Execution behind a **`BrokerAdapter` interface** with two
-implementations: **`Paper`** (fills simulated locally, no money) and
-**`TradersPost`** (real routing). The adapter boundary exists so the paper and
-live paths cannot diverge and so a strategy cannot reach a broker without
-passing through the same guards.
-
-**Multi-account fan-out** — copying the same trade across several funded
-accounts.
-
-### The gate
-
-**Both wait on a strategy reaching `paper` status in the registry. As of now
-none has**, and `Registry.promote` will refuse to put one there without an
-ACCEPTED walk-forward recorded in `hypotheses.md`. Six of the seven entries are
-rejected and the seventh has no trades.
-
-This is not a formality to route around. The scaffolding is genuinely ready —
-the guards work, the registry gates, the bot runs — and that readiness is
-exactly what makes it tempting to build execution for a strategy that has none
-of the evidence.
-
-### On multi-account fan-out, recorded in four entries and repeated here
-
-**Copying identical trades across N funded accounts multiplies outcomes in both
-directions. It is not diversification and must never be described as such.**
-The same losing day draws down every account simultaneously, and a
-trailing-drawdown breach terminates all of them on the same date. **N accounts
-running one strategy is one bet at N times the size, with N times the fees** —
-not N independent bets.
-
-The only thing it diversifies is the *evaluation attempt*, and only while
-accounts are started at different times on different price paths. Once funded
-and trading in lockstep, the correlation is 1.
+**On multi-account fan-out, recorded in four entries and repeated here:**
+copying identical trades across N funded accounts multiplies outcomes in both
+directions. It is not diversification. The same losing day draws down every
+account simultaneously, and a trailing-drawdown breach terminates all of them
+on the same date. **N accounts running one strategy is one bet at N times the
+size, with N times the fees.** The only thing it diversifies is the
+*evaluation attempt*, and only while accounts start at different times.
 
 ### What would actually unblock this
 
-One of:
-
 1. **Entry 3's gate met** — 60 rule-clean journaled paper trades, positive
-   expectancy after costs, `eval_sim` pass probability above 50%. This is the
-   only currently-open path and it has not been started.
-2. **A new pre-registered hypothesis that passes walk-forward** — profitable in
-   a majority of yearly folds, positive total P&L after commission and
-   slippage, surviving at 2 ticks. Six entries have tried; none has.
-
-Anything else is building execution for a strategy that does not exist.
+   expectancy after costs, `eval_sim` pass probability above 50%. `/read` makes
+   logging one click; it does not make the trades any better.
+2. **A new pre-registered hypothesis that passes walk-forward** — a majority of
+   yearly folds, positive total after commission and slippage, at 2 ticks.
+   `/submit` now takes one from Discord to a verdict in about twenty minutes.
+   Seven have tried; none has passed. **Establish the commission number
+   (§3.2) first**, or the next one is scored against a guess.
 
 ---
 
-## 7. Command reference
+## 7. Runtime and command reference
+
+**Both bots launch from `.bat` files** in the project root, each in its own
+console window; both read `.env`:
 
 ```powershell
-venv\Scripts\python.exe -m pytest tests\ -q                    # 587 tests, ~40s
-venv\Scripts\python.exe strategies\registry.py                 # where everything stands
-.\start_bot.bat                                                # research bot, own window
+.\start_bot.bat        # research bot: /backtest /walkforward /evalsim /hypotheses /status /read /submit
+.\start_desk.bat       # desk bot (shadow) + Cloudflare tunnel in a second window
+```
 
-venv\Scripts\python.exe backtests\run_orb.py                   # ORB baseline
-venv\Scripts\python.exe backtests\run_eod.py                   # entry 2, ~75s
+**The desk needs a fresh tunnel URL pasted into TradingView on every restart.**
+Without `DESK_TUNNEL_HOSTNAME` the tunnel is a *quick* tunnel with a random
+`*.trycloudflare.com` hostname that changes each launch; the "Desk Tunnel"
+window prints the full paste-ready URL (hostname + `/bar?token=…`) on start.
+Alert: condition **Bar feed → Any alert() function call**, **Once Per Bar
+Close**, message empty. A named tunnel (stable hostname) needs a domain on
+Cloudflare and is not set up.
+
+`DESK_OWNER_ID` and `ANTHROPIC_API_KEY` are set in `.env`; only that Discord
+user can press any button, and `/submit` reaches the API.
+
+```powershell
+venv\Scripts\python.exe -m pytest tests\ --ignore=tests\generated tests\generated\test_orborb_flat_1030.py -q   # 963, ~65s
+venv\Scripts\python.exe strategies\registry.py                 # where everything stands
+venv\Scripts\python.exe journal\review.py                      # entry 3 gate + desk decisions
+
+venv\Scripts\python.exe bots\desk.py --replay --start 2026-08-10 --end 2026-08-14 --speed 0   # replay, no Discord, no tunnel
+venv\Scripts\python.exe bots\desk.py --no-discord              # live webhook, console only
+venv\Scripts\python.exe bots\tunnel.py                         # tunnel alone, prints the URL
+
 venv\Scripts\python.exe backtests\walkforward.py               # ORB, ~55 min
+venv\Scripts\python.exe backtests\run_london.py --folds-only   # rebuild fold CSVs in seconds
+venv\Scripts\python.exe backtests\run_entry7.py --folds-only
+venv\Scripts\python.exe backtests\run_generated.py <name> --class-path <module:Class>   # what /walkforward runs
 venv\Scripts\python.exe backtests\run_orb2.py                  # entry 4, --from-cache to re-report
 venv\Scripts\python.exe backtests\run_orb_flat.py              # entry 5
-venv\Scripts\python.exe backtests\run_london.py                # entry 6, 2 ticks base
-venv\Scripts\python.exe backtests\run_entry7.py                # entry 7 replication
 
-venv\Scripts\python.exe backtests\review.py <trades.csv>       # limits + drawdown
-venv\Scripts\python.exe backtests\eval_sim.py <trades.csv>     # pass probability
-venv\Scripts\python.exe data\validate.py data\<file>.parquet   # data quality
 venv\Scripts\python.exe data\fetch.py --estimate --symbol MNQ.v.0 --start 2019-05-01 --end 2026-09-01
 ```
 
