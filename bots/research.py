@@ -233,6 +233,7 @@ async def _run_generated_walkforward(interaction, name: str) -> None:
             {
                 "Verdict commit": f"`{commit}` - written to entry "
                                   f"{record.hypothesis_entry} before this post",
+                "Contracts": result.size_note or str(result.contracts),
                 "Trades": f"{len(result.trades):,}",
                 "Net P&L": f"${result.net_pnl:,.2f}",
                 "Folds profitable":

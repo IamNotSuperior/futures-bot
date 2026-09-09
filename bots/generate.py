@@ -130,6 +130,14 @@ Hard requirements for the STRATEGY module:
   of bar T, decided using only bars strictly before T". A rolling calculation
   must be shifted so the value used on bar T was knowable at T-1.
 - Set a class attribute `name` matching the strategy name given to you.
+- Set a class attribute `contracts` to the position size the submission states,
+  as an integer. If the description names one ("4 contracts", "trade 2 MES",
+  "size 3"), use that number. If it names none, use 1. Do not infer a size
+  from anything else, do not scale it by volatility, and do not compute it -
+  this is a transcription of what the operator wrote, and it is the only
+  quantity about position size a strategy is allowed to carry. The execution
+  layer clamps it against the 5-contract internal cap; a strategy that states
+  a larger number will be clamped and the report will say so.
 
 Hard requirements for the TEST module:
 - Plain pytest, no fixtures from outside the file, `import pytest`,

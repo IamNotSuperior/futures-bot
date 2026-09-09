@@ -62,6 +62,8 @@ class WalkforwardResult:
     profitable_folds: int
     accepted: bool
     reasons: list
+    contracts: int = 1
+    size_note: str = ""
 
     @property
     def net_pnl(self) -> float:
@@ -93,8 +95,40 @@ def build_strategy(class_path: str, bars, rolls, early):
     return cls()
 
 
+def resolve_contracts(strategy, override: int | None = None) -> tuple[int, str]:
+    """The size to trade, and a one-line note about where it came from.
+
+    A generated strategy transcribes the size the submission stated into a
+    ``contracts`` class attribute. It is the only quantity about position size
+    a strategy carries, and it is still not the last word: rule 4 caps the
+    internal position at 5 whatever a description says, so a larger number is
+    **clamped here and reported** rather than honoured or silently ignored.
+
+    Reporting the clamp matters as much as applying it. A backtest that quietly
+    sized down would publish a P&L for a position the operator did not ask for,
+    against a description that says otherwise.
+    """
+    if override is not None:
+        return int(override), f"{int(override)} (given on the command line)"
+
+    declared = getattr(strategy, "contracts", 1)
+    try:
+        declared = int(declared)
+    except (TypeError, ValueError):
+        return 1, f"1 (the strategy's contracts attribute was {declared!r})"
+    if declared < 1:
+        return 1, f"1 (the strategy declared {declared}, which is not a size)"
+    if declared > rules.POSITION_CAP:
+        return rules.POSITION_CAP, (
+            f"{rules.POSITION_CAP} - **CLAMPED** from the {declared} the "
+            f"submission stated, by rule 4's internal cap "
+            f"(the firm allows {rules.FIRM.max_contracts})"
+        )
+    return declared, f"{declared} (declared by the strategy)"
+
+
 def run(name: str, class_path: str, symbol: str = "MES",
-        contracts: int = 1, paths: int = 20_000,
+        contracts: int | None = None, paths: int = 20_000,
         progress=None) -> WalkforwardResult:
     """Generate signals over the full history, then score by year."""
     def say(message: str) -> None:
@@ -112,11 +146,12 @@ def run(name: str, class_path: str, symbol: str = "MES",
 
     say("building the strategy ...")
     strategy = build_strategy(class_path, bars, rolls, early)
+    contracts, size_note = resolve_contracts(strategy, contracts)
 
     say(f"generating signals over {len(bars):,} bars ...")
     signals = strategy.generate_signals(bars)
 
-    say("pricing trades at 2 ticks/side ...")
+    say(f"pricing {contracts} contract(s) at 2 ticks/side ...")
     spec = MES if symbol.upper() == "MES" else MNQ
     costs = CostModel(commission_per_side=COMMISSION_PER_SIDE,
                       slippage_ticks=BASE_SLIPPAGE_TICKS)
@@ -158,6 +193,7 @@ def run(name: str, class_path: str, symbol: str = "MES",
         name=name, folds=folds, trades=trades, metrics=metrics,
         pass_probability=sim.pass_probability, blowups=int(blow["blowups"]),
         profitable_folds=profitable, accepted=not reasons, reasons=reasons,
+        contracts=contracts, size_note=size_note,
     )
 
 
@@ -174,10 +210,12 @@ def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
         "",
         f"Walk-forward over {TOTAL_FOLDS} yearly folds at "
         f"{BASE_SLIPPAGE_TICKS:g} ticks of slippage per side and "
-        f"${COMMISSION_PER_SIDE:.2f} commission per side.",
+        f"${COMMISSION_PER_SIDE:.2f} commission per side, "
+        f"**{result.contracts} contract(s)**.",
         "",
         "| | |",
         "|---|---|",
+        f"| Contracts | {result.size_note or result.contracts} |",
         f"| Trades | {len(result.trades):,} |",
         f"| Net P&L | ${result.net_pnl:,.2f} |",
         f"| Folds profitable | {result.profitable_folds} of {TOTAL_FOLDS} |",
@@ -212,7 +250,8 @@ def main(argv=None) -> int:
     ap.add_argument("--class-path", required=True, help="module:Class")
     ap.add_argument("--symbol", default="MES",
                     choices=sorted(rules.ALLOWED_INSTRUMENTS))
-    ap.add_argument("--contracts", type=int, default=1)
+    ap.add_argument("--contracts", type=int, default=None,
+                    help="override the size the strategy declares")
     ap.add_argument("--paths", type=int, default=20_000)
     args = ap.parse_args(argv)
 

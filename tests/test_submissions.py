@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 
 import generate as generate_mod
+import rules
 import sandbox
 import submissions
 import submit_view
@@ -418,6 +419,104 @@ class TestResubmission:
         assert "beta" not in submissions.entry_body(2, log)
 
 
+class TestDeclaredContracts:
+    """A generated strategy transcribes the size the submission stated.
+
+    The first live run priced entry 5's reproduction at 1 contract against a
+    description that says 4, which made the P&L incomparable to the entry it
+    was reproducing. The size now travels on the class - and is still capped.
+    """
+
+    def strategy(self, contracts=None):
+        import run_generated
+
+        class Stub:
+            name = "stub"
+
+        if contracts is not None:
+            Stub.contracts = contracts
+        return Stub()
+
+    def test_a_declared_size_is_used(self):
+        import run_generated
+
+        size, note = run_generated.resolve_contracts(self.strategy(4))
+        assert size == 4
+        assert "declared" in note
+
+    def test_the_default_is_one(self):
+        import run_generated
+
+        size, note = run_generated.resolve_contracts(self.strategy())
+        assert size == 1
+
+    def test_a_size_above_the_internal_cap_is_clamped_and_reported(self):
+        """Rule 4. The firm allows 40; a description saying so gets 5."""
+        import run_generated
+
+        size, note = run_generated.resolve_contracts(self.strategy(40))
+        assert size == rules.POSITION_CAP == 5
+        assert "CLAMPED" in note
+        assert "40" in note, "the report must say what was asked for"
+
+    @pytest.mark.parametrize("declared", [0, -3])
+    def test_a_nonsense_size_falls_back_to_one(self, declared):
+        import run_generated
+
+        size, note = run_generated.resolve_contracts(self.strategy(declared))
+        assert size == 1
+        assert str(declared) in note
+
+    def test_a_non_integer_size_falls_back_to_one(self):
+        import run_generated
+
+        size, note = run_generated.resolve_contracts(self.strategy("four"))
+        assert size == 1
+        assert "four" in note
+
+    def test_an_explicit_override_wins(self):
+        import run_generated
+
+        size, note = run_generated.resolve_contracts(self.strategy(4), override=2)
+        assert size == 2
+        assert "command line" in note
+
+    def test_the_size_reaches_the_verdict_block(self):
+        import pandas as pd
+        import run_generated
+
+        result = run_generated.WalkforwardResult(
+            name="x", folds=pd.DataFrame({"test_net_pnl": [1.0] * 7}),
+            trades=pd.DataFrame({"net_pnl": [10.0]}),
+            metrics={"sharpe": 1.0, "profit_factor": 1.5, "max_drawdown": -10.0,
+                     "max_daily_loss": -5.0, "avg_duration_seconds": 600.0,
+                     "microscalp_profit_pct": 0.0},
+            pass_probability=0.3, blowups=0, profitable_folds=5,
+            accepted=True, reasons=[], contracts=4,
+            size_note="4 (declared by the strategy)")
+        block = run_generated.verdict_block(result, 8)
+        assert "4 contract(s)" in block
+        assert "| Contracts | 4 (declared by the strategy) |" in block
+
+    def test_the_embed_reports_the_size(self):
+        """The number the operator reads must say which size produced it."""
+        import inspect
+
+        import research
+
+        source = inspect.getsource(research._run_generated_walkforward)
+        assert '"Contracts": result.size_note' in source
+
+    def test_the_prompt_asks_for_transcription_not_inference(self):
+        system = generate_mod.SYSTEM
+        assert "`contracts`" in system
+        assert "transcription of what the operator wrote" in system
+        assert "do not compute it" in system.lower()
+
+    def test_the_prompt_states_the_cap(self):
+        assert "5-contract internal cap" in generate_mod.SYSTEM
+
+
 class TestNameValidation:
     @pytest.mark.parametrize("name", ["rules", "engine", "base", "orb", "orb2",
                                       "store", "pretrade", "registry", "pytest"])
@@ -576,6 +675,9 @@ class TestVerdictOrdering:
         monkeypatch.setattr(submissions, "commit",
                             lambda paths, msg: order.append("commit") or "dead15")
 
+        class FakeRecord:
+            status = "testing"
+
         class FakeRegistry:
             @staticmethod
             def load():
@@ -584,6 +686,12 @@ class TestVerdictOrdering:
             def set_verdict(self, name, verdict, verdict_commit=None):
                 order.append(f"registry:{verdict_commit}")
 
+            def get(self, name):
+                return FakeRecord()
+
+            def promote(self, name, to_status):
+                order.append(f"promote:{to_status}")
+
         monkeypatch.setattr(submissions, "Registry", FakeRegistry)
 
         commit = submissions.record_verdict("x", 5, "### Verdict: REJECTED", "s")
@@ -591,6 +699,40 @@ class TestVerdictOrdering:
         assert order.index("write") < order.index("commit")
         assert "registry:dead15" in order
         assert order.count("commit") == 2, "verdict commit + hash follow-up"
+        # A REJECTED verdict must move the registry too, or the log and the
+        # registry disagree - which is how this was found live.
+        assert "promote:rejected" in order
+
+    def test_an_accepted_verdict_does_not_auto_promote_to_paper(self, monkeypatch):
+        """`paper` unblocks the desk bot; reaching it is an act, not a side
+        effect of a background job finishing."""
+        promotions = []
+        monkeypatch.setattr(submissions, "set_entry_status",
+                            lambda n, s, path=None: None)
+        monkeypatch.setattr(submissions, "append_to_entry",
+                            lambda n, t, path=None: None)
+        monkeypatch.setattr(submissions, "commit", lambda paths, msg: "cafe01")
+
+        class FakeRecord:
+            status = "testing"
+
+        class FakeRegistry:
+            @staticmethod
+            def load():
+                return FakeRegistry()
+
+            def set_verdict(self, *a, **k):
+                pass
+
+            def get(self, name):
+                return FakeRecord()
+
+            def promote(self, name, to_status):
+                promotions.append(to_status)
+
+        monkeypatch.setattr(submissions, "Registry", FakeRegistry)
+        submissions.record_verdict("x", 5, "### Verdict: ACCEPTED", "s")
+        assert promotions == [], "an accepted walk-forward promoted itself"
 
     def test_the_posted_hash_is_the_one_written_to_the_log(self, monkeypatch):
         written = []

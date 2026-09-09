@@ -470,14 +470,25 @@ def record_verdict(name: str, entry_number: int, verdict_block: str,
     one-line follow-up recording its own hash (which cannot be known until the
     first commit exists).
     """
-    set_entry_status(entry_number, "REJECTED" if "REJECTED" in verdict_block
-                     else "ACCEPTED")
+    rejected = "REJECTED" in verdict_block
+    set_entry_status(entry_number, "REJECTED" if rejected else "ACCEPTED")
     append_to_entry(entry_number, verdict_block)
     first = commit([HYPOTHESES], f"Entry {entry_number} verdict: {name}")
 
     append_to_entry(entry_number, f"**Verdict commit:** `{first}`")
     reg = Registry.load()
     reg.set_verdict(name, summary, verdict_commit=first)
+    if rejected and reg.get(name).status not in ("rejected",):
+        # The log heading and the registry status must agree, or
+        # Registry.verify() reports drift - which is exactly how this was
+        # found: the first live verdict left the log saying REJECTED and the
+        # registry saying `testing`. `rejected` is terminal, which is correct:
+        # a walk-forward that fails rule 13 is the verdict, and verdicts are
+        # never revised.
+        reg.promote(name, "rejected")
+    # An ACCEPTED verdict deliberately does NOT promote to `paper`. `paper` is
+    # the status that unblocks the desk bot, and reaching it should be an act
+    # someone takes, not a side effect of a background job finishing.
     commit([HYPOTHESES, PROJECT_ROOT / "strategies" / "registry.yaml"],
            f"Record entry {entry_number}'s verdict commit hash")
     return first

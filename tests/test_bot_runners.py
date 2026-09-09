@@ -61,15 +61,34 @@ class TestStrategyResolution:
         Entries with ``class_path: null`` are exempt - ``manual_discretionary``
         is a log entry, not code, and has nothing to run.
         """
+        import submissions
+
         reg = runners.registry()
+        # Generated strategies are runnable through run_walkforward_generated,
+        # which computes rather than reading a saved table, so they are not in
+        # RUNNERS by design.
         missing = [r.name for r in reg.all()
-                   if r.class_path and r.name not in runners.RUNNERS]
+                   if r.class_path and r.name not in runners.RUNNERS
+                   and not submissions.is_generated(r.name)]
         assert not missing, (
             f"registry entries with a class but no runner: {missing}. "
             f"Add each to RUNNERS in bots/runners.py - with build=None if it "
             f"cannot be replayed through the scalar-contracts engine - so the "
             f"bot can answer for it."
         )
+
+    def test_generated_strategies_are_answerable_without_being_in_RUNNERS(self):
+        """The other half of the coverage claim: they route to the run path."""
+        import submissions
+
+        reg = runners.registry()
+        generated = [r.name for r in reg.all() if submissions.is_generated(r.name)]
+        if not generated:
+            pytest.skip("no generated strategy in the registry")
+        for name in generated:
+            assert name in runners.known_strategies()
+            with pytest.raises(WorkError, match="generated strategy"):
+                runners.run_walkforward(name)
 
     def test_saved_outputs_named_by_a_runner_exist(self):
         """Every CSV a runner points at is on disk, where results exist.
