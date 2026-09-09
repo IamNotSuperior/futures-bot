@@ -3078,7 +3078,7 @@ Rule 13 fails on both counts on either span: 0 of 7 folds profitable and a
 negative total. REJECTED stands. Recorded so the verdict's numbers can be
 read against the log's other entries, which they could not before.
 
-## 9. orb full day test — PROPOSED
+## 9. orb full day test — REJECTED
 **Date:** 2026-09-09
 **Submission name:** `orb_full_day_test`
 **Submitted via:** `/submit` in Discord
@@ -3137,6 +3137,38 @@ unchanged and is still the claim being tested - only the
 implementation was regenerated. A retry that altered the mechanism,
 the counterparty or the kill criteria would be a different
 hypothesis and needs its own entry.
+
+### Verdict: REJECTED
+
+**Date:** 2026-09-09
+**Code:** `strategies/generated/orb_full_day_test.py`
+**Reports:** `backtests/results/orb_full_day_test_folds.csv`, `orb_full_day_test_trades.csv`
+
+Walk-forward over 7 yearly folds at 2 ticks of slippage per side and $1.25 commission per side, **4 contract(s)**.
+
+| | |
+|---|---|
+| Scored span | 2020-01-01 .. 2026-08-31 (earlier bars used as indicator history only) |
+| Contracts | 4 (declared by the strategy) |
+| Trades | 503 |
+| Net P&L | $-8,450.00 |
+| Folds profitable | 2 of 7 |
+| Sharpe | -1.08 |
+| Profit factor | 0.865 |
+| Max drawdown | $-9,595.00 |
+| Worst day | $-230.00 |
+| Avg duration | 149.9 min |
+| Profit from <=5s holds | 0.00% |
+| Pass probability | 9.43% |
+| Evaluations blown | 8 |
+
+**Rule 13 is not satisfied:**
+
+- profitable in 2 of 7 folds, needs 4
+- total walk-forward P&L $-8,450.00 is not positive
+
+In-sample results are never evidence, and this is the out-of-sample answer.
+
 
 ## Template for new entries
 
