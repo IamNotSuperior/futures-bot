@@ -76,5 +76,11 @@ strategies:
   verdict_commit: 9c638fe
   walkforward_verdict: REJECTED. $-4,587.50 over 588 trades, 0 of 7 folds profitable, pass
     probability 0.00%, 2 evaluation(s) blown.
+- name: orb_full_day_test
+  class_path: orb_full_day_test:ORBFullDayTest
+  hypothesis_entry: 9
+  status: testing
+  verdict_commit: null
+  walkforward_verdict: ''
 shadow:
 - orb2
