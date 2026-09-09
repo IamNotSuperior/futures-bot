@@ -290,7 +290,18 @@ def run_walkforward_generated(name: str, progress=None):
 
     if not submissions.is_generated(name):
         raise WorkError(f"`{name}` is not a generated strategy")
-    record = registry().get(name)
+    reg = registry()
+    if name not in reg.names():
+        # A module left behind by a submission that never reached review.
+        # `is_generated` only asks whether the file exists, so this is
+        # reachable by typing the name; without the guard it is a KeyError
+        # traceback rather than an answer.
+        raise WorkError(
+            f"`{name}` has a generated module on disk but no registry record - "
+            f"its submission never reached review. Re-submit it with "
+            f"`/submit {name}`; the retry reuses the existing hypothesis entry."
+        )
+    record = reg.get(name)
     if record.status not in ("testing", "paper", "live"):
         raise WorkError(
             f"`{name}` is at `{record.status}` status. A walk-forward runs "

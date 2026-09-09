@@ -160,14 +160,46 @@ def resolve_target(relative: str | Path) -> Path:
     return target
 
 
-def screen_source(source: str, filename: str = "<generated>") -> Screening:
+def import_allowed(module: str, allow_module: str | None) -> bool:
+    """Is ``module`` importable from generated source?
+
+    ``allow_module`` is the one generated strategy the file under test is
+    permitted to import - its own. Both spellings of that module are accepted,
+    the bare name (the repository's flat-module convention, and what the
+    generation prompt asks for) and the fully-qualified
+    ``strategies.generated.<name>``.
+
+    The dotted form is matched **exactly**, never by its root package. Allowing
+    the root would permit ``strategies.rules`` and every other module in the
+    tree, which is the opposite of the point: a generated test may reach its
+    own strategy and nothing else, so one submission cannot import, subclass or
+    monkeypatch another's code.
+    """
+    root = module.split(".")[0]
+    if root in ALLOWED_IMPORTS:
+        return True
+    if not allow_module:
+        return False
+    return module in (allow_module, f"strategies.generated.{allow_module}")
+
+
+def screen_source(source: str, filename: str = "<generated>",
+                  allow_module: str | None = None) -> Screening:
     """Refuse source that reaches for the filesystem, network or process.
+
+    ``allow_module`` additionally permits one generated strategy module - see
+    :func:`import_allowed`. It is passed for a generated *test* and never for a
+    generated *strategy*: a strategy importing another generated strategy has
+    no legitimate reason to, and would couple two submissions that are supposed
+    to be independent.
 
     Returns a :class:`Screening` rather than raising so every problem is
     reported at once - a caller fixing one import at a time would need as many
     API round trips as there are violations.
     """
     problems: list[str] = []
+    permitted = sorted(ALLOWED_IMPORTS) + (
+        [allow_module] if allow_module else [])
     try:
         tree = ast.parse(source, filename=filename)
     except SyntaxError as exc:
@@ -176,23 +208,21 @@ def screen_source(source: str, filename: str = "<generated>") -> Screening:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                root = alias.name.split(".")[0]
-                if root not in ALLOWED_IMPORTS:
+                if not import_allowed(alias.name, allow_module):
                     problems.append(
                         f"line {node.lineno}: `import {alias.name}` - only "
-                        f"{sorted(ALLOWED_IMPORTS)} are permitted"
+                        f"{permitted} are permitted"
                     )
         elif isinstance(node, ast.ImportFrom):
-            root = (node.module or "").split(".")[0]
             if node.level:
                 problems.append(
                     f"line {node.lineno}: relative import - generated modules "
                     f"are flat and must import by bare name"
                 )
-            elif root not in ALLOWED_IMPORTS:
+            elif not import_allowed(node.module or "", allow_module):
                 problems.append(
                     f"line {node.lineno}: `from {node.module} import ...` - "
-                    f"only {sorted(ALLOWED_IMPORTS)} are permitted"
+                    f"only {permitted} are permitted"
                 )
         elif isinstance(node, ast.Name) and node.id in BANNED_NAMES:
             problems.append(f"line {node.lineno}: `{node.id}` is not permitted")
@@ -210,7 +240,8 @@ def screen_source(source: str, filename: str = "<generated>") -> Screening:
     return Screening(not problems, problems)
 
 
-def safe_write(relative: str | Path, content: str, screen: bool = True) -> Path:
+def safe_write(relative: str | Path, content: str, screen: bool = True,
+               allow_module: str | None = None) -> Path:
     """Screen ``content``, then write it inside the sandbox. Returns the path.
 
     ``encoding="utf-8"`` explicitly: on Windows ``write_text`` defaults to
@@ -219,7 +250,7 @@ def safe_write(relative: str | Path, content: str, screen: bool = True) -> Path:
     """
     target = resolve_target(relative)
     if screen:
-        result = screen_source(content, str(target))
+        result = screen_source(content, str(target), allow_module=allow_module)
         if not result.ok:
             raise SandboxError(
                 f"generated source for {target.name} was refused:\n"

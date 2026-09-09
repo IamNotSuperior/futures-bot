@@ -20,6 +20,7 @@ fixed strings; the network path is not the thing under test.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -207,6 +208,214 @@ class TestContentScreen:
         with pytest.raises(sandbox.SandboxError, match="refused"):
             sandbox.safe_write(relative, "import os\n")
         assert not (sandbox.PROJECT_ROOT / relative).exists()
+
+
+class TestGeneratedTestImports:
+    """A generated test must be able to import the strategy it tests.
+
+    The first live /submit died here: the test file was refused for importing
+    its own strategy module, so a submission could never reach the suite.
+    """
+
+    def test_a_generated_test_may_import_its_own_strategy(self):
+        source = ("import pandas as pd\n"
+                  "import pytest\n"
+                  "import orborb_flat_1030\n\n"
+                  "def test_signals():\n"
+                  "    assert orborb_flat_1030 is not None\n")
+        result = sandbox.screen_source(source, allow_module="orborb_flat_1030")
+        assert result.ok, result.report()
+
+    def test_the_fully_qualified_spelling_is_also_accepted(self):
+        for form in ("import strategies.generated.my_thing\n",
+                     "from strategies.generated.my_thing import Thing\n",
+                     "import my_thing\n",
+                     "from my_thing import Thing\n"):
+            result = sandbox.screen_source(form, allow_module="my_thing")
+            assert result.ok, f"{form!r}: {result.report()}"
+
+    def test_it_may_not_import_a_different_generated_strategy(self):
+        """One submission must not reach into another's code."""
+        for form in ("import other_strategy\n",
+                     "from other_strategy import Thing\n",
+                     "import strategies.generated.other_strategy\n"):
+            result = sandbox.screen_source(form, allow_module="my_thing")
+            assert not result.ok, f"{form!r} was allowed"
+
+    def test_the_allowance_does_not_open_the_strategies_package(self):
+        """`strategies.generated.x` must not admit `strategies.rules`."""
+        for form in ("import strategies.rules\n",
+                     "from strategies.engine import price_trades\n",
+                     "import strategies\n"):
+            result = sandbox.screen_source(form, allow_module="my_thing")
+            assert not result.ok, f"{form!r} was allowed"
+
+    def test_a_strategy_gets_no_allowance_at_all(self):
+        """Only the test is given one; a strategy importing another is coupling."""
+        assert not sandbox.screen_source("import other_strategy\n").ok
+        assert not sandbox.screen_source("import my_thing\n").ok
+
+    def test_the_allowance_does_not_relax_anything_else(self):
+        source = "import my_thing\nimport os\n"
+        result = sandbox.screen_source(source, allow_module="my_thing")
+        assert not result.ok
+        assert "import os" in result.report()
+
+    def test_write_generated_passes_the_allowance_only_to_the_test(self):
+        import inspect
+
+        source = inspect.getsource(submissions.write_generated)
+        strategy_call = source.index("strategies/generated/")
+        test_call = source.index("tests/generated/")
+        assert "allow_module=name" in source[test_call:]
+        assert "allow_module" not in source[strategy_call:test_call]
+
+    def test_the_live_failure_case_now_passes_end_to_end(self, tmp_path):
+        """The exact shape that failed: a test importing its own strategy."""
+        name = "probe_strategy"
+        test_source = (
+            "import pandas as pd\n"
+            "import pytest\n"
+            f"import {name}\n\n"
+            f"def test_interface():\n"
+            f"    assert {name}.__name__ == '{name}'\n"
+        )
+        written = sandbox.safe_write(f"tests/generated/test_{name}.py",
+                                     test_source, allow_module=name)
+        try:
+            assert written.exists()
+        finally:
+            written.unlink(missing_ok=True)
+
+
+class TestResubmission:
+    """A failed attempt must not burn the name.
+
+    The pre-registration is committed before any code exists, so a submission
+    that dies at the screen or in the suite leaves an entry behind. Opening a
+    second entry for the same claim would make the log say an idea was
+    proposed twice when it was proposed once and built badly.
+    """
+
+    def write_log(self, tmp_path, extra=""):
+        log = tmp_path / "hypotheses.md"
+        log.write_text("# Log\n\n## 1. Something — REJECTED\n\nbody\n" + extra,
+                       encoding="utf-8")
+        return log
+
+    def test_a_retry_reuses_the_entry(self, tmp_path):
+        log = self.write_log(tmp_path)
+        first = submissions.pre_register(submission(name="fresh_idea"), log,
+                                         do_commit=False)
+        second = submissions.pre_register(submission(name="fresh_idea"), log,
+                                          do_commit=False)
+        assert second.entry_number == first.entry_number
+        assert second.attempt == 2
+        body = log.read_text(encoding="utf-8")
+        assert body.count("## 2. fresh idea") == 1, "a second entry was opened"
+        assert "### Attempt 2 —" in body
+
+    def test_the_note_is_dated_and_says_why(self, tmp_path):
+        log = self.write_log(tmp_path)
+        submissions.pre_register(submission(name="fresh_idea"), log,
+                                 do_commit=False)
+        submissions.pre_register(submission(name="fresh_idea"), log,
+                                 do_commit=False, reason="the screen refused it")
+        body = log.read_text(encoding="utf-8")
+        assert "the screen refused it" in body
+        assert re.search(r"### Attempt 2 — \d{4}-\d{2}-\d{2}", body)
+
+    def test_attempts_keep_counting(self, tmp_path):
+        log = self.write_log(tmp_path)
+        numbers = [submissions.pre_register(submission(name="fresh_idea"), log,
+                                            do_commit=False).attempt
+                   for _ in range(4)]
+        assert numbers == [1, 2, 3, 4]
+
+    def test_attempts_are_counted_per_entry(self, tmp_path):
+        """A retry elsewhere must not renumber this entry's attempts."""
+        log = self.write_log(tmp_path)
+        submissions.pre_register(submission(name="idea_one"), log, do_commit=False)
+        submissions.pre_register(submission(name="idea_one"), log, do_commit=False)
+        submissions.pre_register(submission(name="idea_one"), log, do_commit=False)
+        second = submissions.pre_register(submission(name="idea_two"), log,
+                                          do_commit=False)
+        assert second.attempt == 1
+        retry = submissions.pre_register(submission(name="idea_two"), log,
+                                         do_commit=False)
+        assert retry.attempt == 2
+
+    def test_the_pre_registration_is_not_rewritten_by_a_retry(self, tmp_path):
+        """The claim is unchanged; only the implementation is regenerated."""
+        log = self.write_log(tmp_path)
+        original = submission(name="fresh_idea")
+        submissions.pre_register(original, log, do_commit=False)
+        changed = submission(name="fresh_idea",
+                             mechanism="A completely different claim.")
+        submissions.pre_register(changed, log, do_commit=False)
+        body = log.read_text(encoding="utf-8")
+        assert original.mechanism in body
+        assert "A completely different claim." not in body
+        assert "would be a different" in body
+
+    def test_a_name_that_reached_the_registry_stays_taken(self):
+        for name in ("orb2", "london_1x", "manual_discretionary"):
+            with pytest.raises(Exception) as exc:
+                submissions.pre_register(submission(name=name), do_commit=False)
+            assert "taken" in str(exc.value) or "shadow" in str(exc.value)
+
+    def test_the_refusal_names_the_status(self):
+        with pytest.raises(submissions.SubmissionError, match="rejected"):
+            submissions.pre_register(submission(name="london_1x"),
+                                     do_commit=False)
+
+    def test_find_entry_matches_the_marker(self, tmp_path):
+        log = self.write_log(tmp_path)
+        run = submissions.pre_register(submission(name="fresh_idea"), log,
+                                       do_commit=False)
+        assert submissions.find_entry_for("fresh_idea", log) == run.entry_number
+        assert submissions.find_entry_for("never_submitted", log) is None
+
+    def test_find_entry_falls_back_to_the_title(self, tmp_path):
+        """Entries written before the marker existed have only the title."""
+        log = self.write_log(
+            tmp_path, "\n## 2. legacy idea — PROPOSED\n\nno marker here\n")
+        assert submissions.find_entry_for("legacy_idea", log) == 2
+
+    def test_the_live_entry_8_is_findable(self):
+        """entry 8 predates the marker; a retry must still reuse it."""
+        found = submissions.find_entry_for("orborb_flat_1030")
+        assert found == 8, f"expected entry 8, got {found}"
+
+    def test_register_proposed_reuses_a_proposed_record(self, monkeypatch):
+        """A retry that got this far once must not fail on a duplicate name."""
+        import inspect
+
+        source = inspect.getsource(submissions.register_proposed)
+        assert "reusing the existing proposed record" in source
+        assert 'record.status != "proposed"' in source
+
+    def test_an_orphaned_module_gives_an_answer_not_a_traceback(self):
+        """is_generated only asks whether the file exists.
+
+        The failed live run left strategies/generated/orborb_flat_1030.py with
+        no registry record, so /walkforward on it reached registry().get() and
+        raised KeyError.
+        """
+        import runners
+
+        orphans = [p.stem for p in sandbox.STRATEGY_DIR.glob("*.py")
+                   if p.stem not in Registry.load().names()]
+        if not orphans:
+            pytest.skip("no orphaned generated module on disk")
+        with pytest.raises(runners.WorkError, match="never reached review"):
+            runners.run_walkforward_generated(orphans[0])
+
+    def test_entry_body_is_scoped(self, tmp_path):
+        log = self.write_log(
+            tmp_path, "\n## 2. A — PROPOSED\n\nalpha\n\n## 3. B — PROPOSED\n\nbeta\n")
+        assert "alpha" in submissions.entry_body(2, log)
+        assert "beta" not in submissions.entry_body(2, log)
 
 
 class TestNameValidation:

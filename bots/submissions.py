@@ -120,6 +120,10 @@ def render_entry(number: int, submission: generate_mod.Submission,
         f"## {number}. {title} — PROPOSED",
         "",
         f"**Date:** {day}",
+        # Machine-readable, and the reason a retry can find its own entry
+        # rather than opening a second one. The heading title is lossy -
+        # underscores become spaces - so it is not a reliable key.
+        f"**Submission name:** `{submission.name}`",
         f"**Submitted via:** `/submit` in Discord",
         f"**Code:** `strategies/generated/{submission.name}.py` "
         f"(generated; not yet written at the time this entry was committed)",
@@ -213,15 +217,83 @@ class SubmissionRun:
     approve_commit: str = ""
     test_output: str = ""
     problems: list = field(default_factory=list)
+    #: 1 for a first submission, 2+ for a retry reusing an existing entry.
+    attempt: int = 1
 
     @property
     def registry_name(self) -> str:
         return self.submission.name
 
 
+def entry_body(number: int, path: Path = HYPOTHESES) -> str:
+    """Just entry ``number``'s text, from its heading to the next one."""
+    body = Path(path).read_text(encoding="utf-8")
+    start = re.search(rf"^## {number}\. ", body, re.MULTILINE)
+    if not start:
+        return ""
+    rest = body[start.start():]
+    nxt = re.search(r"^## ", rest[1:], re.MULTILINE)
+    return rest[: nxt.start() + 1] if nxt else rest
+
+
+def find_entry_for(name: str, path: Path = HYPOTHESES) -> int | None:
+    """The entry number already pre-registered for ``name``, if any.
+
+    Matches the machine-readable ``**Submission name:**`` marker first, and
+    falls back to the heading title with underscores restored - entries
+    written before the marker existed have only the title to go on.
+    """
+    body = Path(path).read_text(encoding="utf-8")
+    marker = re.search(rf"^\*\*Submission name:\*\* `{re.escape(name)}`\s*$",
+                       body, re.MULTILINE)
+    if marker:
+        heading = None
+        for match in re.finditer(r"^## (\d+)\. ", body, re.MULTILINE):
+            if match.start() < marker.start():
+                heading = int(match.group(1))
+        if heading is not None:
+            return heading
+    title = re.escape(name.replace("_", " "))
+    fallback = re.search(rf"^## (\d+)\. {title} — ", body, re.MULTILINE)
+    return int(fallback.group(1)) if fallback else None
+
+
+def attempt_note(number: int, attempt: int, reason: str,
+                 today: date_type | None = None) -> str:
+    """The dated note appended to an entry when a submission is retried."""
+    import pandas as pd  # noqa: PLC0415
+    import rules  # noqa: PLC0415
+
+    day = today or pd.Timestamp.now(tz=rules.ET).date()
+    return "\n".join([
+        f"### Attempt {attempt} — {day}",
+        "",
+        f"The previous attempt did not reach review: {reason}.",
+        "",
+        "Re-submitted under the same name. The pre-registration above is",
+        "unchanged and is still the claim being tested - only the",
+        "implementation was regenerated. A retry that altered the mechanism,",
+        "the counterparty or the kill criteria would be a different",
+        "hypothesis and needs its own entry.",
+    ])
+
+
 def pre_register(submission: generate_mod.Submission,
-                 path: Path = HYPOTHESES, do_commit: bool = True) -> SubmissionRun:
-    """Rule 12: the entry, committed, before any code exists."""
+                 path: Path = HYPOTHESES, do_commit: bool = True,
+                 reason: str = "generation, screening or the test suite failed"
+                 ) -> SubmissionRun:
+    """Rule 12: the entry, committed, before any code exists.
+
+    A name whose previous attempt never reached review is **retried against
+    the same entry** rather than opening a second one. The pre-registration is
+    a claim, and the claim has not changed - only the implementation of it
+    failed. Two entries for one claim would make the log say an idea was
+    proposed twice when it was proposed once and built badly.
+
+    A name that reached review is taken. Once it is in the registry there is a
+    record pointing at that entry, and rewriting the thing that record refers
+    to is how a log stops being trustworthy.
+    """
     sandbox.validate_name(submission.name)
     missing = submission.missing()
     if missing:
@@ -232,10 +304,32 @@ def pre_register(submission: generate_mod.Submission,
         )
     reg = Registry.load()
     if submission.name in reg.names():
+        status = reg.get(submission.name).status
         raise SubmissionError(
-            f"`{submission.name}` is already in the registry. A new idea needs "
-            f"a new name; a verdict is never revised."
+            f"`{submission.name}` is already in the registry at `{status}` - "
+            f"it reached review, so the name is taken. A new idea needs a new "
+            f"name; a verdict is never revised."
         )
+
+    existing = find_entry_for(submission.name, path)
+    if existing is not None:
+        # Count attempts inside THIS entry only. Counting across the file
+        # would number a retry by how many other entries had been retried.
+        attempt = len(re.findall(r"^### Attempt \d+ — ",
+                                 entry_body(existing, path), re.MULTILINE)) + 2
+        append_to_entry(existing, attempt_note(existing, attempt, reason), path)
+        run = SubmissionRun(submission=submission, entry_number=existing,
+                            attempt=attempt)
+        if do_commit:
+            run.pretrade_commit = commit(
+                [path],
+                f"Entry {existing}: attempt {attempt} at {submission.name}\n\n"
+                f"The previous attempt did not reach review. The\n"
+                f"pre-registration is unchanged - only the implementation is\n"
+                f"regenerated - so this reuses the entry rather than opening\n"
+                f"a second one for the same claim.",
+            )
+        return run
 
     number = next_entry_number(path)
     append_entry(render_entry(number, submission), path)
@@ -255,10 +349,13 @@ def pre_register(submission: generate_mod.Submission,
 def write_generated(run: SubmissionRun, result: generate_mod.Generated) -> None:
     """Screen and write both files. Raises SandboxError on refusal."""
     name = run.submission.name
+    # The strategy gets no allow_module: it has no reason to import another
+    # generated strategy. The test gets exactly one - its own.
     run.strategy_path = sandbox.safe_write(
         f"strategies/generated/{name}.py", result.strategy_source)
     run.test_path = sandbox.safe_write(
-        f"tests/generated/test_{name}.py", result.test_source)
+        f"tests/generated/test_{name}.py", result.test_source,
+        allow_module=name)
     run.class_name = result.class_name
     run.draft_entry = result.entry_markdown
 
@@ -288,11 +385,27 @@ def tail(text: str, limit: int = 1400) -> str:
 
 
 def register_proposed(run: SubmissionRun) -> None:
-    """Only reached when the suite passed. Registers at ``proposed``."""
+    """Only reached when the suite passed. Registers at ``proposed``.
+
+    Idempotent for a record already at ``proposed``: a retry that got this far
+    once reuses the record rather than failing on a duplicate name. Anything
+    above ``proposed`` is refused - that record was promoted on evidence, and
+    silently repointing it at freshly generated code would detach the status
+    from the thing it was granted for.
+    """
     reg = Registry.load()
-    reg.add(run.registry_name,
-            class_path=f"{run.submission.name}:{run.class_name}",
-            hypothesis_entry=run.entry_number)
+    class_path = f"{run.submission.name}:{run.class_name}"
+    if run.registry_name in reg.names():
+        record = reg.get(run.registry_name)
+        if record.status != "proposed":
+            raise SubmissionError(
+                f"`{run.registry_name}` is at `{record.status}`; it cannot be "
+                f"re-registered from a new submission."
+            )
+        log.info("reusing the existing proposed record for %s", run.registry_name)
+    else:
+        reg.add(run.registry_name, class_path=class_path,
+                hypothesis_entry=run.entry_number)
     run.status = STATUS_AWAITING
 
 
