@@ -3658,6 +3658,358 @@ folds against 4, with a negative total on both bases. Rule 13 fails on both
 bases. REJECTED stands. The results CSVs now hold the $0.50 streams;
 `--commission 1.25` reproduces the $1.25 ones.
 
+## 10. London 1×/ON held through the US session — PROPOSED
+
+**Date:** 2026-09-11
+**Spec frozen at:** the commit adding this entry
+**Code:** not yet written
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES **and** MNQ, 5-minute bars resampled from 1-minute, 19:00 ET
+through 15:55 ET. **Both instruments are required; each is tested in full.**
+**Source:** entry 6's specification, which was the YouTube "London Breakout
+Strategy the Right Way" translated from AUDUSD to MES. **The 09:25 flatten in
+entry 6 was the operator's addition, not the source's** (operator's statement,
+2026-09-11); this entry removes it.
+
+**Operator decisions, confirmed 2026-09-11 before this entry was frozen:** the
+sizing rule is the log's corrected realised-stop rule, not entry 6's range-based
+one; the early-close flatten is 12:55 ET; rule 13 stands as criterion 1
+alongside the two raised bars; entry 7's +2-point floor is kept as criterion 4;
+and the bar sitting above the effect that motivated the entry is intended.
+
+### This entry is forbidden by entry 7, and is being written anyway
+
+Entry 7's Next section says, in terms: **"The London family is closed. No further
+London entry, no third instrument, no further arm, no pooled test."** Entry 6's
+Next section says: **"Do not test a third target multiple, a different flatten
+time, or a different range window."**
+
+**This is a further London entry with a different flatten time.** The operator
+has directed it after seeing both verdicts. Recording the conflict here rather
+than omitting it is the whole function of this log: an entry that quietly ignores
+its predecessors' prohibitions is how a rejected idea gets re-run until it passes,
+and the reader six months from now needs to see that this one did not sneak past.
+
+**What entry 6 itself left open, and this entry takes:** its Next section also
+says *"If anything in this entry is worth carrying forward it is the exit, not the
+entry … An idea about that would be a different hypothesis with a different
+mechanism, and it would need its own entry written before any code."* This is
+that entry. It changes the exit and only the exit.
+
+**What is not different:** the signal, the breakout-continuation mechanism, and
+the absence of any independent evidence for it. Entry 1's condition — order-flow
+evidence about who takes the other side of a range break — has still never been
+met. This entry does not meet it either.
+
+### This idea is informed by a post-hoc finding, and the prior is biased upward
+
+Stated first because it governs everything below.
+
+Entry 6's verdict found, **after the run**, that the 1×/ON arm's bracket alone
+was nearly break-even while its 345 flattens at 09:25 carried the whole loss.
+Re-priced at the confirmed $0.50 commission (entry 6's addendum, 2026-09-11):
+the 197 targets and 144 stops net **+$896**, the flattens **−$6,283**, the arm
+**−$5,387**. Entry 7 found the same shape on MNQ: 204 of 438 trades flattened,
+net negative. **This entry exists because of that table.** Its idea was chosen by
+looking at the exit-reason breakdown of the very data it will be tested on.
+
+Three consequences, all recorded in advance:
+
+1. **Neither instrument is untouched data for this question.** MES has been
+   examined eight times in entry 6 and recomputed in entry 7; MNQ was entry 7's
+   replication and its flatten population has been seen. There is no out-of-sample
+   instrument left in this family. The only protection is the pre-registered bar
+   below, set higher than the effect that motivated it.
+2. **The finding that motivated this entry is arithmetic, not evidence.** Entry 6
+   recorded that a trade surviving to its flatten is conditioned into the band
+   between stop and target and is worth the band's midpoint — a design property of
+   an asymmetric bracket, confirmed four times in this log. That the flattens lost
+   money says the band was skewed against them. It says nothing about whether
+   those trades would have resolved favourably given more time; under a driftless
+   process they resolve at the benchmark rate, which is *below* the bracket's
+   break-even, and would have lost anyway.
+3. **The prior is therefore biased upward and is corrected by raising the bar,
+   not by pretending the bias is absent.** Entry 6's measured departure was
+   **+3.96 points, z = 1.47** on MES and **+3.65, z = 1.12** on MNQ. The bar below
+   requires roughly **+4.9 points on MES and +6.1 on MNQ** (power arithmetic under
+   *Kill criteria*). **An effect exactly as large as the one that motivated this
+   entry fails this test.** That is intended: the motivating estimate is the
+   biased one.
+
+**Prior for survival: low**, and lower than entry 6's, because the thing being
+tested has already been looked at.
+
+### Mechanism claimed
+
+Entry 6's mechanism is unchanged and is restated only where the extended hold
+adds to it. The overnight range (19:00–02:55 ET) is built by a small population
+in thin liquidity; the 03:00 ET European cash open brings a materially larger
+population that reprices the index; the first break of the range carried by that
+volume continues.
+
+**What the extended hold adds:** the claim that the repricing begun at 03:00 is
+*not complete by 09:25*, and that the US cash open at 09:30 — the largest volume
+step of the day — resolves the position at stop or target rather than leaving it
+to be flattened from the middle of the band. Concretely: at 09:25 half of entry
+6's trades were unresolved; the claim is that most of those resolve during the
+US session, and that they resolve at the target more often than a driftless
+process would.
+
+**Who is on the other side:** as entry 6 — overnight participants inside the
+range, stopped out as it breaks — plus, for the extended hold, **US-session
+participants who fade the overnight move at the cash open**: gap-fade and
+mean-reversion flows that sell an overnight rally into 09:30 liquidity. The
+claim is that these flows are absorbed and the overnight direction reasserts.
+
+**This is a behavioural claim, not a forced flow, and it is the entry's weakest
+point** — the same weakness entry 6 recorded, now doubled, because the second
+counterparty is asserted rather than measured. Nobody is obliged to fade the open.
+Entry 4's post-hoc addendum found no measurable late-session drift after its
+target exits; nothing in this log has measured US-session continuation of an
+overnight move.
+
+### Signal definition
+
+**Identical to entry 6's 1×/ON arm in every respect except the two marked
+CHANGED.** Nothing may change after results are seen.
+
+**Bars.** 5-minute candles resampled from 1-minute data, labelled by opening
+minute, left-closed.
+
+**Overnight range.** High and low of 19:00 ET through 02:55 ET inclusive. The
+window spans midnight: the range for a trade on date D begins at 19:00 on D−1.
+`london_date()` in `strategies/london.py` is the only place that mapping lives.
+
+**Entry window.** 03:00–05:00 ET. The first 5-minute candle that closes outside
+the range triggers; the position is taken at the next candle's open. First break
+only. One trade per day. The opposite side is never traded that day.
+
+**Trend filter.** 200-period EMA of 5-minute closes on the continuous 23-hour
+series, seeded with a 200-bar simple mean, read at 03:00 from closes strictly
+before 03:00. Long only above, short only below. **Filter ON only. No OFF arm.**
+
+**Stop.** The opposite side of the overnight range.
+
+**Target.** 1× range height from entry. **One arm. No 2× arm.**
+
+**Flatten — CHANGED.** **15:55 ET** if still open, on the open of the 15:55 bar.
+Entry 6 flattened at 09:25. **On an early-close session the flatten is 12:55
+ET** — five minutes before the 13:00 close, the same offset 15:55 has from the
+16:00 cash close — and `rules.flatten_deadline` (13:00 on those days) is the
+backstop. 15:55 does not exist on those days and entry 6 never had to decide
+this; the operator confirmed 12:55 before the freeze.
+
+**Sizing — CHANGED, as the log requires.** Entry 6 sized off the range height
+and its 2026-09-05 addendum recorded that this permitted a stop larger than the
+daily loss limit; the standing rule for every new strategy since is to size off
+the realised stop. This entry is a new strategy, not a replication, so it is
+bound:
+
+```
+stop_distance = |fill − far side of range|            (range height + overshoot)
+contracts     = floor( $200 / (stop_distance × point_value) ), clamped to [1, 5]
+must satisfy  contracts × stop_distance × point_value <= rules.DAILY_LOSS_LIMIT
+skip the session if stop_distance × point_value > $200
+```
+
+`point_value` is $5.00 for MES and $2.00 for MNQ, taken from `engine.ContractSpec`
+— never hardcoded (entry 7 recorded the MNQ-at-$5 bug). Keeping entry 6's
+range-based sizing would have been a second override of the log; the operator
+chose the corrected rule before the freeze.
+
+**No entries on roll days** (trade date D).
+
+**Costs.** **$0.50 per contract per side commission** — Lucid's confirmed MES
+rate (`rules.COMMISSION_PER_SIDE`, support article 11508978); **MNQ is assumed
+to carry the same rate, and only MES was confirmed.** **2 ticks of slippage per
+side as the base case**, 1 tick as the optimistic sensitivity — entry 6's
+convention, kept for the same reason: the 03:00 window is thin.
+
+**Internal guards, on the standard in force since 2026-09-11:** the $400 daily
+loss limit marked to market, the 5-contract cap, the 30-second minimum hold,
+**and the $1,500 end-of-day trailing halt**, via `engine.apply_internal_guards`.
+The same signals without the halt are reported alongside as the comparable
+basis; the evaluation blow-up count is read there, as entry 5 established it
+must be.
+
+**Evaluation structure.** Seven out-of-sample yearly folds, 2020–2026, **nothing
+selected**: one fixed configuration, so every fold is a genuine out-of-sample
+observation of one rule. 2019 is partial and reportable outside the criteria.
+The 2026 fold is partial (ends 2026-08-31) and is reported separately and
+alongside the seven. **Both instruments run the identical specification.**
+
+### Rules compatibility: the first strategy to hold from the overnight session into RTH
+
+Checked rather than assumed. A position entered at 03:00–05:05 ET and held to
+15:55 ET: `rules.is_entry_allowed` is True across the entry window;
+`rules.must_flatten` is False at 15:55 on a normal day (deadline 16:30) and
+**True from 13:00 on an early-close day**, which is why the 12:55 flatten above
+exists. The trade sits entirely inside calendar date D, so `rules.session_date`
+groups it correctly for the daily loss limit; only the range construction crosses
+midnight, as in entry 6.
+
+**New exposure this entry creates and entry 6 did not:** the position is open
+through the 09:30 cash open and the 10:00 economic releases with a stop one range
+height plus overshoot away — a median of about 18 points on MES. The daily loss
+limit is marked bar by bar through that window. With sizing capped at $200 of
+realised risk, a single trade's stop cannot reach the $400 limit, so
+`loss_limit_flatten` is not expected to fire; **its count is reported.**
+
+The entry-guard caveat entry 6 recorded stands: 03:00 entries pass because 03:00
+is numerically before an afternoon cutoff, not because `rules.py` models an
+overnight session.
+
+### The benchmark: entry 7's de-meaned bootstrap, at the new horizon
+
+The random-walk closed form `a / (a + b)` is invalid under a time limit (entry 6).
+The benchmark is entry 7's **de-meaned bootstrap**, procedure unchanged, **with
+the horizon set to the 15:55 flatten**: for each realised trade, resample the
+window's own 1-minute `(high, low, close)` changes with replacement over the
+trade's actual entry-to-15:55 length, drift removed, rebuild from the actual
+entry price, apply the same stop, target and flatten, stop-first when one step
+reaches both, 1,000 replications, seed 0. `bootstrap_benchmark.benchmark` takes
+the flatten time as a parameter; it is called with 15:55 (12:55 on early-close
+days) and nothing else about it changes.
+
+**The benchmark must be recomputed for this horizon. Entry 7's 53.81% / 53.61%
+were for a 09:25 horizon and must not be reused.** A longer horizon resolves more
+of each replication, and the benchmark share moves accordingly; whatever it is,
+it is the number the observed share is measured against.
+
+The observed target share is `targets / (targets + stops)`, flattens excluded,
+exactly as the benchmark excludes them — and **the flatten count itself is the
+first thing this entry reports**, because if the extended hold does not resolve
+most of entry 6's unresolved half, the mechanism claimed above is absent before
+any share is compared.
+
+### Pre-registered tests
+
+On each instrument, pooled 2020–2026 at 2 ticks, filter ON, one configuration:
+
+1. **Exit-reason counts and P&L:** stop / target / 15:55 flatten. **Against entry
+   6's 345 of 686 flattened on MES and 204 of 438 on MNQ.**
+2. **Observed target share, benchmark share at the 15:55 horizon, departure in
+   points, and one-sided z**, per entry 7's formula: `z = departure /
+   sqrt(p0 (1 − p0) / n_resolved)`, `p0` = benchmark.
+3. **Per-fold P&L and Sharpe**, seven years, plus 2026 separately.
+4. **`eval_sim` pass probability and payout probability**, pooled and per fold,
+   on the guarded stream; **evaluations blown** on the comparable (halt-OFF)
+   stream; sessions blocked by the trailing halt.
+5. **Realised break-even** from the trades' own mean stop and mean target
+   (entry 6's test 3), and the observed share against it.
+6. **Sizing, realised risk and overshoot distributions**, and confirmation that
+   no trade's stop exceeded $200 or the daily loss limit.
+7. **Hold-time distribution**, average duration, and rule 7's share of profit
+   from trades held 5 seconds or less (must be 0%).
+8. **Everything repeated at 1 tick** as the optimistic sensitivity.
+9. **Reproduction check before any 15:55 run:** the new code, with the flatten
+   set to 09:25 and costs at $1.25, must reproduce entry 6's 1×/ON stream on MES
+   **trade for trade** (686 trades, −$7,702.50) and entry 7's on MNQ (438,
+   +$116.00). *(With the corrected sizing this reproduction must be run with
+   entry 6's range-based sizing switched on; the sizing change is then the only
+   difference at the 15:55 run, and its effect is reported separately.)* A code
+   change that cannot reproduce the frozen stream is not a test of the flatten.
+
+### Kill criteria — decided now
+
+Measured on the guarded stream, pooled over the seven out-of-sample years, at the
+base 2 ticks per side, filter ON. **Every criterion must pass on MES *and* on
+MNQ. A failure on either instrument kills the entry as a whole; there is no
+per-instrument survival.**
+
+1. **Rule 13, the standing standard:** profitable in at least 4 of 7 folds
+   **and** positive total P&L after commission and slippage, at 2 ticks.
+2. **Pooled `eval_sim` pass probability ≥ 35%.** Entry 6 asked 25%; the bar is
+   raised because the idea was chosen after seeing this data.
+3. **Departure of observed target share from the 15:55-horizon bootstrap
+   benchmark with one-sided z ≥ 2.5.** Entry 7 asked 1.65. A one-sided z of 2.5
+   is p ≈ 0.006 — approximately the Bonferroni line for the ten looks this
+   family has now had at these two series (eight configurations in entry 6,
+   one in entry 7, one here).
+4. **Departure ≥ +2 points** (carried from entry 7 and kept by the operator), so
+   a statistically clean but economically trivial departure cannot pass on
+   sample size alone.
+
+**Power arithmetic, so the bar is understood before the run.** If most of entry
+6's flattens resolve, MES has roughly 650 resolved trades and MNQ roughly 420.
+At a benchmark near 54%, the standard error of the share is about 1.95 points on
+MES and 2.43 on MNQ, so z = 2.5 needs a departure of about **+4.9 points on MES
+and +6.1 on MNQ**. Entry 6 measured +3.96 and +3.65 at the shorter horizon.
+**The test is set above the effect that motivated it, on both instruments, by
+design.**
+
+Non-fatal, with a reporting obligation:
+
+5. The verdict must state, in those terms, **how much of any result is the
+   extended hold** — the P&L of the trades that would have been flattened at
+   09:25 and were not — **and how much is the sizing change**. A combined figure
+   does not satisfy this entry.
+
+No appeal, no second flatten time, no OFF arm, no 2× arm, no third instrument.
+
+### Pre-registered: slippage at the 03:00 open is the dominant unknown, and this test cannot resolve it
+
+Since the commission correction, slippage is the larger part of every round
+turn: at 2 ticks it is $5.00 of a $6.00 round turn on MES, $2.00 of $3.00 on
+MNQ. **Every entry in this entry's stream is filled at 03:05–05:05 ET, the
+thinnest window this project trades**, and the 2-tick assumption there is a
+guess with no measurement behind it. A 1-tick figure is reported as the
+optimistic sensitivity and a 3-tick figure as the pessimistic one, **but no
+backtest can settle which is right.** Only live fills against the signal level
+at 03:00 can — on a live account, fill by fill — and TradingView paper fills
+cannot see it. **A verdict of ACCEPTED here would therefore be conditional on
+an unmeasured cost, and must say so on its face.** The 15:55 exit, by contrast,
+lands in RTH liquidity where 1 tick is realistic; the asymmetry is noted.
+
+### Prediction on record
+
+Nothing below has been computed. No 15:55 run has been made and no outcome
+inspected.
+
+1. **The flatten share falls sharply**: from 50.3% of MES trades (345/686) to
+   **under 20%**, and similarly on MNQ. The US session resolves most of what
+   09:25 left open. *(If this fails, the mechanism as claimed is absent.)*
+2. **The newly resolved trades resolve at about the benchmark rate**, so the
+   pooled departure **shrinks** from entry 6's +3.96 toward zero rather than
+   growing. The bracket edge entry 6 measured was concentrated in trades that
+   resolved *quickly*; trades that took all day to resolve are the ones a
+   driftless process describes best.
+3. **z is below 2.5 on at least one instrument**, and pass probability is below
+   35% on both.
+4. **Total P&L at 2 ticks is negative on MES and small on MNQ**, because the
+   bracket's realised break-even sits near 55% and the pooled share lands within
+   two points of the benchmark.
+
+**What would falsify the pessimism:** z ≥ 2.5 and pass probability ≥ 35% and
+rule 13, on both instruments, at 2 ticks. Predictions 1 and 2 are the diagnostic
+pair: if 1 holds and 2 fails — flattens vanish *and* the departure grows — the
+extended hold did what was claimed. If 1 fails, nothing else matters.
+
+### Data and cost
+
+Both parquets exist: `data/mes_v_0_ohlcv_1m_2019-05_2026-08.parquet` and
+`data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet`, 2019-05-05 to 2026-08-31,
+validated in entries 6 and 7. **No data purchase.** The bootstrap at a 15:55
+horizon resamples roughly twice as many bars per trade as entry 7's 09:25 run
+(about 15 minutes); expect 30–40 minutes per instrument, run in the background.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged and repeated because it governs how any accepted result would be used.
+Copying identical trades across N funded accounts multiplies outcomes in both
+directions and is not diversification: the same losing day draws down every
+account at once and a trailing-drawdown breach terminates all of them on the
+same date. It is one bet at N times the size with N times the fees.
+
+### Verdict
+
+Not yet run. To be filled in after the walk-forward on both instruments, with
+the commit hash recorded in a follow-up commit. **If ACCEPTED, the verdict must
+carry, on its first line, that the idea was chosen after seeing the exit-reason
+table of the data it was tested on, and that its cost basis rests on an
+unmeasured 03:00 slippage assumption.**
+
 ## Template for new entries
 
 ```
