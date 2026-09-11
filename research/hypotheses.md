@@ -146,6 +146,45 @@ the second is the one that matters for a prop account. A −$5,964 result over
 seven years reads as a slow bleed; on a trailing-drawdown account it is four
 dead evaluations.
 
+### Addendum, 2026-09-11 — re-priced at the confirmed $0.50 commission
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** Lucid support confirmed on 2026-09-11 that MES commission on a 50K Pro
+evaluation is **$0.50 a side, $1.00 a round turn** (support.lucidtrading.com
+article 11508978), not the $1.25 a side this entry and every later one
+assumed. The verdict was judged at its pre-registered base case and stands;
+this records what the same trades are worth at the real rate.
+
+**Method.** The saved out-of-sample stream (`orb_oos_stream_slip1.csv`, the
+$400-daily-limit re-run above, 1,409 trades at 1 contract and 1 tick) was
+re-priced with `backtests/reprice.py`: commission never touches a fill, so
+each trade moves by exactly $1.50. **The walk-forward's parameter choice per
+fold is held at what $1.25 selected**; a re-selection at $0.50 might have
+chosen differently and is not attempted. One trade in 1,409 is a daily-loss
+flatten that fired at $1.25 and stays as fired. Slippage is unchanged.
+
+| Walk-forward OOS stream, 1 tick | As scored, $1.25 | Re-priced, $0.50 |
+|---|---|---|
+| Net P&L | −$5,964.06 | **−$3,850.56** |
+| Mean per trade | −$4.23 | −$2.73 |
+| Folds profitable | 3 of 7 | **3 of 7** |
+| Median fold Sharpe | −0.774 | −0.631 |
+| Profit factor | 0.908 | 0.939 |
+| Max drawdown | −$8,339 | −$7,078 |
+| Pass probability | 3.33% | 5.12% |
+| Payout probability ($52,100) | 10.84% | 14.75% |
+| Evaluations blown | 4 | 4 |
+
+Per fold: 2020 −$3,475 → −$3,079; 2021 −$1,868 → −$1,507; 2022 −$1,690 →
+−$1,218; 2023 +$484 → +$724; 2024 +$90 → +$350; 2025 +$1,273 → +$1,513;
+2026 −$778 → −$634. The same three folds are profitable.
+
+**Would any acceptance criterion have resolved differently? No.** Rule 13
+asks for a majority of folds profitable and a positive total: 3 of 7 and
+−$3,851. The commission correction is worth $2,113 over seven years and moves
+neither. The 2-tick survival check was not run in the verdict and is not
+needed here. This entry states no bracket break-even, so none is restated.
+
 ---
 
 ## 2. Leveraged ETF end-of-day rebalance drift — REJECTED
@@ -450,6 +489,46 @@ If the idea is ever revisited, the one thing that would justify it is
 independent evidence of the flow's *size* relative to ES volume on a given day —
 measuring the cause directly rather than inferring it from price. That is a data
 problem (fund AUM and daily creation/redemption), not a backtest problem.
+
+### Addendum, 2026-09-11 — re-priced at the confirmed $0.50 commission
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** MES commission is $0.50 a side, not the $1.25 assumed (Lucid support,
+2026-09-11, article 11508978; see entry 1's addendum of the same date for the
+method). The saved stream `eod_oos_stream_slip1.csv` — 278 trades, 1
+contract, 1 tick — was re-priced exactly, each trade moving by $1.50. **The
+walk-forward's threshold and stop choice per fold is held at what $1.25
+selected.** No daily-loss exit is in the stream.
+
+| Walk-forward OOS stream, 1 tick | As scored, $1.25 | Re-priced, $0.50 |
+|---|---|---|
+| Net P&L | −$648.05 | **−$231.05** |
+| Mean per trade | −$2.33 | −$0.83 |
+| Folds profitable | 4 of 7 | 4 of 7 |
+| **Median fold Sharpe** | **+0.201** | **+0.523** |
+| Profit factor | 0.918 | 0.970 |
+| Max drawdown | −$1,397 | −$1,206 |
+| Pass probability | 0.24% | 0.66% |
+| Payout probability ($52,100) | 2.51% | 4.70% |
+| Evaluations blown | 0 | 0 |
+
+Per fold: 2020 +$114 → +$297; 2021 −$746 → −$710; 2022 +$102 → +$248; 2023
+−$109 → −$97; 2024 +$43 → +$50; 2025 +$118 → +$142; 2026 −$170 → −$161. The
+as-scored median of +0.201 reproduces the verdict's figure exactly, which is
+the check on the method.
+
+**One kill criterion would have resolved differently.** Criterion 2 — median
+fold out-of-sample Sharpe at or above 0.30 — failed at +0.201 and **would have
+passed at +0.523**. With trades this small, $1.50 a round turn is most of the
+per-trade expectancy, and the fold Sharpes move with it. Criterion 1 (4 of 7
+folds) passed on both. **Criterion 3 — the effect size rising with the
+threshold — is measured on raw returns before costs and does not move:
+Spearman −1.000, the exact opposite of the prediction.** Any one criterion
+kills, so REJECTED stands, and it stands on the criterion that tests the
+mechanism rather than the one that tests the cost model. That is the right
+one to have died on: at the real commission this entry was a clean negative
+on its mechanism and an accident of costs on its Sharpe. This entry states no
+bracket break-even.
 
 ---
 
@@ -1450,6 +1529,57 @@ the $900 between the two lines. That gap is the whole difference between the
 two figures, and neither is close to the 25% the kill criterion asked of the
 pass probability.
 
+### Addendum, 2026-09-11 — re-priced at the confirmed $0.50 commission
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** MES commission is $0.50 a side, not the $1.25 this entry assumed (Lucid
+support, 2026-09-11, article 11508978; method in entry 1's addendum of the
+same date). The four saved 4-contract pooled streams were re-priced exactly —
+$6.00 a trade at 4 contracts. Nothing is selected in this entry's
+walk-forward, so nothing is held fixed by the method; no stream carries a
+daily-loss exit.
+
+| Pooled OOS 2020–2026, 4 contracts | ON, 1 tick | OFF, 1 tick | ON, 2 ticks | OFF, 2 ticks |
+|---|---|---|---|---|
+| Net P&L as scored | −$2,695 | −$3,930 | −$6,405 | −$8,970 |
+| **Net P&L re-priced** | **−$469** | **−$906** | **−$4,179** | **−$5,946** |
+| Mean per trade, per contract | −$1.82 → −$0.32 | −$1.95 → −$0.45 | −$4.32 → −$2.82 | −$4.45 → −$2.95 |
+| Folds profitable | 3 of 7 → 3 of 7 | 3 of 7 → 3 of 7 | 3 of 7 → 3 of 7 | 3 of 7 → 3 of 7 |
+| Max drawdown | $4,740 → $4,002 | $6,210 → $4,930 | $7,765 → $5,947 | $10,115 → $7,726 |
+| Evaluations blown | 3 → 2 | 6 → 5 | 6 → 4 | 9 → 7 |
+| **Pass probability** | **16.11% → 22.70%** | 15.86% → 22.66% | **8.40% → 12.55%** | 8.36% → 12.50% |
+| Payout probability | 27.31% → 34.78% | 27.04% → 34.36% | 17.14% → 22.87% | 16.73% → 22.54% |
+
+At 1 contract, 1 tick: ON −$674 → −$117, OFF −$983 → −$227.
+
+**Would any kill criterion have resolved differently? No — but one moved a
+long way toward its line.** At 4 contracts, filter ON, as pre-registered:
+
+| # | Criterion | 1 tick | 2 ticks | |
+|---|---|---|---|---|
+| 1 | Pooled OOS pass probability ≥ 25% | 16.11% → **22.70%** | 8.40% → 12.55% | FAIL |
+| 2 | Evaluations blown ≤ 1 | 3 → 2 | 6 → 4 | FAIL |
+| 3 | ≥ 4 folds profitable **and** P&L > 0 | 3 of 7, −$469 | 3 of 7, −$4,179 | FAIL |
+| 4 | Filter edge dE > $5.00 per contract (non-fatal) | +$0.13 | +$0.13 | REJECTED |
+
+Criterion 1 at 1 tick closes to within 2.3 points of the 25% line; at the
+2-tick base case it is half of it. Criterion 4 does not move at all: both
+arms pay the same commission per contract per trade, so a uniform rate
+change cancels in the ON-minus-OFF difference. The $5.00 threshold was
+pre-registered as "one round turn" at $1.25 and 1 tick and is not recomputed
+(a round turn is now $3.50); dE clears neither figure.
+
+**Break-even, restated.** The 10/18 bracket at $0.50 and 1 tick nets +$86.50
+a winner and −$53.50 a loser per contract, so break-even is **53.5/140 =
+38.21%**, not 39.29%. At 2 ticks it is 56/140 = **40.00%**. The frozen
+2-tick report printed 39.29% there as well; that was the 1-tick constant, and
+the correct figure at $1.25 and 2 ticks was 57.5/140 = 41.07%. The runners
+now compute it from the cost model they are given. Realised hit rates on the
+bracket were 40.97% (ON) and 40.08% (OFF) at 1 tick — above the corrected
+break-even, as they were above the old one, and the arms still lose, for the
+reason the 2026-09-04 addendum gives: the flatten population is not part of
+the bracket and is where the money goes.
+
 
 ---
 
@@ -1878,6 +2008,55 @@ With a seven-year mean day between −$25 and −$49 on every basis, reaching
 $2,100 over the start is a tail event, and the payout figure says the same thing the pass
 figure did with one more decimal place. Recorded so the entry carries the
 milestone every later verdict reports.
+
+### Addendum, 2026-09-11 — re-run at the confirmed $0.50 commission
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** MES commission is $0.50 a side, not the $1.25 this entry assumed (Lucid
+support, 2026-09-11, article 11508978). `run_orb_flat.py` was **re-run in
+full** at the new default at 1 and 2 ticks, both guards re-decided at the new
+cost — the trailing halt decides this entry's frozen basis, so a re-pricing
+of the halted stream would have missed that it fires later. The halt-OFF
+totals are exactly the frozen figures plus $6.00 × 478 trades, the check that
+only the commission moved.
+
+| Seven years, 4 contracts | Halt ON, $1.25 | **Halt ON, $0.50** | Halt OFF, $1.25 | **Halt OFF, $0.50** |
+|---|---|---|---|---|
+| **1 tick** — trades | 45 | **46** | 478 | 478 |
+| Net P&L | −$1,415 | **−$1,359** | −$11,780 | **−$8,912** |
+| Years profitable | 0 of 7 | 0 of 7 | 1 of 7 | 2 of 7 |
+| Evaluations blown | 0 | 0 | 6 | 5 |
+| Pass probability | 0.00% | 0.00% | 0.22% | 0.85% |
+| Payout probability ($52,100) | 0.01% | 0.02% | 1.29% | 3.42% |
+| **2 ticks** — trades | 33 | **44** | 478 | 478 |
+| Net P&L | −$1,625 | **−$1,511** | −$16,560 | **−$13,692** |
+| Years profitable | 0 of 7 | 0 of 7 | 0 of 7 | 0 of 7 |
+| Evaluations blown | 0 | 0 | 10 | 8 |
+| Pass probability | 0.00% | 0.00% | 0.02% | 0.07% |
+| Payout probability ($52,100) | 0.00% | 0.01% | 0.29% | 0.71% |
+
+Two-year window, 1 tick: halt ON 37 → 43 trades, −$1,270 → −$1,217; halt OFF
+91 trades, −$2,820 → −$2,274. The target share of bracket outcomes is
+unchanged at 21.71% (halt OFF) — commission does not move an exit.
+
+**Would any kill criterion have resolved differently? No.**
+
+| # | Criterion | Halt ON, $0.50 | Halt OFF, $0.50 | |
+|---|---|---|---|---|
+| 1 | Pass probability ≥ 25% | 0.00% | 0.85% | FAIL |
+| 2 | Evaluations blown ≤ 1 | 0 (degenerate, as recorded) | 5 | FAIL |
+| 3 | ≥ 4 of 7 years profitable **and** P&L > 0 | 0 of 7, −$1,359 | 2 of 7, −$8,912 | FAIL |
+
+**Break-even, restated.** The 10/18 bracket at $0.50 and 1 tick breaks even
+at **38.21%**, not 39.29%; at 2 ticks, **40.00%**. The frozen 2-tick report
+printed 39.29% there too — that was the 1-tick constant, and the correct
+figure at $1.25 and 2 ticks was 41.07%. `run_orb_flat.py` now computes it
+from the cost model it is given, so `--commission 1.25` reproduces the frozen
+1-tick report and corrects the 2-tick line. Friction per round turn at 4
+contracts is $14.00, not the $20.00 the entry states (1 tick); the
+observation that gross expectancy before costs is negative is unaffected.
+The halt at 1 tick fires one trade later, at 2 ticks eleven trades later,
+and in every case inside 2020.
 
 ---
 
@@ -2542,6 +2721,54 @@ make it something other than a replication. That exemption is deliberate,
 applies only to a like-for-like reproduction of an already-frozen spec, and does
 not extend to any entry proposing a strategy of its own.
 
+### Addendum, 2026-09-11 — re-priced at the confirmed $0.50 commission
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** MES commission is $0.50 a side, not the $1.25 this entry assumed (Lucid
+support, 2026-09-11, article 11508978; method in entry 1's addendum of the
+same date). All eight saved streams were re-priced exactly. This entry sizes
+per session, so each trade's size was recovered from the commission it
+carried — 1 to 5 contracts, $1.50 to $7.50 a trade. Nothing is selected in
+this entry's walk-forward and no stream carries a daily-loss exit, so the
+re-pricing is the full effect of the correction.
+
+**Base case, 2 ticks, pooled out-of-sample 2020–2026:**
+
+| | 1×/ON | 1×/OFF | 2×/ON | 2×/OFF |
+|---|---|---|---|---|
+| Net P&L as scored | −$7,703 | −$19,503 | −$9,765 | −$20,781 |
+| **Net P&L re-priced** | **−$5,387** | **−$15,949** | **−$7,449** | **−$17,228** |
+| Folds profitable | 1 of 7 → 1 of 7 | 1 of 7 → 1 of 7 | 0 of 7 → 0 of 7 | 2 of 7 → 2 of 7 |
+| Evaluations blown | 5 → 4 | 12 → 10 | 5 → 5 | 14 → 12 |
+| Pass probability | 0.83% → 2.28% | 0.10% → 0.34% | 1.38% → 2.83% | 0.62% → 1.20% |
+| Payout probability ($52,100) | 3.90% → 7.83% | 0.81% → 1.70% | 5.22% → 8.40% | 2.54% → 4.20% |
+| Max drawdown | $9,150 → $6,996 | $20,994 → $17,688 | $10,828 → $8,649 | $23,471 → $20,080 |
+
+Optimistic case, 1 tick: 1×/ON −$3,843 → −$1,527 (2 of 7 folds, 8.52% pass,
+2 blown); 1×/OFF −$13,580 → −$10,027; 2×/ON −$5,905 → −$3,589; 2×/OFF
+−$14,859 → −$11,305.
+
+**Would any kill criterion have resolved differently? No, on any of the eight
+configurations.** Pass probability at best 2.83% against 25%; evaluations
+blown at best 4 against 1; folds profitable at best 2 of 7 against 4, with
+every total negative.
+
+**Break-even, restated — and one sub-finding changes sign.** The verdict's
+"break-even at 2 ticks is 58.35%" was the realised figure for 1×/OFF, mean
+stop over mean stop plus mean target. Re-priced: 1×/ON **58.19% → 57.00%**,
+1×/OFF **58.35% → 57.14%**, 2×/ON 39.34% → 38.48%, 2×/OFF 39.54% → 38.68%.
+Target shares are unchanged (57.77%, 53.46%, 23.27%, 23.36%). The 1×/OFF arm
+still falls short of its break-even by 3.7 points. **The 1×/ON arm's bracket
+alone now clears its break-even**: 57.77% against 57.00%, where at $1.25 it
+sat 0.4 points under. In dollars the resolved trades — 197 targets and 144
+stops — go from **−$481 to +$896**, and the arm's 345 flattens at 09:25 go
+from −$7,221 to −$6,283. The arm loses $5,387 in total. This is the finding
+the verdict already recorded, sharpened: the bracket was a rounding error
+from break-even and is now fractionally past it, and the exit rule is the
+whole loss. It is not evidence of an edge — a $1,377 swing across 341 trades
+is $4 a trade, inside the noise the verdict measured — and the London family
+stays closed.
+
 
 ---
 
@@ -2939,6 +3166,41 @@ independently of backtest results — order-flow evidence about who takes the
 other side of a range break and under what constraint. That is a data purchase
 and should be priced before it is started.
 
+### Addendum, 2026-09-11 — re-priced at the confirmed $0.50 commission
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** MES commission is $0.50 a side, not the $1.25 assumed (Lucid support,
+2026-09-11, article 11508978; method in entry 1's addendum of the same
+date). Both saved streams were re-priced exactly, sizes recovered from the
+commission column.
+
+**The statistic under test does not depend on commission.** This entry's one
+criterion is the departure of the observed target share from a de-meaned
+bootstrap benchmark, and its z-score. Target and stop counts are fixed by the
+price path: MES 197/144 for a 57.77% share, MNQ 134/100 for 57.26%. Neither
+count, neither benchmark, and neither z (+1.47, +1.12, both under 1.65)
+moves. **NOT REPLICATED stands, and no criterion would have resolved
+differently.**
+
+What does move is the P&L reported for context:
+
+| 1×/ON, 2 ticks, pooled 2020–2026 | MES, $1.25 | **MES, $0.50** | MNQ, $1.25 | **MNQ, $0.50** |
+|---|---|---|---|---|
+| Trades | 686 | 686 | 438 | 438 |
+| Net P&L | −$7,703 | **−$5,387** | +$116 | **+$1,085** |
+| Folds profitable | 1 of 7 | 1 of 7 | 4 of 7 | 4 of 7 |
+| Evaluations blown | 5 | 4 | 1 | 1 |
+| Pass probability | 0.83% | 2.28% | 13.56% | 19.96% |
+| Payout probability ($52,100) | 3.90% | 7.83% | 28.69% | 37.42% |
+| Realised break-even | 58.19% | 57.00% | 55.07% | 54.33% |
+
+**MNQ is re-priced at the same $0.50 on the assumption that Lucid's micro
+rate is common to MES and MNQ. Only MES was confirmed.** If MNQ differs, the
+right-hand column moves by $2 × 438 per $1 of difference a side; nothing in
+this entry's verdict rests on it. The MES column is entry 6's 1×/ON arm and
+matches its addendum of the same date, including the bracket-alone sign
+change recorded there.
+
 
 ---
 
@@ -3186,6 +3448,44 @@ hold the guarded stream; the stream the verdict was scored on is
 `orborb_flat_1030_trades_nohalt.csv`, identical in content to what the
 verdict's reports line pointed at.
 
+### Addendum, 2026-09-11 — re-run at the confirmed $0.50 commission
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** MES commission is $0.50 a side, not the $1.25 assumed (Lucid support,
+2026-09-11, article 11508978). `run_generated.py` now reads the rate from
+`rules.COMMISSION_PER_SIDE`; this is a **full re-run**, not a re-pricing, so
+both guards were re-decided at the new cost. Same code, 1 contract, 2 ticks,
+same span. The halt-OFF column is exactly the previous addendum's figure plus
+$1.50 × 476 trades, which is the check that only the commission changed.
+
+| 2020-01-01 .. 2026-08-31, 1 contract, 2 ticks | Halt ON, $1.25 | **Halt ON, $0.50** | Halt OFF, $1.25 | **Halt OFF, $0.50** |
+|---|---|---|---|---|
+| Trades | 214 | **313** | 476 | 476 |
+| Net P&L | −$1,495.00 | **−$1,479.25** | −$3,531.25 | **−$2,817.25** |
+| Folds profitable | 0 of 7 | 0 of 7 | 0 of 7 | 0 of 7 |
+| Sharpe | −3.45 | −2.08 | −3.08 | −2.46 |
+| Profit factor | 0.568 | 0.716 | 0.615 | 0.678 |
+| Max drawdown | −$1,507.50 | −$1,510.00 | −$3,592.50 | −$2,898.25 |
+| Pass probability | 0.00% | 0.00% | 0.00% | 0.00% |
+| Payout probability ($52,100) | 0.00% | 0.00% | 0.00% | 0.00% |
+| Evaluations blown | 0 | 0 | 1 | 1 |
+| Sessions blocked by the halt | 262 | **163** | — | — |
+
+**The halt now fires on 2024-01-26 instead of 2022-11-17.** At $1.50 less a
+trade, the stream reaches the $1,500 trail 99 trades later: 2020 −$921, 2021
+−$25, 2022 −$159, 2023 −$227, and ten trades into 2024 the balance is $1,510
+under its peak. The 313 trades taken are 249 flattens at 10:30 (mean
++$0.58), 50 stops (−$56.00) and 14 targets (+$84.00). Per fold, halt OFF:
+2020 −$921, 2021 −$25, 2022 −$159, 2023 −$227, 2024 −$947, 2025 −$520,
+2026 −$18 — every year negative at either rate.
+
+**Would any kill criterion have resolved differently? No.** Pre-registered:
+pass probability below 25% (0.00% either way); more than one evaluation blown
+(1, on the comparable basis, either way — passes as before); fewer than 4 of 7
+folds profitable or a negative total (0 of 7 and negative on both bases at
+both rates). Rule 13 fails on both bases. REJECTED stands. The results CSVs
+now hold the $0.50 streams; `--commission 1.25` reproduces the $1.25 ones.
+
 ## 9. orb full day test — REJECTED
 **Date:** 2026-09-09
 **Submission name:** `orb_full_day_test`
@@ -3321,6 +3621,42 @@ and −$8,450 without them. REJECTED stands.
 the guarded stream; the stream the verdict was scored on is
 `orb_full_day_test_trades_nohalt.csv`, identical in content to what the
 verdict's reports line pointed at.
+
+### Addendum, 2026-09-11 — re-run at the confirmed $0.50 commission
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** MES commission is $0.50 a side, not the $1.25 assumed (Lucid support,
+2026-09-11, article 11508978). A **full re-run** of `run_generated.py` at the
+new default, both guards re-decided; same code, 4 contracts, 2 ticks, same
+span. The halt-OFF column is exactly the verdict's figure plus $6.00 × 503
+trades, which is the check that only the commission changed.
+
+| 2020-01-01 .. 2026-08-31, 4 contracts, 2 ticks | Halt ON, $1.25 | **Halt ON, $0.50** | Halt OFF, $1.25 | **Halt OFF, $0.50** |
+|---|---|---|---|---|
+| Trades | 27 | **30** | 503 | 503 |
+| Net P&L | −$1,570.00 | **−$1,520.00** | −$8,450.00 | **−$5,432.00** |
+| Folds profitable | 0 of 7 | 0 of 7 | 2 of 7 | 2 of 7 |
+| Sharpe | −4.22 | −3.60 | −1.08 | −0.69 |
+| Profit factor | 0.552 | 0.605 | 0.865 | 0.911 |
+| Max drawdown | −$1,570 | −$1,520 | −$9,595 | −$6,697 |
+| Pass probability | 0.06% | 0.19% | 9.43% | **13.79%** |
+| Payout probability ($52,100) | 0.63% | 1.29% | 18.26% | 23.96% |
+| Evaluations blown | 0 | 0 | 8 | 8 |
+| Sessions blocked by the halt | 476 | **473** | — | — |
+
+**The halt fires on 2020-06-23 instead of 2020-05-29** — three trades later,
+still inside the first half of year one: 16 stops at −$224, 5 targets at
++$336 and 9 flattens averaging +$42.67. Per fold, halt OFF: 2020 −$4,135;
+2021 +$2,567; 2022 −$311; 2023 −$248; 2024 −$1,640; 2025 −$2,113; 2026
++$448. Against entry 4's filter-OFF arm re-priced at the same rate and
+slippage — −$5,946 over 504 trades — this is −$5,432 over 503, the same 6%
+apart as before.
+
+**Would any kill criterion have resolved differently? No.** Pass probability
+13.79% against a 25% line; 8 evaluations blown against a limit of 1; 2 of 7
+folds against 4, with a negative total on both bases. Rule 13 fails on both
+bases. REJECTED stands. The results CSVs now hold the $0.50 streams;
+`--commission 1.25` reproduces the $1.25 ones.
 
 ## Template for new entries
 

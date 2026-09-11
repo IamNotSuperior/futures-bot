@@ -13,7 +13,7 @@ why). Read those three first; this is the delta.
 
 **Branch** `master`, tracking `origin/master` at
 <https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
-**1,029 tests pass**, 2 skipped (a symlink test the OS refuses, and one
+**1,054 tests pass**, 2 skipped (a symlink test the OS refuses, and one
 that needs an orphaned generated module on disk, of which there is none) —
 
 ```powershell
@@ -199,12 +199,27 @@ date fails in the dangerous direction: a half-day recorded as normal permits a
 late entry that should be blocked. **2026-11-26 and 2026-11-27** are the first
 dates a live paper run reaches.
 
-**3.2 Verify Lucid/Tradovate's actual MES commission.** Every strategy in the
-log sat within about a point of break-even at the assumed **$1.25 per side**
-(`engine.CostModel`). If the real all-in number is materially different, every
-verdict's margin moves with it. **This is the biggest unknown in the log.** It
-is a phone call or a statement, not a backtest, and it should be settled
-before any new entry is scored.
+**3.2 Closed, 2026-09-11: MES commission on a 50K LucidPro evaluation is
+$0.50 a side, $1.00 a round turn**, confirmed by Lucid support
+(support.lucidtrading.com article 11508978), not the $1.25 every verdict
+assumed. `rules.COMMISSION_PER_SIDE` carries it with the source beside it;
+`rules.ASSUMED_COMMISSION_PER_SIDE` keeps the $1.25 by name so any earlier
+run reproduces with `--commission 1.25`. Entries 1, 2, 4, 6 and 7 were
+re-priced from their saved streams (`backtests/reprice.py`, exact; parameter
+selection in 1 and 2 held at what $1.25 chose) and entries 5, 8 and 9 re-run
+in full with both guards re-decided. Each carries a dated addendum.
+
+**No verdict changes. One kill criterion would have resolved differently:**
+entry 2's median fold Sharpe, +0.201 → +0.523 against its 0.30 line — and
+entry 2 still dies on its pre-cost mechanism test, which is the one that
+matters. The closest any entry now sits to a line is entry 4's pooled pass
+probability, 16.11% → 22.70% against 25% at 1 tick (12.55% at the 2-tick
+base case). Entry 6's 1×/ON bracket alone turns from −$481 to +$896 while
+the arm still loses $5,387 on its flattens. MNQ (entry 7) was re-priced at
+the same $0.50 on the assumption Lucid's micro rate is common to MES and MNQ;
+**only MES was confirmed.** Break-even figures in the entry 4 and 5 runners
+are now computed from the cost model (38.21% at 1 tick, 40.00% at 2); the
+frozen 2-tick reports had printed the 1-tick constant.
 
 **3.3 The 13:00 versus 13:15 early-close approximation.**
 `rules.EARLY_SESSION_CLOSE` models a single 13:00 close where CME equity index
@@ -243,6 +258,24 @@ The real one remains in that commit's history, which was already pushed. A
 Discord snowflake is not a credential — it authorises nothing and is visible
 to anyone sharing a server. **It stays; do not rewrite history for it.**
 
+**3.10 Verified, 2026-09-11: API and automated order placement is permitted
+on Lucid evaluation accounts**, via Rithmic or Tradovate, under Lucid's Other
+Trading Activities policy (support.lucidtrading.com article 11404728). This
+was the account-side question that gated the execution layer — whether an
+automated desk would be allowed at all — and it closes in the permissive
+direction. **Nothing else about the gate moves:** no execution code exists or
+is to be written until a strategy reaches `paper` (§5, §6), and
+`Registry.promote` still refuses without an ACCEPTED walk-forward in the log.
+
+**3.11 Slippage is now the dominant cost term, and it is an assumption.** At
+the confirmed $0.50 a side, commission is $1.00 of a round turn. One tick a
+side of slippage is $2.50 on MES — 71% of the $3.50 total — and rule 13's
+two-tick survival bar is $5.00 of $6.00, 83%. Every verdict's margin now
+rests mainly on a number nobody has measured. It can only be measured on a
+live account, fill by fill against the signal level; TradingView paper fills
+are optimistic and the journal cannot see it. Until then the two-tick bar is
+the hedge, not a measurement.
+
 ---
 
 ## 4. Open directions
@@ -264,8 +297,10 @@ volatility — would have produced a positive stream is worth one run,
 **pre-registered as a diagnostic with no verdict**, because a selector fitted
 to seven known-negative streams is the textbook way to manufacture an edge.
 
-**The commission number (§3.2)** gates both of the above: a portfolio of
-break-even strategies at the wrong cost assumption is not worth assembling.
+**The commission number is settled (§3.2): $0.50 a side.** What remains an
+assumption is slippage, now the larger part of every round turn and
+measurable only on a live account (§3.11). A portfolio of near-break-even
+strategies is still not worth assembling on an unmeasured slippage figure.
 
 **The desk bot's gate (§6) is unchanged** — no strategy is at `paper`, and
 nothing above relaxes that.
@@ -388,6 +423,15 @@ The same discipline is why `journal/review.readiness` was extracted: the CLI,
 the registry and the bot all read one definition of the 60-trade, positive-
 expectancy and 50% gates. Rule 13's acceptance test lives in
 `run_generated.py` and nowhere else.
+
+The same discipline now covers a cost. `rules.COMMISSION_PER_SIDE` ($0.50,
+Lucid's confirmed rate, source recorded beside it) is what `engine.CostModel`
+and every runner's `--commission` default read; a test scans the runners for
+a restated default. `rules.ASSUMED_COMMISSION_PER_SIDE` ($1.25) exists only
+so a verdict scored before 2026-09-11 can be reproduced — `--commission 1.25`
+on any runner — and is never a default. `backtests/reprice.py` re-prices a
+saved stream between the two exactly, recovering each trade's size from the
+commission it carried.
 
 ### Hardcoded contract specs are the same bug wearing a different hat
 
@@ -604,8 +648,9 @@ size, with N times the fees.** The only thing it diversifies is the
 2. **A new pre-registered hypothesis that passes walk-forward** — a majority of
    yearly folds, positive total after commission and slippage, at 2 ticks.
    `/submit` now takes one from Discord to a verdict in about twenty minutes.
-   Seven have tried; none has passed. **Establish the commission number
-   (§3.2) first**, or the next one is scored against a guess.
+   Seven have tried; none has passed. The commission is now Lucid's confirmed
+   $0.50 a side (§3.2); the cost term still resting on an assumption is
+   slippage (§3.11).
 
 ---
 
