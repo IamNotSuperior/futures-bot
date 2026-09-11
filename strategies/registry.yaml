@@ -86,8 +86,13 @@ strategies:
 - name: london_full_day
   class_path: london:LondonBreakout
   hypothesis_entry: 10
-  status: proposed
-  verdict_commit: null
-  walkforward_verdict: ''
+  status: rejected
+  verdict_commit: 82006bf
+  walkforward_verdict: 'REJECTED on the pre-registered criteria, both instruments. Failed
+    on: MES: Rule 13: >= 4 of 7 folds profitable and P&L > 0; MES: Pooled pass probability;
+    MES: z against the 15:55-horizon benchmark, one-sided; MES: Departure from the benchmark,
+    points; MNQ: Rule 13: >= 4 of 7 folds profitable and P&L > 0; MNQ: z against the 15:55-horizon
+    benchmark, one-sided. Any one failure on either instrument kills the entry as a whole,
+    as pre-registered.'
 shadow:
 - orb2

@@ -4093,6 +4093,8 @@ Per fold, standard: 2020 $1,600.50; 2021 $-56.50; 2022 $-305.00; 2023 $0.00; 202
 In-sample results are never evidence, and this is the out-of-sample answer on both instruments.
 
 
+**Verdict commit:** `82006bf`
+
 ## Template for new entries
 
 ```
