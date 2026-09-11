@@ -13,7 +13,7 @@ why). Read those three first; this is the delta.
 
 **Branch** `master`, tracking `origin/master` at
 <https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
-**1,054 tests pass**, 2 skipped (a symlink test the OS refuses, and one
+**1,093 tests pass**, 2 skipped (a symlink test the OS refuses, and one
 that needs an orphaned generated module on disk, of which there is none) —
 
 ```powershell
@@ -27,8 +27,9 @@ strategy's own generated test (§5).
 
 **Working tree is clean.**
 
-**Nine hypothesis entries. Eight rejected, one open and untouched.** No
-strategy has ever reached `paper`.
+**Ten hypothesis entries. Eight rejected, two open:** entry 3, untouched, and
+entry 10, built and awaiting the operator's go for its first real run (§2).
+No strategy has ever reached `paper`.
 
 | # | Idea | Status |
 |---|---|---|
@@ -41,6 +42,7 @@ strategy has ever reached `paper`.
 | 7 | Replication of entry 6's non-null finding, on MNQ | REJECTED (not replicated) |
 | 8 | `orborb_flat_1030` — entry 5 re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
 | 9 | `orb_full_day_test` — entry 4's OFF arm re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
+| 10 | `london_full_day` — entry 6's 1×/ON held to 15:55, MES and MNQ | **PROPOSED — frozen `fd0c5c8`, reproduction passed, 15:55 run not yet authorised** |
 
 `venv\Scripts\python.exe strategies\registry.py` prints the registry; it agrees
 with the log.
@@ -123,6 +125,40 @@ halt that fires in year one leaves the fold test with nothing to count. Rule
 both bases. Under the halt entry 9 (4 contracts) stops trading on 2020-05-29
 after 27 trades, as entry 5 did in 2020; entry 8 (1 contract) takes until
 2022-11-17 and 214 trades to lose the same $1,500. Neither resumes.
+
+### Entry 10 — built, reproduction passed, waiting for the operator's go
+
+Entry 10 is entry 6's 1×/ON London breakout held to **15:55 ET** (12:55 on
+early-close days) instead of 09:25, on **both MES and MNQ**, with the log's
+corrected realised-stop sizing. It overrides entry 7's closure of the London
+family by operator direction and says so; it is informed by entry 6's post-hoc
+exit-reason finding and says that too, which is why its bar sits above the
+effect that motivated it: pooled pass probability ≥ 35% and z ≥ 2.5 against
+the finite-horizon bootstrap benchmark recomputed for the 15:55 horizon, at 2
+ticks, on both instruments, plus rule 13. Frozen at `fd0c5c8` before any code.
+
+**What exists.** `strategies/london.py` gained three parameters whose defaults
+are entry 6's, so entries 6 and 7 are untouched: `flatten_time` now labels its
+exit by time (`flatten_1555`), `early_close_flatten_time` (rule 2's deadline
+is the backstop when unset), and `size_on="stop"` — `floor(min($200, daily
+loss limit) / (stop_distance × point_value))`, skipping the session when one
+contract is over budget. `backtests/run_entry10.py` carries the frozen
+parameter sets and **only** the reproduction mode. `registry.yaml` has
+`london_full_day` at `proposed`.
+
+**The reproduction check (the entry's test 9) passed on both instruments,
+2026-09-11:** the new code at 09:25, $1.25 and range-based sizing reproduced
+entry 6's MES stream (686 trades, −$7,702.50) and entry 7's MNQ stream (438,
++$116.00) **trade for trade** on entry and exit time, direction, prices, exit
+reason, size and net P&L. Output in `backtests/results/entry10_reproduction_*.csv`.
+
+**What does not exist, on purpose: the 15:55 run.** The operator asked for the
+reproduction first and a stop before any 15:55 number is produced. The next
+session adds that mode to `run_entry10.py` — both guards via
+`engine.apply_internal_guards`, the halt-OFF basis alongside, `fold_frame`,
+`eval_sim`, the bootstrap at the 15:55 horizon with early-close days truncated
+at 12:55 — and writes the verdict into entry 10 and commits it **before**
+anyone sees a number, as every verdict in this log has been.
 
 **The sandbox is two layers.** `safe_write` confines writes to
 `strategies/generated/` and `tests/generated/`, resolving before comparing so
@@ -527,6 +563,12 @@ Entries 1, 4, 5, 6, 7 and 8 have tested breakout continuation across two
 sessions, two instruments, three signal definitions, four holding periods, two
 benchmarks and now two implementations. **All rejected.** Each entry's `Next`
 section forbids the obvious follow-up, and entry 7 closes the London family.
+
+**Entry 10 reopens the London family by operator direction, on the exit rather
+than the entry**, and records the override and the upward bias of its prior in
+its own text. That is the one sanctioned exception, and it earned it by raising
+its bar above the effect that motivated it. It does not license anything else
+in this family.
 
 **Entry 1's condition has never been met and is the only route back:** establish
 the counterparty claim independently of backtest results — order-flow evidence

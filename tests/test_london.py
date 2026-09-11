@@ -16,9 +16,9 @@ import rules
 from base import REQUIRED_SIGNAL_COLUMNS, validate_signals
 from engine import MES, CostModel, build_trades, price_trades
 from london import (
-    SKIP_FILTERED, SKIP_NO_BREAK, SKIP_ROLL, SKIP_THIN_RANGE, SKIP_WIDE_RANGE,
-    LondonBreakout, LondonParams, contracts_for, london_date,
-    resample_continuous,
+    SKIP_FILTERED, SKIP_NO_BREAK, SKIP_ROLL, SKIP_STOP_OVER_BUDGET,
+    SKIP_THIN_RANGE, SKIP_WIDE_RANGE, LondonBreakout, LondonParams,
+    contracts_for, contracts_for_stop, london_date, resample_continuous,
 )
 from trend import intraday_ema
 
@@ -396,3 +396,192 @@ class TestInterface:
             index=pd.DatetimeIndex([], tz=ET))
         _, signals = run(empty)
         assert signals.empty
+
+
+# ---------------------------------------------------------------------------
+# Entry 10: the same signal held through the US session
+# ---------------------------------------------------------------------------
+
+
+def full_day(day: date = DAY, base: float = 100.0) -> pd.DataFrame:
+    """Evening of the prior day through 16:05 on ``day``, flat at ``base``."""
+    evening = block(day - timedelta(days=1), "19:00", 300, base)   # 19:00-23:59
+    trading = block(day, "00:00", 966, base)                       # 00:00-16:05
+    return pd.concat([evening, trading])
+
+
+def entered_full_day(**params):
+    """Range 100-110, break at 03:00, filled 111 at 03:05; flat at 105 after.
+
+    Flat at 105 the bars touch neither the stop at 100 nor the target at 121,
+    so the trade lives until whatever flatten the params say.
+    """
+    bars = with_range(full_day(base=105.0), high=110.0, low=100.0)
+    bars = close_5m(bars, f"{DAY} 03:00", 115.0)
+    bars = put(bars, f"{DAY} 03:05", open=111.0)
+    return bars, LondonParams(use_trend_filter=False, **params)
+
+
+class TestDefaultsAreEntrySix:
+    """Entries 6 and 7 are frozen; the defaults must still describe them."""
+
+    def test_default_flatten_and_sizing_are_entry_sixs(self):
+        p = LondonParams()
+        assert p.flatten_time == time(9, 25)
+        assert p.early_close_flatten_time is None
+        assert p.size_on == "range"
+
+    def test_default_flatten_reason_is_unchanged(self):
+        bars, p = entered_full_day()
+        _, signals = run(bars, p)
+        trades = build_trades(signals, bars)
+        assert trades.iloc[0]["exit_reason"] == "flatten_0925"
+        assert trades.iloc[0]["exit_time"].time() == time(9, 25)
+
+
+class TestFlattenThroughTheUSSession:
+    def test_flatten_lands_on_the_1555_bar_open(self):
+        bars, p = entered_full_day(flatten_time=time(15, 55))
+        bars = put(bars, f"{DAY} 15:55", open=108.0)
+        _, signals = run(bars, p)
+        row = build_trades(signals, bars).iloc[0]
+        assert row["exit_reason"] == "flatten_1555"
+        assert row["exit_time"].time() == time(15, 55)
+        assert row["exit_price"] == pytest.approx(108.0)
+
+    def test_a_position_open_at_0925_is_held(self):
+        bars, p = entered_full_day(flatten_time=time(15, 55))
+        _, signals = run(bars, p)
+        exits = signals.index[signals["exit_long"] | signals["exit_short"]]
+        assert len(exits) == 1
+        assert exits[0].time() == time(15, 55)
+
+    def test_nothing_is_held_past_1555(self):
+        bars, p = entered_full_day(flatten_time=time(15, 55))
+        _, signals = run(bars, p)
+        exits = signals.index[signals["exit_long"] | signals["exit_short"]]
+        assert (exits.time <= time(15, 55)).all()
+
+    def test_the_us_session_can_resolve_the_trade(self):
+        """A stop touched at 10:30 is taken at 10:30 - that is the mechanism."""
+        bars, p = entered_full_day(flatten_time=time(15, 55))
+        bars = put(bars, f"{DAY} 10:30", low=99.0)
+        _, signals = run(bars, p)
+        row = build_trades(signals, bars).iloc[0]
+        assert row["exit_reason"] == "stop"
+        assert row["exit_time"].time() == time(10, 30)
+
+    def test_early_close_day_flattens_at_the_configured_time(self):
+        bars, p = entered_full_day(flatten_time=time(15, 55),
+                                   early_close_flatten_time=time(12, 55))
+        bars = put(bars, f"{DAY} 12:55", open=106.0)
+        _, signals = run(bars, p, early_close_dates={DAY})
+        row = build_trades(signals, bars).iloc[0]
+        assert row["exit_reason"] == "flatten_1255"
+        assert row["exit_time"].time() == time(12, 55)
+        assert row["exit_price"] == pytest.approx(106.0)
+
+    def test_early_close_time_is_ignored_on_a_normal_day(self):
+        bars, p = entered_full_day(flatten_time=time(15, 55),
+                                   early_close_flatten_time=time(12, 55))
+        _, signals = run(bars, p)
+        row = build_trades(signals, bars).iloc[0]
+        assert row["exit_time"].time() == time(15, 55)
+
+    def test_without_a_configured_early_time_the_rules_deadline_binds(self):
+        """Rule 2 backstop: no position may live past the exchange close."""
+        bars, p = entered_full_day(flatten_time=time(15, 55))
+        _, signals = run(bars, p, early_close_dates={DAY})
+        row = build_trades(signals, bars).iloc[0]
+        assert row["exit_time"].time() <= rules.EARLY_SESSION_CLOSE
+        assert not rules.must_flatten(row["exit_time"] - pd.Timedelta(minutes=1),
+                                      early_close_dates={DAY})
+
+    def test_early_flatten_must_precede_the_early_close(self):
+        with pytest.raises(ValueError, match="early"):
+            LondonParams(flatten_time=time(15, 55),
+                         early_close_flatten_time=rules.EARLY_SESSION_CLOSE)
+
+    def test_rules_permit_1555_and_force_1300_on_an_early_close(self):
+        """Recorded in entry 10; asserted so a rule change surfaces it."""
+        assert not rules.must_flatten(pd.Timestamp(f"{DAY} 15:55", tz=ET))
+        assert not rules.must_flatten(pd.Timestamp(f"{DAY} 12:55", tz=ET),
+                                      early_close_dates={DAY})
+        assert rules.must_flatten(pd.Timestamp(f"{DAY} 13:00", tz=ET),
+                                  early_close_dates={DAY})
+
+
+class TestStopBasedSizing:
+    """The log's standing rule for new strategies: size off the realised stop,
+    capped by the daily loss limit, and skip when one contract is over budget."""
+
+    @pytest.mark.parametrize("stop_pts,expected", [
+        (2.0, 5), (8.0, 5), (10.0, 4), (11.0, 3), (13.5, 2), (20.0, 2),
+        (20.25, 1), (40.0, 1), (40.25, 0), (41.0, 0),
+    ])
+    def test_contract_arithmetic(self, stop_pts, expected):
+        """Zero means the session is skipped: one contract already risks more
+        than the budget."""
+        assert contracts_for_stop(stop_pts, LondonParams()) == expected
+
+    def test_the_daily_loss_limit_caps_a_larger_budget(self):
+        """A $1,000 budget on a 30-point stop wants 6 contracts, the cap allows
+        5, and 5 x 30 x $5 = $750 breaches the $400 limit: 2 is the most that
+        fits."""
+        n = contracts_for_stop(30.0, LondonParams(risk_dollars=1000.0))
+        assert n == 2
+        assert n * 30.0 * 5.0 <= rules.DAILY_LOSS_LIMIT
+
+    def test_never_exceeds_the_cap_or_the_limit(self):
+        p = LondonParams(risk_dollars=1000.0)
+        for pts in np.arange(0.25, 45.0, 0.25):
+            n = contracts_for_stop(float(pts), p)
+            assert 0 <= n <= rules.POSITION_CAP
+            assert n * float(pts) * p.point_value <= rules.DAILY_LOSS_LIMIT
+
+    def test_size_on_stop_uses_the_realised_stop_not_the_range(self):
+        """Range 10, overshoot 1: the stop is 11 points away. Range-based
+        sizing says 4 contracts; the realised stop says 3, risking $165."""
+        bars, p = entered_full_day(size_on="stop")
+        strat, signals = run(bars, p)
+        entry = signals.index[signals["entry_long"]][0]
+        assert int(signals.loc[entry, "contracts"]) == 3
+        d = strat.diagnostics.loc[DAY]
+        assert float(d["stop_distance"]) == pytest.approx(11.0)
+        assert float(d["risk_dollars"]) == pytest.approx(165.0)
+        assert float(d["risk_dollars"]) <= p.risk_dollars
+
+    def test_a_stop_over_the_budget_skips_the_session(self):
+        """A 39.5-point range passes the 40-point cap; a 1.5-point overshoot
+        puts the realised stop at 41 points, $205 on one contract: skipped."""
+        bars = with_range(full_day(base=120.0), high=139.5, low=100.0)
+        bars = close_5m(bars, f"{DAY} 03:00", 145.0)
+        bars = put(bars, f"{DAY} 03:05", open=141.0)
+        strat, signals = run(bars, LondonParams(use_trend_filter=False,
+                                                size_on="stop"))
+        assert not signals["entry_long"].any()
+        assert strat.diagnostics.loc[DAY, "skipped_reason"] == SKIP_STOP_OVER_BUDGET
+
+    def test_range_based_sizing_takes_the_same_session(self):
+        """The same bars under entry 6's rule trade 1 contract, risking $205 -
+        the breach entry 6's addendum measured."""
+        bars = with_range(full_day(base=120.0), high=139.5, low=100.0)
+        bars = close_5m(bars, f"{DAY} 03:00", 145.0)
+        bars = put(bars, f"{DAY} 03:05", open=141.0)
+        strat, signals = run(bars, LondonParams(use_trend_filter=False))
+        assert signals["entry_long"].any()
+        assert float(strat.diagnostics.loc[DAY, "risk_dollars"]) == pytest.approx(205.0)
+
+    def test_size_on_is_validated(self):
+        with pytest.raises(ValueError, match="size_on"):
+            LondonParams(size_on="guess")
+
+
+class TestEntryTenParams:
+    def test_the_frozen_configuration_is_constructible(self):
+        p = LondonParams(target_multiple=1.0, use_trend_filter=True,
+                         flatten_time=time(15, 55),
+                         early_close_flatten_time=time(12, 55), size_on="stop")
+        assert p.flatten_time == time(15, 55)
+        assert p.early_close_flatten_time == time(12, 55)
+        assert p.size_on == "stop"

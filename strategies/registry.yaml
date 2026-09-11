@@ -83,5 +83,11 @@ strategies:
   verdict_commit: 29178fd
   walkforward_verdict: REJECTED. $-8,450.00 over 503 trades, 2 of 7 folds profitable, pass
     probability 9.43%, 8 evaluation(s) blown.
+- name: london_full_day
+  class_path: london:LondonBreakout
+  hypothesis_entry: 10
+  status: proposed
+  verdict_commit: null
+  walkforward_verdict: ''
 shadow:
 - orb2

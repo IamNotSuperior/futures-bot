@@ -136,6 +136,13 @@ RUNNERS: dict[str, Runner] = {
                                      "entry7_mnq_1x_on.csv",
                                      note="entry 7, MNQ, entry 6's 1x/ON spec "
                                           "reproduced unchanged, 2 ticks/side"),
+    # Entry 10. Same per-session sizing, so build is None. No saved outputs
+    # yet: the 15:55 run has not been authorised, and the reproduction check
+    # is not a walk-forward. Both CSVs are filled in when the verdict lands.
+    "london_full_day": Runner(1, 0, None, None, None,
+                              note="entry 10, entry 6's 1x/ON held to 15:55 "
+                                   "on MES and MNQ; reproduction passed, "
+                                   "15:55 run not yet authorised"),
 }
 
 

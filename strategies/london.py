@@ -35,6 +35,17 @@ and actual risk therefore exceeds $200 by the overshoot. Entry 6 keeps that
 deliberately and requires the overshoot and realised risk to be reported, so
 the breach is measured rather than assumed small. Size varies per session, so
 **P&L is not linear in contract count here** the way it is for entries 4 and 5.
+
+Entry 10 (``size_on="stop"``)
+-----------------------------
+Entry 6's addendum of 2026-09-05 measured that rule permitting a stop larger
+than the daily loss limit, and bound every *new* strategy to size off the
+realised stop instead. Entry 10 is the same signal held through the US session
+(``flatten_time=15:55``, ``early_close_flatten_time=12:55``) and is a new
+strategy, so it carries ``size_on="stop"``: ``floor(min($200, daily loss limit)
+/ (stop_distance x point_value))``, and the session is **skipped** when one
+contract already risks more than the budget. The defaults remain entry 6's, so
+entries 6 and 7 reproduce unchanged.
 """
 
 from __future__ import annotations
@@ -69,6 +80,11 @@ SKIP_NO_BREAK = "no_break_in_window"
 SKIP_UNSEEDED = "ema_unseeded"
 SKIP_FILTERED = "filter_blocked"
 SKIP_BLOCKED = "entry_blocked_by_rules"
+#: ``size_on="stop"`` only: one contract at the realised stop already risks
+#: more than the budget, so nothing is taken.
+SKIP_STOP_OVER_BUDGET = "stop_over_risk_budget"
+
+SIZING_RULES = ("range", "stop")
 
 #: Points per contract. Imported rather than restated where possible; the
 #: contract spec lives in the engine, which strategies do not import.
@@ -106,6 +122,12 @@ class LondonParams:
     #: MNQ replication keeps the same $200 budget and its skip threshold
     #: becomes 100 points rather than 40.
     point_value: float = 5.0
+    #: Entry 10: the flatten on an early-close session, where ``flatten_time``
+    #: may not exist. None means the rules deadline binds (rule 2's backstop).
+    early_close_flatten_time: time | None = None
+    #: ``"range"`` is entry 6's rule; ``"stop"`` is the log's corrected rule
+    #: for new strategies (entry 6's addendum, 2026-09-05).
+    size_on: str = "range"
 
     def __post_init__(self) -> None:
         if self.target_multiple <= 0:
@@ -119,12 +141,40 @@ class LondonParams:
             )
         if not self.entry_start < self.entry_end <= self.flatten_time:
             raise ValueError("entry_start < entry_end <= flatten_time required")
+        if self.size_on not in SIZING_RULES:
+            raise ValueError(f"size_on must be one of {SIZING_RULES}, got {self.size_on!r}")
+        if self.early_close_flatten_time is not None:
+            if not self.entry_end <= self.early_close_flatten_time < rules.EARLY_SESSION_CLOSE:
+                raise ValueError(
+                    f"early_close_flatten_time must sit between entry_end and the "
+                    f"early close ({rules.EARLY_SESSION_CLOSE}); got "
+                    f"{self.early_close_flatten_time}"
+                )
 
 
 def contracts_for(range_pts: float, params: LondonParams) -> int:
     """``floor(risk / (range_pts x point_value))``, clamped to [1, max]."""
     raw = math.floor(params.risk_dollars / (range_pts * params.point_value))
     return int(min(max(raw, 1), params.max_contracts))
+
+
+def contracts_for_stop(stop_distance: float, params: LondonParams) -> int:
+    """The log's corrected rule: size off the realised stop, capped twice.
+
+    ``floor(min(risk, daily loss limit) / (stop_distance x point_value))``,
+    clamped to the position cap. **Zero means skip**: one contract at this
+    stop already risks more than the budget, and clamping up to one - which
+    is what the range-based rule does - would be the breach entry 6's
+    addendum measured. Both caps are read from ``rules``; neither is restated.
+    """
+    per_contract = stop_distance * params.point_value
+    if per_contract <= 0:
+        return 0
+    if per_contract > params.risk_dollars:
+        return 0
+    budget = min(params.risk_dollars, rules.DAILY_LOSS_LIMIT)
+    raw = math.floor(budget / per_contract)
+    return int(min(raw, params.max_contracts, rules.POSITION_CAP))
 
 
 def resample_continuous(bars: pd.DataFrame, minutes: int) -> pd.DataFrame:
@@ -267,7 +317,6 @@ class LondonBreakout(Strategy):
             return diag
 
         entry_price = float(group.iloc[start]["open"])
-        contracts = contracts_for(span, p)
         if direction == "long":
             stop, target = lo, entry_price + p.target_multiple * span
             overshoot = entry_price - hi
@@ -276,16 +325,28 @@ class LondonBreakout(Strategy):
             overshoot = lo - entry_price
         stop_distance = abs(entry_price - stop)
 
+        if p.size_on == "stop":
+            contracts = contracts_for_stop(stop_distance, p)
+            if contracts == 0:
+                diag.update(direction=direction, entry_price=entry_price,
+                            overshoot=float(overshoot), stop_distance=stop_distance,
+                            skipped_reason=SKIP_STOP_OVER_BUDGET)
+                return diag
+        else:
+            contracts = contracts_for(span, p)
+
+        flatten = self._flatten_for(day)
         g_times = np.array([t.time() for t in group.index])
         g_dates = np.array([t.date() for t in group.index])
-        holdable = np.flatnonzero((g_times < p.flatten_time) & (g_dates == day))
+        holdable = np.flatnonzero((g_times < flatten) & (g_dates == day))
         last_hold = int(holdable[-1]) if holdable.size else -1
         if last_hold < start:
             diag["skipped_reason"] = SKIP_NO_BARS
             return diag
 
         exit_i, exit_price, reason = self._simulate_exit(
-            group, start, last_hold, direction, stop, target
+            group, start, last_hold, direction, stop, target,
+            f"flatten_{flatten.strftime('%H%M')}",
         )
 
         exit_ts = group.index[exit_i]
@@ -310,12 +371,30 @@ class LondonBreakout(Strategy):
         )
         return diag
 
-    def _simulate_exit(self, group, start, last, direction, stop, target):
+    def _flatten_for(self, day: date_type) -> time:
+        """The flatten that applies on ``day``.
+
+        Entry 6's 09:25 is the same on every day. Entry 10's 15:55 does not
+        exist on an early-close session, so those days use
+        ``early_close_flatten_time`` (12:55) when it is set; when it is not,
+        the rules deadline - the exchange close - is the backstop, so no
+        configuration can hold a position past a close (rule 2).
+        """
+        p = self.params
+        if day in self.early_close_dates:
+            if p.early_close_flatten_time is not None:
+                return p.early_close_flatten_time
+            return min(p.flatten_time, rules.flatten_deadline(day, self.early_close_dates))
+        return p.flatten_time
+
+    def _simulate_exit(self, group, start, last, direction, stop, target,
+                       flatten_reason: str = "flatten_0925"):
         """Walk 1-minute bars from the entry bar to the flatten.
 
         The entry bar is included: the fill happened inside it and the rest of
         that minute can still reach the stop. The flatten lands on the open of
-        the bar *after* the last holdable one, which is the 09:25 bar.
+        the bar *after* the last holdable one - the 09:25 bar for entry 6, the
+        15:55 bar for entry 10 - and is labelled with that time.
         """
         highs = group["high"].to_numpy(float)
         lows = group["low"].to_numpy(float)
@@ -334,8 +413,8 @@ class LondonBreakout(Strategy):
                 return i, target, "target"
 
         if last + 1 < len(opens):
-            return last + 1, float(opens[last + 1]), "flatten_0925"
-        return last, float(closes[last]), "flatten_0925"
+            return last + 1, float(opens[last + 1]), flatten_reason
+        return last, float(closes[last]), flatten_reason
 
     # -- interface ---------------------------------------------------------
 
