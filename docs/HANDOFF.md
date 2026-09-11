@@ -13,26 +13,22 @@ why). Read those three first; this is the delta.
 
 **Branch** `master`, tracking `origin/master` at
 <https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
-**963 tests pass**, 1 skipped (a symlink test the OS refuses) —
+**1,029 tests pass**, 2 skipped (a symlink test the OS refuses, and one
+that needs an orphaned generated module on disk, of which there is none) —
 
 ```powershell
-venv\Scripts\python.exe -m pytest tests\ --ignore=tests\generated tests\generated\test_orborb_flat_1030.py -q
+venv\Scripts\python.exe -m pytest tests\ -q
 ```
 
-about 65 seconds. That is the same contract the `/submit` pipeline runs: the
-base suite plus the *tracked* generated test. A plain `pytest tests\` also
-collects `tests/generated/test_orb_full_day_test.py`, which is **untracked,
-belongs to entry 9's failed attempt, and fails on its own strategy** — see §3.6.
-That failure is the pipeline's verdict on entry 9, not a regression.
+about two minutes. Both generated strategies and their generated tests are
+tracked and pass, so the plain command is the whole contract now; the
+`/submit` pipeline runs a subset of it — the base suite plus the submitting
+strategy's own generated test (§5).
 
-**Working tree is clean except two untracked files** from that attempt:
-`strategies/generated/orb_full_day_test.py` and
-`tests/generated/test_orb_full_day_test.py`. They are the model's output,
-left for the operator's retry, which overwrites them. Do not commit them and
-do not delete them without asking.
+**Working tree is clean.**
 
-**Nine hypothesis entries. Seven rejected, one open and untouched, one awaiting
-a retry.** No strategy has ever reached `paper`.
+**Nine hypothesis entries. Eight rejected, one open and untouched.** No
+strategy has ever reached `paper`.
 
 | # | Idea | Status |
 |---|---|---|
@@ -44,11 +40,10 @@ a retry.** No strategy has ever reached `paper`.
 | 6 | London breakout of the overnight range | REJECTED |
 | 7 | Replication of entry 6's non-null finding, on MNQ | REJECTED (not replicated) |
 | 8 | `orborb_flat_1030` — entry 5 re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
-| 9 | `orb_full_day_test` — submitted through `/submit` | **PROPOSED — failed its own generated test, awaits retry** |
+| 9 | `orb_full_day_test` — entry 4's OFF arm re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
 
 `venv\Scripts\python.exe strategies\registry.py` prints the registry; it agrees
-with the log. Entry 9 has **no registry record** — a submission is registered
-only after its suite passes, and this one's did not.
+with the log.
 
 ### Files on disk that are not in git
 
@@ -110,14 +105,24 @@ The ordering is the product, and must not be rearranged:
 same entry with a dated `### Attempt N` note; the pre-registration is never
 rewritten. A name that reached the registry is taken.
 
-**Where it stands.** Entry 8 re-submitted entry 5's description as a plumbing
-test and **reproduced entry 5's signal to within 2 trades in seven years** on
-the corrected span — 476 against entry 5's 478, both REJECTED, 0 of 7 folds
-either way. Entry 8's diagnostic and addendum carry the full accounting. Entry
-9 (`orb_full_day_test`) failed its own model-written no-lookahead test and
-awaits a retry. **If its retry lands near entry 4's −$3,930 over ~504 trades,
-the pipeline is validated on two known verdicts** and can be trusted on a new
-idea.
+**Where it stands: validated on two known verdicts.** Entry 8 re-submitted
+entry 5's description as a plumbing test and **reproduced entry 5's signal to
+within 2 trades in seven years** on the corrected span — 476 against entry 5's
+478, both REJECTED, 0 of 7 folds either way. Entry 8's diagnostic and addendum
+carry the full accounting. Entry 9 re-submitted entry 4's filter-OFF arm; its
+third attempt passed the suite, was approved, and landed within about 6% of
+entry 4 at 2 ticks — **−$8,450 over 503 trades against entry 4's −$8,970 over
+504**, 2 of 7 folds against 3, 8 evaluations blown against 9. REJECTED. The
+pipeline can be trusted on a new idea.
+
+**Since 2026-09-11 a generated verdict is scored under both internal guards**
+— the daily loss limit and the $1,500 trailing halt (§3.5) — and reports the
+same signals with the halt off alongside, as the comparable basis, because a
+halt that fires in year one leaves the fold test with nothing to count. Rule
+13 is decided on the guarded stream. Entries 8 and 9 carry dated addenda with
+both bases. Under the halt entry 9 (4 contracts) stops trading on 2020-05-29
+after 27 trades, as entry 5 did in 2020; entry 8 (1 contract) takes until
+2022-11-17 and 214 trades to lose the same $1,500. Neither resumes.
 
 **The sandbox is two layers.** `safe_write` confines writes to
 `strategies/generated/` and `tests/generated/`, resolving before comparing so
@@ -209,17 +214,19 @@ loosens a limit and must be stated as such.
 **3.4 The `NEEDS_VERIFICATION` dates in late 2027.** Extend the calendar
 before 2028.
 
-**3.5 `enforce_trailing_drawdown_halt` lives in `backtests/run_orb_flat.py`,
-not the engine.** `run_generated.py` does not apply it either — a generated
-verdict has the daily loss limit but no trailing halt, which is more
-permissive than entry 5's run. Promote it to `engine.py` when the next caller
-needs it; that caller is `run_generated.py`.
+**3.5 Closed, 2026-09-11.** `enforce_trailing_drawdown_halt` now lives in
+`backtests/engine.py` behind `engine.apply_internal_guards` — the daily loss
+limit, then the trailing halt on the loss-limited stream — which both
+`run_orb_flat.py` and `run_generated.py` call. `tests/test_guard_parity.py`
+holds them to it: a synthetic stream that trips the halt comes out identical
+through either runner, and neither may define a halt of its own. Entry 5's
+reports came out **byte-identical** before and after the move at 1 and 2
+ticks. Generated verdicts now score on the guarded stream with the halt-OFF
+stream alongside (§2).
 
-**3.6 Entry 9's retry.** `/submit orb_full_day_test` with the same three
-fields reuses entry 9. Its previous attempt's generated test failed
-`test_opening_range_only_uses_pre_0945_bars`. If the retry passes and is
-approved, `/walkforward orb_full_day_test` produces the second validation
-point (§2).
+**3.6 Closed.** Entry 9's third attempt passed its suite, was approved, and
+was REJECTED by `/walkforward` on 2026-09-09 (verdict commit `29178fd`).
+Nothing left to retry; see §2 for what it validated.
 
 **3.7 Entry 3's gate has never been started.** Sixty rule-clean paper trades,
 positive expectancy, `eval_sim` pass probability above 50%. Zero trades logged,

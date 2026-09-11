@@ -23,8 +23,8 @@ import pandas as pd
 import pytest
 
 from engine import (
-    MES, MNQ, ContractSpec, CostModel, build_trades,
-    enforce_daily_loss_limit, price_trades,
+    MES, MNQ, ContractSpec, CostModel, apply_internal_guards, build_trades,
+    enforce_daily_loss_limit, enforce_trailing_drawdown_halt, price_trades,
 )
 import rules
 from metrics import compute_metrics, max_drawdown, sharpe_ratio
@@ -607,3 +607,179 @@ class TestSameBarEntryAndExit:
             index=idx,
         )
         assert build_trades(signals, self._bars(idx, [1.0, 2.0, 3.0])).empty
+
+
+# ---------------------------------------------------------------------------
+# Rule 5b: the trailing drawdown halt, and the guard pipeline both runners use
+# ---------------------------------------------------------------------------
+
+
+class TestTrailingDrawdownHalt:
+    """Moved here from the entry 5 runner's tests; the semantics are unchanged.
+
+    Day-level: a session that opens already past the $1,500 trail is dropped
+    whole. The halt has no lock-in, but a halted day takes no trades, so the
+    balance cannot move and in practice the halt never releases.
+    """
+
+    def _trades(self, pnls, start=date(2025, 7, 14)):
+        from datetime import timedelta
+
+        return pd.DataFrame([
+            {"session_date": start + timedelta(days=i), "net_pnl": float(pnl)}
+            for i, pnl in enumerate(pnls)
+        ])
+
+    def test_no_halt_while_inside_the_limit(self):
+        trades = self._trades([-200, -300, -400])
+        kept, halts = enforce_trailing_drawdown_halt(trades)
+        assert len(kept) == 3
+        assert halts.empty
+
+    def test_halts_once_the_trail_is_breached(self):
+        # -1,600 by the end of day 2, so day 3 opens past the $1,500 line.
+        trades = self._trades([-800, -800, +500, +500])
+        kept, halts = enforce_trailing_drawdown_halt(trades)
+        assert len(kept) == 2
+        assert len(halts) == 2
+        assert halts.iloc[0]["drawdown"] == pytest.approx(1600.0)
+
+    def test_the_day_that_breaches_is_kept(self):
+        """The guard blocks the next entry, it does not undo the day just had."""
+        trades = self._trades([-800, -800])
+        kept, _ = enforce_trailing_drawdown_halt(trades)
+        assert len(kept) == 2
+        assert kept["net_pnl"].sum() == pytest.approx(-1600.0)
+
+    def test_the_trail_follows_the_peak_not_the_start(self):
+        # +2,000 first, so the floor rises; -1,600 from there is not yet a halt
+        # relative to the starting balance but is relative to the peak.
+        trades = self._trades([+2000, -800, -800, +100])
+        kept, halts = enforce_trailing_drawdown_halt(trades)
+        assert len(kept) == 3
+        assert len(halts) == 1
+        assert halts.iloc[0]["peak"] == pytest.approx(rules.ACCOUNT_SIZE + 2000)
+
+    def test_the_halt_is_not_permanent(self):
+        """Matching the script: recovery inside the limit resumes trading."""
+        trades = self._trades([-800, -800, +1, +1])
+        kept, halts = enforce_trailing_drawdown_halt(trades, limit=1550.0)
+        # -1,600 halts day 3; nothing recovers, so day 4 stays halted too.
+        assert len(kept) == 2 and len(halts) == 2
+
+        # Now give it a peak to recover toward: the trail is measured from the
+        # running peak, so a smaller drawdown lets trading continue.
+        trades = self._trades([+1000, -800, -400, +50])
+        kept, halts = enforce_trailing_drawdown_halt(trades)
+        assert len(kept) == 4 and halts.empty
+
+    def test_defaults_come_from_the_rules_module(self):
+        """Rule 9: no restated threshold, no bypass path."""
+        trades = self._trades([-(rules.TRAILING_DD_STOP + 1), 100])
+        kept, halts = enforce_trailing_drawdown_halt(trades)
+        assert len(kept) == 1 and len(halts) == 1
+
+    def test_empty_input(self):
+        empty = pd.DataFrame(columns=["session_date", "net_pnl"])
+        kept, halts = enforce_trailing_drawdown_halt(empty)
+        assert kept.empty and halts.empty
+
+    def test_multiple_trades_on_a_halted_day_all_go(self):
+        trades = pd.DataFrame([
+            {"session_date": date(2025, 7, 14), "net_pnl": -1600.0},
+            {"session_date": date(2025, 7, 15), "net_pnl": 100.0},
+            {"session_date": date(2025, 7, 15), "net_pnl": 200.0},
+        ])
+        kept, halts = enforce_trailing_drawdown_halt(trades)
+        assert len(kept) == 1
+        assert len(halts) == 1
+
+
+class TestInternalGuards:
+    """``apply_internal_guards``: the daily loss limit, then the trailing halt.
+
+    One pipeline for every runner, so a generated verdict and a hand-built one
+    are scored on the same basis. Costs are zero and size is one contract so a
+    trade's net P&L is exactly five times its point move.
+    """
+
+    FREE = CostModel(commission_per_side=0.0, slippage_ticks=0.0)
+    START = date(2025, 7, 14)
+
+    def _bars(self, days: int) -> pd.DataFrame:
+        from datetime import timedelta
+
+        frames = []
+        for i in range(days):
+            day = self.START + timedelta(days=i)
+            idx = pd.date_range(f"{day} 09:30", f"{day} 10:35", freq="1min", tz=ET)
+            frames.append(pd.DataFrame(
+                {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
+                 "volume": 100, "instrument_id": 1}, index=idx))
+        return pd.concat(frames)
+
+    def _priced(self, per_day: list[list[float]]) -> pd.DataFrame:
+        """``per_day[i]`` lists that session's trade P&Ls, taken in sequence."""
+        from datetime import timedelta
+
+        rows = []
+        for i, pnls in enumerate(per_day):
+            day = self.START + timedelta(days=i)
+            for j, pnl in enumerate(pnls):
+                entry = pd.Timestamp(f"{day} 09:46", tz=ET) + timedelta(minutes=10 * j)
+                rows.append({
+                    "entry_time": entry,
+                    "exit_time": entry + timedelta(minutes=4),
+                    "direction": "long", "entry_price": 100.0,
+                    "exit_price": 100.0 + pnl / 5.0, "exit_reason": "target",
+                })
+        return price_trades(pd.DataFrame(rows), MES, self.FREE, 1)
+
+    def test_returns_the_stream_and_both_halt_logs(self):
+        priced = self._priced([[100.0], [-50.0]])
+        trades, loss_halts, dd_halts = apply_internal_guards(
+            priced, self._bars(2), MES, self.FREE, 1)
+        assert len(trades) == 2
+        assert loss_halts.empty and dd_halts.empty
+        assert list(dd_halts.columns) == ["session_date", "balance", "peak", "drawdown"]
+
+    def test_trailing_halt_drops_sessions_past_the_trail(self):
+        priced = self._priced([[-800.0], [-800.0], [500.0]])
+        trades, loss_halts, dd_halts = apply_internal_guards(
+            priced, self._bars(3), MES, self.FREE, 1)
+        assert list(trades["net_pnl"]) == [-800.0, -800.0]
+        assert loss_halts.empty
+        assert len(dd_halts) == 1
+        assert dd_halts.iloc[0]["drawdown"] == pytest.approx(1600.0)
+
+    def test_the_halt_can_be_switched_off_for_a_comparable_basis(self):
+        priced = self._priced([[-800.0], [-800.0], [500.0]])
+        trades, _, dd_halts = apply_internal_guards(
+            priced, self._bars(3), MES, self.FREE, 1, trailing_halt=False)
+        assert len(trades) == 3
+        assert dd_halts.empty
+        assert list(dd_halts.columns) == ["session_date", "balance", "peak", "drawdown"]
+
+    def test_daily_loss_limit_runs_before_the_trailing_halt(self):
+        """The halt sees the loss-limited stream, not the raw one.
+
+        Day 1 loses $450 and then would have made $2,000; the daily limit
+        blocks the second trade, so the day closes at -$450. Day 2 loses
+        $1,100, which puts the account $1,550 under its peak: day 3 is halted.
+        Had the halt seen the raw +$1,550 day 1, day 3 would have traded.
+        """
+        priced = self._priced([[-450.0, 2000.0], [-1100.0], [100.0]])
+        trades, loss_halts, dd_halts = apply_internal_guards(
+            priced, self._bars(3), MES, self.FREE, 1)
+        assert list(trades["net_pnl"]) == [-450.0, -1100.0]
+        assert len(loss_halts) == 1
+        assert int(loss_halts.iloc[0]["trades_blocked"]) == 1
+        assert len(dd_halts) == 1
+
+    def test_empty_input(self):
+        empty = price_trades(pd.DataFrame(columns=[
+            "entry_time", "exit_time", "direction", "entry_price",
+            "exit_price", "exit_reason"]), MES, self.FREE, 1)
+        trades, loss_halts, dd_halts = apply_internal_guards(
+            empty, self._bars(1), MES, self.FREE, 1)
+        assert trades.empty and loss_halts.empty and dd_halts.empty

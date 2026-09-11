@@ -231,6 +231,12 @@ async def _run_generated_walkforward(interaction, name: str) -> None:
             submissions.record_verdict, name, record.hypothesis_entry,
             block, summary)
 
+        c = result.comparable
+        comparable = "not computed" if c is None else (
+            f"{c.trades:,} trades, ${c.net_pnl:,.2f}, "
+            f"{c.profitable_folds} of {run_generated.TOTAL_FOLDS} folds, "
+            f"pass {c.pass_probability:.2%}, payout {c.payout_probability:.2%}, "
+            f"{c.blowups} blown")
         embed = _embed(
             f"{name} walk-forward - "
             f"{'ACCEPTED' if result.accepted else 'REJECTED'}",
@@ -249,6 +255,8 @@ async def _run_generated_walkforward(interaction, name: str) -> None:
                 "Pass probability": f"{result.pass_probability:.2%}",
                 "Payout probability": f"{result.payout_probability:.2%}",
                 "Evaluations blown": f"{result.blowups}",
+                "Sessions blocked by the trailing halt": f"{result.dd_halts}",
+                "Halt OFF (comparable)": comparable,
                 "Costs": "2 ticks/side slippage, $1.25/side commission",
             },
             COLOUR_OK if result.accepted else COLOUR_BAD)

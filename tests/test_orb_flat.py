@@ -15,9 +15,7 @@ import pytest
 import rules
 from engine import MES, CostModel, build_trades, price_trades
 from orb2 import ORB2, ORB2Params
-from run_orb_flat import (
-    BREAK_EVEN, enforce_trailing_drawdown_halt, entry5_params,
-)
+from run_orb_flat import BREAK_EVEN, entry5_params
 
 ET = "America/New_York"
 DAY = date(2025, 7, 16)
@@ -159,75 +157,3 @@ class TestPayoutInTheReport:
         assert "Pass probability" in text
         assert "Payout probability" in text
         assert text.index("Payout probability") > text.index("Pass probability")
-
-
-class TestTrailingDrawdownHalt:
-    def _trades(self, pnls, start=date(2025, 7, 14)):
-        return pd.DataFrame([
-            {"session_date": start + timedelta(days=i), "net_pnl": float(pnl)}
-            for i, pnl in enumerate(pnls)
-        ])
-
-    def test_no_halt_while_inside_the_limit(self):
-        trades = self._trades([-200, -300, -400])
-        kept, halts = enforce_trailing_drawdown_halt(trades)
-        assert len(kept) == 3
-        assert halts.empty
-
-    def test_halts_once_the_trail_is_breached(self):
-        # -1,600 by the end of day 2, so day 3 opens past the $1,500 line.
-        trades = self._trades([-800, -800, +500, +500])
-        kept, halts = enforce_trailing_drawdown_halt(trades)
-        assert len(kept) == 2
-        assert len(halts) == 2
-        assert halts.iloc[0]["drawdown"] == pytest.approx(1600.0)
-
-    def test_the_day_that_breaches_is_kept(self):
-        """The guard blocks the next entry, it does not undo the day just had."""
-        trades = self._trades([-800, -800])
-        kept, _ = enforce_trailing_drawdown_halt(trades)
-        assert len(kept) == 2
-        assert kept["net_pnl"].sum() == pytest.approx(-1600.0)
-
-    def test_the_trail_follows_the_peak_not_the_start(self):
-        # +2,000 first, so the floor rises; -1,600 from there is not yet a halt
-        # relative to the starting balance but is relative to the peak.
-        trades = self._trades([+2000, -800, -800, +100])
-        kept, halts = enforce_trailing_drawdown_halt(trades)
-        assert len(kept) == 3
-        assert len(halts) == 1
-        assert halts.iloc[0]["peak"] == pytest.approx(rules.ACCOUNT_SIZE + 2000)
-
-    def test_the_halt_is_not_permanent(self):
-        """Matching the script: recovery inside the limit resumes trading."""
-        trades = self._trades([-800, -800, +1, +1])
-        kept, halts = enforce_trailing_drawdown_halt(trades, limit=1550.0)
-        # -1,600 halts day 3; nothing recovers, so day 4 stays halted too.
-        assert len(kept) == 2 and len(halts) == 2
-
-        # Now give it a peak to recover toward: the trail is measured from the
-        # running peak, so a smaller drawdown lets trading continue.
-        trades = self._trades([+1000, -800, -400, +50])
-        kept, halts = enforce_trailing_drawdown_halt(trades)
-        assert len(kept) == 4 and halts.empty
-
-    def test_defaults_come_from_the_rules_module(self):
-        """Rule 9: no restated threshold, no bypass path."""
-        trades = self._trades([-(rules.TRAILING_DD_STOP + 1), 100])
-        kept, halts = enforce_trailing_drawdown_halt(trades)
-        assert len(kept) == 1 and len(halts) == 1
-
-    def test_empty_input(self):
-        empty = pd.DataFrame(columns=["session_date", "net_pnl"])
-        kept, halts = enforce_trailing_drawdown_halt(empty)
-        assert kept.empty and halts.empty
-
-    def test_multiple_trades_on_a_halted_day_all_go(self):
-        trades = pd.DataFrame([
-            {"session_date": date(2025, 7, 14), "net_pnl": -1600.0},
-            {"session_date": date(2025, 7, 15), "net_pnl": 100.0},
-            {"session_date": date(2025, 7, 15), "net_pnl": 200.0},
-        ])
-        kept, halts = enforce_trailing_drawdown_halt(trades)
-        assert len(kept) == 1
-        assert len(halts) == 1

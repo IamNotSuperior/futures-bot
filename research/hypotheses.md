@@ -3133,6 +3133,59 @@ Rule 13 fails on both counts on either span: 0 of 7 folds profitable and a
 negative total. REJECTED stands. Recorded so the verdict's numbers can be
 read against the log's other entries, which they could not before.
 
+### Addendum, 2026-09-11 — re-scored under the trailing halt
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** Until today `backtests/run_generated.py` applied the $400 daily loss
+limit but not the $1,500 end-of-day trailing halt, so a generated verdict was
+scored on a more permissive basis than entry 5's runner, which applied both.
+The halt now lives in `engine.apply_internal_guards` — the daily loss limit,
+then the trailing halt on the loss-limited stream — and both runners call it;
+`tests/test_guard_parity.py` holds them to it, and entry 5's reports came out
+byte-identical before and after the move. A generated verdict is now decided
+on the guarded stream, with the same signals without the halt reported
+alongside as the comparable basis: the basis entries 1 and 4 were measured
+on, and the one this entry's verdict and the addendum above were scored on.
+
+Same strategy, same code, same 1 contract, same 2 ticks per side, same span.
+**The halt-OFF column reproduces the addendum above figure for figure**, which
+is the check that nothing else moved. The payout probability is new — see
+entry 4's addendum of the same date for its definition.
+
+| 2020-01-01 .. 2026-08-31, 1 contract, 2 ticks | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | **214** | 476 |
+| Net P&L | **−$1,495.00** | −$3,531.25 |
+| Folds profitable | 0 of 7 | 0 of 7 |
+| Sharpe | −3.45 | −3.08 |
+| Profit factor | 0.568 | 0.615 |
+| Max drawdown | −$1,507.50 | −$3,592.50 |
+| Worst day | −$57.50 | −$57.50 |
+| Pass probability | 0.00% | 0.00% |
+| Payout probability ($52,100) | 0.00% | 0.00% |
+| Evaluations blown | 0 | 1 |
+| Sessions blocked by the halt | **262** | — |
+
+**The halt fires on 2022-11-17 and never releases.** At 1 contract the stream
+loses $1,057.50 in 2020 and $192.50 in 2021, and eleven trades into 2022 the
+end-of-day balance sits $1,507.50 under its peak. The remaining 262 sessions
+with a signal — the rest of 2022 and all of 2023–2026 — are blocked, so
+four of the seven folds contain no trades. Entry 5's run at 4 contracts
+halted after 45 trades in 2020; at a quarter of the size the same losses
+take nearly three years to reach the same line, and the outcome is the same.
+
+The 214 trades taken are 180 flattens at 10:30 (mean −$3.67), 26 stops
+(−$57.50) and 8 targets (+$82.50). The blow-up count is 0 on the guarded
+stream because the internal halt stops trading before the firm's $2,000 line
+is reachable — the degeneracy entry 5 recorded against its own criterion 2,
+and the reason a blow-up count is only read on the comparable basis.
+
+Rule 13 fails on both bases: 0 of 7 folds and a negative total. REJECTED
+stands. `backtests/results/orborb_flat_1030_trades.csv` and `_folds.csv` now
+hold the guarded stream; the stream the verdict was scored on is
+`orborb_flat_1030_trades_nohalt.csv`, identical in content to what the
+verdict's reports line pointed at.
+
 ## 9. orb full day test — REJECTED
 **Date:** 2026-09-09
 **Submission name:** `orb_full_day_test`
@@ -3226,6 +3279,48 @@ In-sample results are never evidence, and this is the out-of-sample answer.
 
 
 **Verdict commit:** `29178fd`
+
+### Addendum, 2026-09-11 — re-scored under the trailing halt
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** `run_generated.py` now applies both internal guards — the $400 daily
+loss limit and the $1,500 end-of-day trailing halt, from
+`engine.apply_internal_guards`, the same call entry 5's runner makes — and
+reports the same signals without the halt alongside as the comparable basis.
+See entry 8's addendum of the same date for the change and the parity test.
+The verdict above was scored without the halt, on the basis entries 1 and 4
+used; **the halt-OFF column reproduces it figure for figure**, and adds the
+payout probability (entry 4's addendum of the same date defines it).
+
+| 2020-01-01 .. 2026-08-31, 4 contracts, 2 ticks | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | **27** | 503 |
+| Net P&L | **−$1,570.00** | −$8,450.00 |
+| Folds profitable | 0 of 7 | 2 of 7 |
+| Sharpe | −4.22 | −1.08 |
+| Profit factor | 0.552 | 0.865 |
+| Max drawdown | −$1,570.00 | −$9,595.00 |
+| Worst day | −$230.00 | −$230.00 |
+| Pass probability | 0.06% | 9.43% |
+| Payout probability ($52,100) | 0.63% | 18.26% |
+| Evaluations blown | 0 | 8 |
+| Sessions blocked by the halt | **476** | — |
+
+**The halt fires on 2020-05-29, after 27 trades, and never releases.** Fourteen
+stops at −$230, four targets at +$330 and nine 15:55 flattens averaging
++$36.67 put the end-of-day balance $1,570 under its peak inside five months.
+The 476 later sessions with a signal — June 2020 through August 2026 — are
+blocked; six of the seven folds contain no trades. This is the guard doing
+what it is for. Entry 4 measured the same signals with no halt and counted
+blow-ups instead; run with its own guards at 4 contracts, the strategy stops
+trading in year one, as entry 5 did.
+
+Rule 13 fails on both bases: 0 of 7 folds and −$1,570 under the guards, 2 of 7
+and −$8,450 without them. REJECTED stands.
+`backtests/results/orb_full_day_test_trades.csv` and `_folds.csv` now hold
+the guarded stream; the stream the verdict was scored on is
+`orb_full_day_test_trades_nohalt.csv`, identical in content to what the
+verdict's reports line pointed at.
 
 ## Template for new entries
 

@@ -399,6 +399,95 @@ def run_backtest(
 # End-of-day trailing drawdown (CLAUDE.md rule 5b)
 # ===========================================================================
 
+DD_HALT_COLUMNS = ["session_date", "balance", "peak", "drawdown"]
+
+
+def enforce_trailing_drawdown_halt(
+    trades: pd.DataFrame, limit: float | None = None,
+    starting_balance: float | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Drop every trade on a session that opens already past the trail.
+
+    The trail follows the highest end-of-day balance, so an intraday spike
+    never raises it. A halted day's trades are removed rather than truncated:
+    the guard blocks the entry, so the trade never happens.
+
+    The halt is not permanent, matching the Pine it was transcribed from: if
+    later gains lift the balance back inside the limit, trading resumes.
+    Nothing here locks in. In practice a halted day takes no trades, so the
+    balance cannot move and the halt never releases - entry 5 records 433
+    sessions blocked after 45 trades.
+
+    Modelled on end-of-day equity, which is mildly permissive against a script
+    that marks ``strategy.equity`` intraday. ``limit`` defaults to
+    :data:`rules.TRAILING_DD_STOP` and is deliberately not restated here.
+
+    Returns ``(kept_trades, halt_log)``; the log has one row per blocked
+    session, columns :data:`DD_HALT_COLUMNS`.
+    """
+    if limit is None:
+        limit = rules.TRAILING_DD_STOP
+    if starting_balance is None:
+        starting_balance = rules.ACCOUNT_SIZE
+
+    empty_log = pd.DataFrame(columns=DD_HALT_COLUMNS)
+    if trades.empty:
+        return trades, empty_log
+
+    balance = float(starting_balance)
+    peak = float(starting_balance)
+    keep_idx: list[int] = []
+    halts: list[dict] = []
+
+    for day, group in trades.groupby("session_date", sort=True):
+        drawdown = peak - balance
+        if drawdown >= limit:
+            halts.append({"session_date": day, "balance": balance,
+                          "peak": peak, "drawdown": drawdown})
+            continue
+        keep_idx.extend(group.index.tolist())
+        balance += float(group["net_pnl"].sum())
+        peak = max(peak, balance)
+
+    kept = trades.loc[sorted(keep_idx)].reset_index(drop=True)
+    return kept, pd.DataFrame(halts, columns=DD_HALT_COLUMNS)
+
+
+def apply_internal_guards(
+    trades: pd.DataFrame,
+    bars: pd.DataFrame,
+    spec: ContractSpec = MES,
+    costs: CostModel = CostModel(),
+    contracts: int = 1,
+    trailing_halt: bool = True,
+    mark: str = "close",
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """The internal guards, in the order the desk applies them.
+
+    Rule 5's daily loss limit first, on marked-to-market equity, then rule
+    5b's end-of-day trailing halt on the loss-limited stream - so the halt
+    sees what the account actually closed at, not what the raw signals would
+    have made. Every runner that scores a strategy calls this, and
+    ``tests/test_guard_parity.py`` holds them to it: a hand-built verdict and
+    a generated one are measured on one basis. For a while they were not -
+    entry 5's runner carried its own halt and the generated runner had none.
+
+    ``trailing_halt=False`` is the comparable basis entries 1 and 4 were
+    measured on. It exists for reporting alongside the guarded figures, never
+    for deciding anything.
+
+    Returns ``(trades, loss_halts, dd_halts)``. ``dd_halts`` is empty, with
+    its columns, when the halt is off.
+    """
+    trades, loss_halts = enforce_daily_loss_limit(
+        trades, bars, spec, costs, contracts, mark=mark
+    )
+    if not trailing_halt:
+        return trades, loss_halts, pd.DataFrame(columns=DD_HALT_COLUMNS)
+    trades, dd_halts = enforce_trailing_drawdown_halt(trades)
+    return trades, loss_halts, dd_halts
+
+
 EQUITY_COLUMNS = [
     "session_date",
     "day_pnl",

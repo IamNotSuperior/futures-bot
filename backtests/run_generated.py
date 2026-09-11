@@ -34,8 +34,8 @@ import loader  # noqa: E402
 import rules  # noqa: E402
 import walkforward  # noqa: E402
 from engine import (  # noqa: E402
-    MES, MNQ, CostModel, build_trades, count_evaluation_blowups,
-    enforce_daily_loss_limit, price_trades,
+    MES, MNQ, CostModel, apply_internal_guards, build_trades,
+    count_evaluation_blowups, price_trades,
 )
 from metrics import compute_metrics  # noqa: E402
 from run_london import fold_frame  # noqa: E402
@@ -67,6 +67,27 @@ MIN_PROFITABLE_FOLDS = 4
 TOTAL_FOLDS = 7
 
 
+@dataclass(frozen=True)
+class BasisSummary:
+    """The headline figures of one trade stream, for the comparable basis.
+
+    The verdict is decided on the guarded stream; this is what the same
+    signals did without the trailing halt, reported alongside it because a
+    halt that fires in year one leaves the fold test with nothing to count.
+    """
+
+    trades: int
+    net_pnl: float
+    profitable_folds: int
+    sharpe: float
+    profit_factor: float
+    max_drawdown: float
+    max_daily_loss: float
+    pass_probability: float
+    payout_probability: float
+    blowups: int
+
+
 @dataclass
 class WalkforwardResult:
     name: str
@@ -85,6 +106,11 @@ class WalkforwardResult:
     #: NaN rather than zero when unset, so a missing figure cannot read as a
     #: plausible one.
     payout_probability: float = float("nan")
+    #: Sessions the trailing halt blocked on the standard stream. None when
+    #: unset, for the same reason the payout figure is NaN.
+    dd_halts: int | None = None
+    #: The same signals without the trailing halt. None when not computed.
+    comparable: BasisSummary | None = None
 
     @property
     def net_pnl(self) -> float:
@@ -148,6 +174,41 @@ def resolve_contracts(strategy, override: int | None = None) -> tuple[int, str]:
     return declared, f"{declared} (declared by the strategy)"
 
 
+def guarded_streams(signals, bars, spec, costs: CostModel, contracts: int):
+    """Price the signals, then apply the internal guards - both ways.
+
+    Returns ``(standard, loss_halts, dd_halts, comparable)``. ``standard`` is
+    the stream under both guards and is what the verdict is decided on;
+    ``comparable`` is the same priced trades with the daily loss limit but no
+    trailing halt, the basis entries 1 and 4 were measured on. Both come from
+    :func:`engine.apply_internal_guards`, the same call entry 5's runner makes.
+    """
+    priced = price_trades(build_trades(signals, bars), spec, costs, contracts)
+    standard, loss_halts, dd_halts = apply_internal_guards(
+        priced, bars, spec, costs, contracts)
+    comparable, _, _ = apply_internal_guards(
+        priced, bars, spec, costs, contracts, trailing_halt=False)
+    return standard, loss_halts, dd_halts, comparable
+
+
+def summarise_basis(trades: pd.DataFrame, paths: int) -> BasisSummary:
+    """Fold count, simulator and metrics for one stream, as a summary."""
+    folds = fold_frame(trades, paths)
+    sim = eval_sim.simulate(eval_sim.daily_pnl_from_trades(trades), paths=paths)
+    blow = count_evaluation_blowups(trades)
+    m = compute_metrics(trades)
+    return BasisSummary(
+        trades=len(trades), net_pnl=float(trades["net_pnl"].sum()),
+        profitable_folds=int((folds["test_net_pnl"] > 0).sum()),
+        sharpe=float(m["sharpe"]), profit_factor=float(m["profit_factor"]),
+        max_drawdown=float(m["max_drawdown"]),
+        max_daily_loss=float(m["max_daily_loss"]),
+        pass_probability=sim.pass_probability,
+        payout_probability=sim.payout_probability,
+        blowups=int(blow["blowups"]),
+    )
+
+
 def run(name: str, class_path: str, symbol: str = "MES",
         contracts: int | None = None, paths: int = 20_000,
         progress=None) -> WalkforwardResult:
@@ -183,16 +244,16 @@ def run(name: str, class_path: str, symbol: str = "MES",
     spec = MES if symbol.upper() == "MES" else MNQ
     costs = CostModel(commission_per_side=COMMISSION_PER_SIDE,
                       slippage_ticks=BASE_SLIPPAGE_TICKS)
-    trades = price_trades(build_trades(signals, signal_bars), spec, costs, contracts)
-    if trades.empty:
+    trades, halts, dd_halts, comparable_trades = guarded_streams(
+        signals, signal_bars, spec, costs, contracts)
+    if comparable_trades.empty:
         raise ValueError(
             f"`{name}` took no trades over the whole history. There is nothing "
             f"to walk forward."
         )
-    trades, halts = enforce_daily_loss_limit(
-        trades, signal_bars, spec, costs, contracts, rules.DAILY_LOSS_LIMIT)
 
-    say(f"{len(trades):,} trades, {len(halts)} daily-loss halts; scoring folds ...")
+    say(f"{len(trades):,} trades, {len(halts)} daily-loss halts, "
+        f"{len(dd_halts)} sessions blocked by the trailing halt; scoring folds ...")
     folds = fold_frame(trades, paths)
     profitable = int((folds["test_net_pnl"] > 0).sum())
 
@@ -203,7 +264,7 @@ def run(name: str, class_path: str, symbol: str = "MES",
     metrics = compute_metrics(trades)
 
     # Rule 13, evaluated here rather than by the caller so the acceptance
-    # decision has exactly one implementation.
+    # decision has exactly one implementation. Decided on the guarded stream.
     reasons = []
     if profitable < MIN_PROFITABLE_FOLDS:
         reasons.append(f"profitable in {profitable} of {TOTAL_FOLDS} folds, "
@@ -212,9 +273,16 @@ def run(name: str, class_path: str, symbol: str = "MES",
         reasons.append(f"total walk-forward P&L "
                        f"${float(trades['net_pnl'].sum()):,.2f} is not positive")
 
+    say(f"scoring the comparable basis, halt OFF: "
+        f"{len(comparable_trades):,} trades ...")
+    comparable_folds = fold_frame(comparable_trades, paths)
+    comparable = summarise_basis(comparable_trades, paths)
+
     RESULTS.mkdir(parents=True, exist_ok=True)
     folds.to_csv(RESULTS / f"{name}_folds.csv", index=False)
     trades.to_csv(RESULTS / f"{name}_trades.csv", index=False)
+    comparable_folds.to_csv(RESULTS / f"{name}_folds_nohalt.csv", index=False)
+    comparable_trades.to_csv(RESULTS / f"{name}_trades_nohalt.csv", index=False)
 
     return WalkforwardResult(
         name=name, folds=folds, trades=trades, metrics=metrics,
@@ -223,24 +291,30 @@ def run(name: str, class_path: str, symbol: str = "MES",
         contracts=contracts, size_note=size_note,
         span=(SCORE_START, data_end),
         payout_probability=sim.payout_probability,
+        dd_halts=len(dd_halts), comparable=comparable,
     )
 
 
 def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
     """The markdown written into hypotheses.md. Frozen before anything posts."""
     status = "ACCEPTED" if result.accepted else "REJECTED"
+    halted = "n/a" if result.dd_halts is None else str(result.dd_halts)
     lines = [
         f"### Verdict: {status}",
         "",
         f"**Date:** {pd.Timestamp.now(tz=rules.ET).date()}",
         f"**Code:** `strategies/generated/{result.name}.py`",
         f"**Reports:** `backtests/results/{result.name}_folds.csv`, "
-        f"`{result.name}_trades.csv`",
+        f"`{result.name}_trades.csv` (standard, trailing halt ON); "
+        f"`{result.name}_folds_nohalt.csv`, `{result.name}_trades_nohalt.csv` "
+        f"(comparable, halt OFF)",
         "",
         f"Walk-forward over {TOTAL_FOLDS} yearly folds at "
         f"{BASE_SLIPPAGE_TICKS:g} ticks of slippage per side and "
         f"${COMMISSION_PER_SIDE:.2f} commission per side, "
-        f"**{result.contracts} contract(s)**.",
+        f"**{result.contracts} contract(s)**, under both internal guards: the "
+        f"${rules.DAILY_LOSS_LIMIT:,.0f} daily loss limit and the "
+        f"${rules.TRAILING_DD_STOP:,.0f} end-of-day trailing halt.",
         "",
         "| | |",
         "|---|---|",
@@ -261,6 +335,7 @@ def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
         f"| Pass probability | {result.pass_probability:.2%} |",
         f"| Payout probability | {result.payout_probability:.2%} |",
         f"| Evaluations blown | {result.blowups} |",
+        f"| Sessions blocked by the trailing halt | {halted} |",
         "",
     ]
     if result.accepted:
@@ -272,6 +347,31 @@ def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
         lines += [f"- {r}" for r in result.reasons]
         lines += ["", "In-sample results are never evidence, and this is the "
                       "out-of-sample answer.", ""]
+    if result.comparable is not None:
+        c = result.comparable
+        lines += [
+            "#### Comparable basis, trailing halt OFF",
+            "",
+            "The same signals with the daily loss limit but no trailing halt - "
+            "the basis entries 1 and 4 were measured on. Reported for "
+            "comparison only; rule 13 is decided on the guarded stream above. "
+            "A blow-up count is only meaningful here, where trading continues "
+            "past the internal line.",
+            "",
+            "| | |",
+            "|---|---|",
+            f"| Trades | {c.trades:,} |",
+            f"| Net P&L | ${c.net_pnl:,.2f} |",
+            f"| Folds profitable | {c.profitable_folds} of {TOTAL_FOLDS} |",
+            f"| Sharpe | {c.sharpe:.2f} |",
+            f"| Profit factor | {c.profit_factor:.3f} |",
+            f"| Max drawdown | ${c.max_drawdown:,.2f} |",
+            f"| Worst day | ${c.max_daily_loss:,.2f} |",
+            f"| Pass probability | {c.pass_probability:.2%} |",
+            f"| Payout probability | {c.payout_probability:.2%} |",
+            f"| Evaluations blown | {c.blowups} |",
+            "",
+        ]
     return "\n".join(lines)
 
 

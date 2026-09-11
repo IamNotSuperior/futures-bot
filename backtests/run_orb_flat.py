@@ -30,8 +30,8 @@ import loader  # noqa: E402
 import rules  # noqa: E402
 import eval_sim  # noqa: E402
 from engine import (  # noqa: E402
-    MES, CostModel, build_trades, count_evaluation_blowups,
-    enforce_daily_loss_limit, equity_curve_by_day, price_trades,
+    MES, CostModel, apply_internal_guards, build_trades,
+    count_evaluation_blowups, equity_curve_by_day, price_trades,
     trailing_drawdown_summary,
 )
 from metrics import compute_metrics  # noqa: E402
@@ -72,59 +72,13 @@ def entry5_params() -> ORB2Params:
 
 
 # ---------------------------------------------------------------------------
-# Rule 5b: the $1,500 trailing drawdown halt
-#
-# `engine.enforce_daily_loss_limit` covers rule 5; there is no engine
-# equivalent for the end-of-day trail, so it lives here. Entry 5 records that
-# it belongs in `engine.py` once a second caller needs it, and that modelling
-# it on end-of-day equity is mildly permissive against a Pine script that
-# marks `strategy.equity` intraday.
-# ---------------------------------------------------------------------------
-
-
-def enforce_trailing_drawdown_halt(
-    trades: pd.DataFrame, limit: float | None = None,
-    starting_balance: float | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Drop every trade on a session that opens already past the trail.
-
-    The trail follows the highest end-of-day balance, so an intraday spike
-    never raises it. A halted day's trades are removed rather than truncated:
-    the guard blocks the entry, so the trade never happens.
-
-    The halt is not permanent, matching the script: if later gains lift the
-    balance back inside the limit, trading resumes. Nothing here locks in.
-    """
-    if limit is None:
-        limit = rules.TRAILING_DD_STOP
-    if starting_balance is None:
-        starting_balance = rules.ACCOUNT_SIZE
-
-    empty_log = pd.DataFrame(columns=["session_date", "balance", "peak", "drawdown"])
-    if trades.empty:
-        return trades, empty_log
-
-    balance = float(starting_balance)
-    peak = float(starting_balance)
-    keep_idx: list[int] = []
-    halts: list[dict] = []
-
-    for day, group in trades.groupby("session_date", sort=True):
-        drawdown = peak - balance
-        if drawdown >= limit:
-            halts.append({"session_date": day, "balance": balance,
-                          "peak": peak, "drawdown": drawdown})
-            continue
-        keep_idx.extend(group.index.tolist())
-        balance += float(group["net_pnl"].sum())
-        peak = max(peak, balance)
-
-    kept = trades.loc[sorted(keep_idx)].reset_index(drop=True)
-    return kept, pd.DataFrame(halts, columns=empty_log.columns)
-
-
-# ---------------------------------------------------------------------------
 # Running
+#
+# Both internal guards - rule 5's daily loss limit and rule 5b's $1,500
+# trailing halt - are `engine.apply_internal_guards`, the same call the
+# generated-strategy runner makes. The halt lived in this file until the
+# second caller arrived; `tests/test_guard_parity.py` keeps the two runners
+# on one basis.
 # ---------------------------------------------------------------------------
 
 
@@ -140,13 +94,9 @@ def build_stream(bars, signals, start: date, end: date, costs: CostModel,
     win_signals = slice_by_date(signals, start, end)
     win_bars = slice_by_date(bars, start, end)
     trades = price_trades(build_trades(win_signals, win_bars), MES, costs, CONTRACTS)
-    trades, loss_halts = enforce_daily_loss_limit(
-        trades, win_bars, MES, costs, CONTRACTS, rules.DAILY_LOSS_LIMIT
+    return apply_internal_guards(
+        trades, win_bars, MES, costs, CONTRACTS, trailing_halt=dd_halt
     )
-    if not dd_halt:
-        return trades, loss_halts, pd.DataFrame()
-    trades, dd_halts = enforce_trailing_drawdown_halt(trades)
-    return trades, loss_halts, dd_halts
 
 
 def window_stats(trades: pd.DataFrame, label: str, paths: int) -> dict:

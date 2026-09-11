@@ -511,6 +511,77 @@ class TestScoredSpan:
         assert '"Payout probability": f"{result.payout_probability:.2%}"' in source
 
 
+class TestVerdictUnderTheTrailingHalt:
+    """A generated verdict is scored under both internal guards.
+
+    The standard stream (daily loss limit and the $1,500 trailing halt)
+    decides rule 13. The same signals without the halt are reported alongside
+    as the comparable basis, because a halt that fires in year one makes the
+    fold test degenerate and entries 1 and 4 were measured without one.
+    """
+
+    def _result(self):
+        import pandas as pd
+        from datetime import date
+
+        import run_generated
+
+        comparable = run_generated.BasisSummary(
+            trades=478, net_pnl=-11_780.0, profitable_folds=1, sharpe=-2.0,
+            profit_factor=0.673, max_drawdown=-12_065.0, max_daily_loss=-500.0,
+            pass_probability=0.0022, payout_probability=0.0129, blowups=6)
+        return run_generated.WalkforwardResult(
+            name="x", folds=pd.DataFrame({"test_net_pnl": [-1.0] * 7}),
+            trades=pd.DataFrame({"net_pnl": [-1415.0]}),
+            metrics={"sharpe": -3.0, "profit_factor": 0.527, "max_drawdown": -1500.0,
+                     "max_daily_loss": -300.0, "avg_duration_seconds": 600.0,
+                     "microscalp_profit_pct": 0.0},
+            pass_probability=0.0, payout_probability=0.0001, blowups=0,
+            profitable_folds=0, accepted=False,
+            reasons=["profitable in 0 of 7 folds, needs 4"],
+            contracts=4, size_note="4 (declared by the strategy)",
+            span=(date(2020, 1, 1), date(2026, 8, 31)),
+            dd_halts=433, comparable=comparable)
+
+    def test_the_block_names_both_guards_and_the_sessions_blocked(self):
+        import run_generated
+
+        block = run_generated.verdict_block(self._result(), 8)
+        assert "$400" in block and "$1,500" in block
+        assert "| Sessions blocked by the trailing halt | 433 |" in block
+
+    def test_the_comparable_basis_follows_the_verdict(self):
+        import run_generated
+
+        block = run_generated.verdict_block(self._result(), 8)
+        verdict = block.index("**Rule 13 is not satisfied:**")
+        comparable = block.index("#### Comparable basis, trailing halt OFF")
+        assert comparable > verdict, "rule 13 is decided before the comparison"
+        tail = block[comparable:]
+        assert "| Trades | 478 |" in tail
+        assert "| Net P&L | $-11,780.00 |" in tail
+        assert "| Folds profitable | 1 of 7 |" in tail
+        assert "| Pass probability | 0.22% |" in tail
+        assert "| Payout probability | 1.29% |" in tail
+        assert "| Evaluations blown | 6 |" in tail
+
+    def test_the_reports_line_lists_both_bases(self):
+        import run_generated
+
+        block = run_generated.verdict_block(self._result(), 8)
+        assert "`backtests/results/x_folds.csv`" in block
+        assert "x_trades_nohalt.csv" in block
+
+    def test_the_embed_reports_the_halt_and_the_comparable_basis(self):
+        import inspect
+
+        import research
+
+        source = inspect.getsource(research._run_generated_walkforward)
+        assert '"Sessions blocked by the trailing halt"' in source
+        assert '"Halt OFF (comparable)"' in source
+
+
 class TestCleanLogGuard:
     """The bot only ever commits its own append.
 
