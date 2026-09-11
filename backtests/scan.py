@@ -295,7 +295,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--parquet", default=str(PARQUET))
     ap.add_argument("--slippage-ticks", type=float, default=1.0)
-    ap.add_argument("--commission", type=float, default=1.25)
+    ap.add_argument("--commission", type=float, default=rules.COMMISSION_PER_SIDE)
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--no-plot", action="store_true")
     args = ap.parse_args()

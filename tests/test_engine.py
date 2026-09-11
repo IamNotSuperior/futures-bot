@@ -61,9 +61,15 @@ def raw_trades() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+#: The cost model every figure in this file was worked out at: $1.25 a side,
+#: 1 tick. The default commission is now Lucid's verified $0.50, so tests that
+#: pin arithmetic name the historical figure rather than lean on the default.
+HISTORICAL = CostModel(commission_per_side=rules.ASSUMED_COMMISSION_PER_SIDE)
+
+
 @pytest.fixture
 def priced(raw_trades) -> pd.DataFrame:
-    return price_trades(raw_trades, spec=MES, costs=CostModel(), contracts=1)
+    return price_trades(raw_trades, spec=MES, costs=HISTORICAL, contracts=1)
 
 
 class TestContractSpec:
@@ -82,8 +88,49 @@ class TestContractSpec:
 
 class TestCostModel:
     def test_round_turn_commission(self):
-        assert CostModel(commission_per_side=1.25).commission_round_turn() == 2.50
-        assert CostModel(commission_per_side=1.25).commission_round_turn(2) == 5.00
+        assert HISTORICAL.commission_round_turn() == 2.50
+        assert HISTORICAL.commission_round_turn(2) == 5.00
+
+    def test_default_commission_is_the_verified_lucid_rate(self):
+        """Rule 9: the default is read from rules, not restated. $0.50 a side,
+        $1.00 a round turn, per Lucid support (article 11508978)."""
+        assert CostModel().commission_per_side == rules.COMMISSION_PER_SIDE
+        assert CostModel().commission_round_turn() == pytest.approx(1.00)
+
+    def test_default_slippage_is_unchanged_at_one_tick(self):
+        assert CostModel().slippage_ticks == 1.0
+
+
+class TestBracketBreakEven:
+    """Hit rate at which a fixed stop/target bracket nets zero after costs.
+
+    Entry 4's 10/18 bracket at $1.25 and 1 tick: a winner nets $85, a loser
+    $55, so the break-even is 55/140 = 39.29%. At the verified $0.50 the
+    winner nets $86.50 and the loser $53.50: 53.5/140 = 38.21%.
+    """
+
+    def test_entry_four_bracket_at_the_historical_cost(self):
+        from engine import bracket_break_even
+
+        assert bracket_break_even(10.0, 18.0, MES, HISTORICAL) == pytest.approx(55.0 / 140.0)
+
+    def test_entry_four_bracket_at_the_verified_cost(self):
+        from engine import bracket_break_even
+
+        assert bracket_break_even(10.0, 18.0, MES, CostModel()) == pytest.approx(53.5 / 140.0)
+        assert bracket_break_even(10.0, 18.0) == pytest.approx(53.5 / 140.0)
+
+    def test_free_trading_is_the_bare_ratio(self):
+        from engine import bracket_break_even
+
+        free = CostModel(commission_per_side=0.0, slippage_ticks=0.0)
+        assert bracket_break_even(10.0, 18.0, MES, free) == pytest.approx(10.0 / 28.0)
+
+    def test_size_cancels(self):
+        from engine import bracket_break_even
+
+        assert bracket_break_even(10.0, 18.0, MES, HISTORICAL, contracts=4) == \
+            pytest.approx(bracket_break_even(10.0, 18.0, MES, HISTORICAL))
 
 
 class TestTradePricing:
@@ -261,7 +308,8 @@ class TestDailyLossEnforcement:
         """A single position never closed by the strategy still halts the day.
 
         Long filled at 5000.25 after slippage. At 4935 the open loss is
-        (4935 - 5000.25) x $5 = -$326.25, minus $2.50 commission: past -$300.
+        (4935 - 5000.25) x $5 = -$326.25, less the round-turn commission: past
+        -$300 at either the $1.25 or the confirmed $0.50 rate.
         """
         trades = price_trades(pd.DataFrame([
             self.trade("10:00", "15:55", exit_=5000.0, reason="session_end")
@@ -324,13 +372,14 @@ class TestDailyLossEnforcement:
     def test_forced_exit_repriced_at_the_next_bar_open(self):
         trades = price_trades(pd.DataFrame([
             self.trade("10:00", "15:55", exit_=5000.0, reason="session_end")
-        ]))
+        ]), costs=HISTORICAL)
         bars = self.bars({"10:30": 4935.0, "10:35": 4930.0})
-        kept, _ = enforce_daily_loss_limit(trades, bars, limit=300.0)
+        kept, _ = enforce_daily_loss_limit(trades, bars, costs=HISTORICAL, limit=300.0)
         # Exits at the 10:35 open of 4930, less one tick of slippage on the sell.
         assert kept.loc[0, "exit_price"] == pytest.approx(4930.0)
         assert kept.loc[0, "exit_fill"] == pytest.approx(4929.75)
-        expected = (4929.75 - 5000.25) * 5.0 - 2.50
+        expected = (4929.75 - 5000.25) * 5.0 - HISTORICAL.commission_round_turn()
+        assert expected == pytest.approx(-355.0)
         assert kept.loc[0, "net_pnl"] == pytest.approx(expected)
 
     def test_breach_on_the_final_bar_closes_at_that_bar(self):

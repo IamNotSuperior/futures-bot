@@ -1057,7 +1057,42 @@ class TestVerdictOrdering:
         import run_generated
 
         assert run_generated.BASE_SLIPPAGE_TICKS == 2.0
-        assert run_generated.COMMISSION_PER_SIDE == 1.25
+        assert run_generated.COMMISSION_PER_SIDE == rules.COMMISSION_PER_SIDE
+
+    def test_commission_is_read_from_rules_not_restated(self):
+        """The $1.25 that every pre-2026-09-11 verdict carried was a literal
+        here. The verified figure is imported, so it cannot drift."""
+        import inspect
+
+        import run_generated
+
+        source = inspect.getsource(run_generated)
+        assert "COMMISSION_PER_SIDE = rules.COMMISSION_PER_SIDE" in source
+        assert "COMMISSION_PER_SIDE = 1.25" not in source
+        assert "COMMISSION_PER_SIDE = 0.5" not in source
+
+    def test_a_historical_verdict_can_be_reproduced_by_naming_its_commission(self):
+        """``run(..., commission=rules.ASSUMED_COMMISSION_PER_SIDE)`` and the
+        CLI's ``--commission`` exist so a pre-correction verdict is one flag
+        away. The bot never passes either: from chat the base case is fixed."""
+        import inspect
+
+        import research
+        import run_generated
+
+        assert "commission" in inspect.signature(run_generated.run).parameters
+        assert "--commission" in inspect.getsource(run_generated.main)
+        bot_call = inspect.getsource(research._run_generated_walkforward)
+        assert "commission=" not in bot_call
+
+    def test_the_embed_states_the_commission_it_ran_at(self):
+        import inspect
+
+        import research
+
+        source = inspect.getsource(research._run_generated_walkforward)
+        assert "$1.25/side commission" not in source
+        assert "result.commission_per_side" in source
 
     def test_acceptance_is_rule_13_and_lives_in_one_place(self):
         import run_generated

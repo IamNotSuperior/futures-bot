@@ -30,7 +30,7 @@ import loader  # noqa: E402
 import rules  # noqa: E402
 import eval_sim  # noqa: E402
 from engine import (  # noqa: E402
-    MES, CostModel, apply_internal_guards, build_trades,
+    MES, CostModel, apply_internal_guards, bracket_break_even, build_trades,
     count_evaluation_blowups, equity_curve_by_day, price_trades,
     trailing_drawdown_summary,
 )
@@ -52,8 +52,18 @@ MIN_POOLED_PASS_PROBABILITY = 0.25
 MAX_BLOWUPS = 1
 MIN_PROFITABLE_YEARS = 4
 
-BREAK_EVEN = 55.0 / 140.0  # target/stop arithmetic, 39.29%
 LINE = "=" * 98
+
+
+def break_even(costs: CostModel) -> float:
+    """Entry 5's bracket break-even at the cost model the run is given.
+
+    55/140 = 39.29% at the $1.25 a side the entry was scored at; 53.5/140 =
+    38.21% at Lucid's confirmed $0.50. Computed, not written down, so
+    ``--commission 1.25`` reproduces the frozen report exactly.
+    """
+    p = entry5_params()
+    return bracket_break_even(p.stop_points, p.target_points, MES, costs)
 
 
 def entry5_params() -> ORB2Params:
@@ -99,7 +109,8 @@ def build_stream(bars, signals, start: date, end: date, costs: CostModel,
     )
 
 
-def window_stats(trades: pd.DataFrame, label: str, paths: int) -> dict:
+def window_stats(trades: pd.DataFrame, label: str, paths: int,
+                 costs: CostModel = CostModel()) -> dict:
     if trades.empty:
         return {"label": label, "trades": 0}
     m = compute_metrics(trades)
@@ -141,6 +152,7 @@ def window_stats(trades: pd.DataFrame, label: str, paths: int) -> dict:
         "targets": targets,
         "stops": stops,
         "target_share": (targets / bracket) if bracket else float("nan"),
+        "break_even": break_even(costs),
         "reasons": reasons,
         "same_bar": int((trades["entry_time"] == trades["exit_time"]).sum()),
     }
@@ -174,7 +186,7 @@ def side_by_side(a: dict, b: dict) -> str:
     row("Max drawdown (trade equity)", lambda r: f"${r['max_drawdown']:,.2f}")
     row("Max drawdown (EOD trail)", lambda r: f"${r['eod_drawdown']:,.2f}")
     row("Target share of bracket", lambda r: pct(r["target_share"]))
-    row("  break-even", lambda r: pct(BREAK_EVEN))
+    row("  break-even", lambda r: pct(r["break_even"]))
     row("Trading days", lambda r: f"{r['trading_days']:,}")
     row("Mean day", lambda r: f"${r['mean_day']:,.2f}")
     row("Sd day", lambda r: f"${r['sd_day']:,.2f}")
@@ -198,7 +210,7 @@ def exit_reason_block(stats: dict) -> str:
     r["total"] = r["total"].round(2)
     out.append("    " + r.to_string().replace("\n", "\n    "))
     out.append(f"    target share of bracket outcomes: "
-               f"{pct(stats['target_share'])}  (break-even {pct(BREAK_EVEN)})")
+               f"{pct(stats['target_share'])}  (break-even {pct(stats['break_even'])})")
     return "\n".join(out)
 
 
@@ -256,7 +268,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--parquet", default=str(PARQUET))
     ap.add_argument("--slippage-ticks", type=float, default=1.0)
-    ap.add_argument("--commission", type=float, default=1.25)
+    ap.add_argument("--commission", type=float, default=rules.COMMISSION_PER_SIDE)
     ap.add_argument("--paths", type=int, default=20_000)
     args = ap.parse_args()
 
@@ -295,10 +307,10 @@ def main() -> int:
     seven_trades.to_csv(RESULTS_DIR / f"orb_flat_7yr_{tag}.csv", index=False)
     two_trades.to_csv(RESULTS_DIR / f"orb_flat_2yr_{tag}.csv", index=False)
 
-    seven = window_stats(seven_trades, "All seven years", args.paths)
-    two = window_stats(two_trades, "Last 2 years", args.paths)
-    seven_nh_s = window_stats(seven_nh, "All seven years", args.paths)
-    two_nh_s = window_stats(two_nh, "Last 2 years", args.paths)
+    seven = window_stats(seven_trades, "All seven years", args.paths, costs)
+    two = window_stats(two_trades, "Last 2 years", args.paths, costs)
+    seven_nh_s = window_stats(seven_nh, "All seven years", args.paths, costs)
+    two_nh_s = window_stats(two_nh, "Last 2 years", args.paths, costs)
 
     print()
     print("SPECIFICATION AS FROZEN - both internal guards active")

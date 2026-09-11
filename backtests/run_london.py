@@ -316,7 +316,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--slippage-ticks", type=float, default=2.0,
                     help="2 is entry 6's base case; 1 is the optimistic run")
-    ap.add_argument("--commission", type=float, default=1.25)
+    ap.add_argument("--commission", type=float, default=rules.COMMISSION_PER_SIDE)
     ap.add_argument("--paths", type=int, default=20_000)
     ap.add_argument("--folds-only", action="store_true",
                     help="rebuild the per-fold CSVs from the saved trade "

@@ -31,7 +31,7 @@ def main() -> int:
     ap.add_argument("--parquet", default=str(PARQUET))
     ap.add_argument("--start", default=None)
     ap.add_argument("--end", default=None)
-    ap.add_argument("--commission", type=float, default=1.25, help="per side, per contract")
+    ap.add_argument("--commission", type=float, default=rules.COMMISSION_PER_SIDE, help="per side, per contract")
     ap.add_argument("--slippage-ticks", type=float, default=1.0, help="per side")
     ap.add_argument("--opening-range", type=int, default=15)
     ap.add_argument("--stop-multiple", type=float, default=1.0)

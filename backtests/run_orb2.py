@@ -30,7 +30,7 @@ import rules  # noqa: E402
 import eval_sim  # noqa: E402
 import walkforward as wf  # noqa: E402
 from engine import (  # noqa: E402
-    MES, CostModel, build_trades, count_evaluation_blowups,
+    MES, CostModel, bracket_break_even, build_trades, count_evaluation_blowups,
     enforce_daily_loss_limit, equity_curve_by_day, price_trades,
     trailing_drawdown_summary,
 )
@@ -50,6 +50,11 @@ KILL_SIZE = 4
 MIN_POOLED_PASS_PROBABILITY = 0.25
 MAX_BLOWUPS = 1
 MIN_PROFITABLE_FOLDS = 4
+#: Pre-registered as "one round turn" and fixed at the $5.00 that was at the
+#: $1.25 a side the entry was scored at. A round turn at the confirmed $0.50
+#: is $3.50; the threshold is not recomputed, because it was decided in
+#: advance. A uniform commission shift cancels in the ON-minus-OFF difference
+#: anyway, so the filter claim reads the same at either rate.
 MIN_FILTER_EDGE_PER_CONTRACT = 5.00
 
 LINE = "=" * 96
@@ -123,7 +128,7 @@ def fmt_pct(x) -> str:
 def fold_table(summary: pd.DataFrame, stream: pd.DataFrame, label: str) -> str:
     """Per-fold results. The hit rate comes from the out-of-sample trades
     themselves rather than the walk-forward summary, which does not carry one -
-    and entry 4 turns on the hit rate against its 39.29% break-even."""
+    and entry 4 turns on the hit rate against its bracket break-even."""
     hits = {}
     if not stream.empty:
         s = stream.assign(year=pd.to_datetime(stream["entry_time"]).dt.year)
@@ -156,11 +161,18 @@ def fold_table(summary: pd.DataFrame, stream: pd.DataFrame, label: str) -> str:
 
 
 def pooled_block(stream: pd.DataFrame, contracts: int, label: str,
-                 paths: int = 20_000) -> tuple[str, dict]:
-    """Pooled out-of-sample evaluation figures for one arm at one size."""
+                 paths: int = 20_000,
+                 costs: CostModel = CostModel()) -> tuple[str, dict]:
+    """Pooled out-of-sample evaluation figures for one arm at one size.
+
+    The break-even follows the cost model the run was given: 39.29% at the
+    $1.25 a side entry 4 was scored at, 38.21% at the confirmed $0.50.
+    """
     out = [LINE, f"POOLED OUT-OF-SAMPLE 2020-2026 - {label}", LINE]
     if stream.empty:
         return "\n".join(out + ["  No trades."]), {}
+    p = ORB2Params()
+    be = bracket_break_even(p.stop_points, p.target_points, MES, costs)
 
     daily = eval_sim.daily_pnl_from_trades(stream)
     sim = eval_sim.simulate(daily, paths=paths)
@@ -192,7 +204,7 @@ def pooled_block(stream: pd.DataFrame, contracts: int, label: str,
         f"  Net P&L                         ${stats['net_pnl']:>12,.2f}",
         f"  Mean per trade, per contract    ${stats['mean_per_trade_per_contract']:>12,.2f}",
         f"  Hit rate                        {100 * stats['hit_rate']:.2f}%"
-        f"   (break-even 39.29%)",
+        f"   (break-even {fmt_pct(be)})",
         f"  Mean day / sd day               ${stats['mean_day']:,.2f} / "
         f"${stats['sd_day']:,.2f}",
         f"  Worst drawdown from peak        ${stats['worst_drawdown']:>12,.2f}",
@@ -366,7 +378,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--parquet", default=str(PARQUET))
     ap.add_argument("--slippage-ticks", type=float, default=1.0)
-    ap.add_argument("--commission", type=float, default=1.25)
+    ap.add_argument("--commission", type=float, default=rules.COMMISSION_PER_SIDE)
     ap.add_argument("--paths", type=int, default=20_000)
     ap.add_argument("--from-cache", action="store_true",
                     help="rebuild the report from saved CSVs, no backtest")
@@ -453,7 +465,7 @@ def main() -> int:
                              streams[contracts][arm], label))
             print()
             block, stats = pooled_block(streams[contracts][arm], contracts, label,
-                                        paths=args.paths)
+                                        paths=args.paths, costs=costs)
             results[(arm, contracts)] = stats
             print(block)
             print()

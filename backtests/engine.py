@@ -60,16 +60,47 @@ MNQ = ContractSpec(symbol="MNQ", tick_size=0.25, tick_value=0.50, point_value=2.
 class CostModel:
     """Trading costs.
 
-    ``commission_per_side`` is all-in per contract per side, roughly Tradovate's
-    micro rate. ``slippage_ticks`` is applied adversely on both entry and exit,
-    so the default of one tick costs two ticks over a round turn.
+    ``commission_per_side`` is per contract per side and defaults to
+    :data:`rules.COMMISSION_PER_SIDE` - Lucid's confirmed $0.50 for MES on a
+    50K Pro evaluation. It is not restated here. Every verdict before
+    2026-09-11 was scored at :data:`rules.ASSUMED_COMMISSION_PER_SIDE`
+    ($1.25); pass that by name to reproduce one.
+
+    ``slippage_ticks`` is applied adversely on both entry and exit, so the
+    default of one tick costs two ticks over a round turn. Slippage is an
+    assumption, measurable only on a live account, and at the confirmed
+    commission it is the larger part of every round turn.
     """
 
-    commission_per_side: float = 1.25
+    commission_per_side: float = rules.COMMISSION_PER_SIDE
     slippage_ticks: float = 1.0
 
     def commission_round_turn(self, contracts: int = 1) -> float:
         return 2 * self.commission_per_side * contracts
+
+    def slippage_round_turn(self, spec: "ContractSpec", contracts: int = 1) -> float:
+        return 2 * self.slippage_ticks * spec.tick_size * spec.point_value * contracts
+
+
+def bracket_break_even(
+    stop_points: float,
+    target_points: float,
+    spec: ContractSpec = MES,
+    costs: CostModel = CostModel(),
+    contracts: int = 1,
+) -> float:
+    """Hit rate at which a fixed stop/target bracket nets zero after costs.
+
+    A winner nets the target less a round turn of costs, a loser the stop
+    plus the same, so break-even is ``loss / (win + loss)``. Size cancels.
+    Entry 4's 10/18 bracket is 55/140 = 39.29% at $1.25 a side and one tick,
+    53.5/140 = 38.21% at the confirmed $0.50 - which is why the figure is
+    computed from the cost model a run is given rather than written down.
+    """
+    round_turn = costs.commission_round_turn(contracts) + costs.slippage_round_turn(spec, contracts)
+    win = target_points * spec.point_value * contracts - round_turn
+    loss = stop_points * spec.point_value * contracts + round_turn
+    return loss / (win + loss)
 
 
 def build_trades(signals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:

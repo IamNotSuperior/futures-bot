@@ -257,7 +257,9 @@ async def _run_generated_walkforward(interaction, name: str) -> None:
                 "Evaluations blown": f"{result.blowups}",
                 "Sessions blocked by the trailing halt": f"{result.dd_halts}",
                 "Halt OFF (comparable)": comparable,
-                "Costs": "2 ticks/side slippage, $1.25/side commission",
+                "Costs": f"{run_generated.BASE_SLIPPAGE_TICKS:g} ticks/side "
+                         f"slippage, ${result.commission_per_side:.2f}/side "
+                         f"commission",
             },
             COLOUR_OK if result.accepted else COLOUR_BAD)
         if result.reasons:

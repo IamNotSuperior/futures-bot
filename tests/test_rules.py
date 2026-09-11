@@ -425,6 +425,45 @@ class TestLimitSeparation:
         assert rules.FIRM.payout_buffer < rules.FIRM.profit_target
 
 
+class TestCommission:
+    """The MES commission Lucid support confirmed, and the figure it replaces."""
+
+    def test_verified_rate_is_fifty_cents_a_side(self):
+        assert rules.COMMISSION_PER_SIDE == 0.50
+
+    def test_the_source_is_recorded_next_to_the_number(self):
+        import inspect
+
+        source = inspect.getsource(rules)
+        line = next(l for l in source.splitlines()
+                    if l.startswith("COMMISSION_PER_SIDE ="))
+        block = source[max(0, source.index(line) - 800):source.index(line) + 200]
+        assert "11508978" in block, "the support article is the number's provenance"
+
+    def test_the_historical_assumption_stays_reachable(self):
+        """Every verdict before 2026-09-11 was scored at $1.25 a side. It has
+        to remain callable by name so those runs can be reproduced exactly."""
+        assert rules.ASSUMED_COMMISSION_PER_SIDE == 1.25
+        assert rules.COMMISSION_PER_SIDE < rules.ASSUMED_COMMISSION_PER_SIDE
+
+    def test_no_runner_restates_a_commission_default(self):
+        """The old rate was a literal default in eight runners. A restated
+        default is a value that does not move when rules.py does."""
+        from pathlib import Path
+
+        root = Path(rules.__file__).resolve().parent.parent
+        offenders = []
+        for folder in ("backtests", "bots", "journal", "strategies"):
+            for path in sorted((root / folder).glob("*.py")):
+                text = path.read_text(encoding="utf-8")
+                for needle in ("default=1.25", "default=0.5",
+                               "commission_per_side=1.25",
+                               "commission_per_side=0.5"):
+                    if needle in text:
+                        offenders.append(f"{path.name}: {needle}")
+        assert offenders == []
+
+
 # ---------------------------------------------------------------------------
 # Rule 5b: end-of-day trailing drawdown
 # ---------------------------------------------------------------------------

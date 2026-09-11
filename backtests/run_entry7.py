@@ -122,9 +122,12 @@ def main() -> int:
                     help="rebuild the per-fold CSVs from the saved trade "
                          "streams and exit; seconds rather than the ~15 "
                          "minutes the bootstrap takes")
+    ap.add_argument("--commission", type=float, default=rules.COMMISSION_PER_SIDE,
+                    help="per side; the verdict was scored at 1.25")
     args = ap.parse_args()
 
-    costs = CostModel(commission_per_side=1.25, slippage_ticks=args.slippage_ticks)
+    costs = CostModel(commission_per_side=args.commission,
+                      slippage_ticks=args.slippage_ticks)
     RESULTS.mkdir(parents=True, exist_ok=True)
 
     if args.folds_only:

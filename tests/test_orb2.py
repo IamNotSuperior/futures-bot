@@ -14,6 +14,7 @@ from datetime import date, time, timedelta
 import pandas as pd
 import pytest
 
+import rules
 from base import REQUIRED_SIGNAL_COLUMNS, validate_signals
 from engine import MES, CostModel, build_trades, price_trades
 from orb2 import (
@@ -447,24 +448,41 @@ class TestSizeLinearity:
         for col in ("entry_fill", "exit_fill", "gross_points", "net_points"):
             pd.testing.assert_series_equal(four[col], one[col], check_names=False)
 
+    #: Entry 4 was scored at $1.25 a side. Its arithmetic is pinned at that
+    #: model by name; the default commission is now Lucid's verified $0.50.
+    HISTORICAL = CostModel(commission_per_side=rules.ASSUMED_COMMISSION_PER_SIDE)
+
     def test_the_bracket_arithmetic_entry_four_fixes(self):
         """+$85.00 a winner, -$55.00 a loser, per contract, after costs."""
         raw, _ = self._trades()
-        one = price_trades(raw, MES, CostModel(), 1)
+        one = price_trades(raw, MES, self.HISTORICAL, 1)
         by_reason = dict(zip(raw["exit_reason"], one["net_pnl"]))
         assert by_reason["target"] == pytest.approx(85.0)
         assert by_reason["stop"] == pytest.approx(-55.0)
 
-    def test_break_even_hit_rate_is_the_same_at_both_sizes(self):
+    def test_the_bracket_arithmetic_at_the_verified_commission(self):
+        """+$86.50 a winner, -$53.50 a loser at $0.50 a side."""
         raw, _ = self._trades()
-        rates = []
-        for contracts in (1, 4):
-            priced = price_trades(raw, MES, CostModel(), contracts)
-            by_reason = dict(zip(raw["exit_reason"], priced["net_pnl"]))
-            win, loss = by_reason["target"], -by_reason["stop"]
-            rates.append(loss / (win + loss))
-        assert rates[0] == pytest.approx(rates[1])
-        assert rates[0] == pytest.approx(55.0 / 140.0)
+        one = price_trades(raw, MES, CostModel(), 1)
+        by_reason = dict(zip(raw["exit_reason"], one["net_pnl"]))
+        assert by_reason["target"] == pytest.approx(86.5)
+        assert by_reason["stop"] == pytest.approx(-53.5)
+
+    def test_break_even_hit_rate_is_the_same_at_both_sizes(self):
+        from engine import bracket_break_even
+
+        raw, _ = self._trades()
+        for costs, expected in ((self.HISTORICAL, 55.0 / 140.0),
+                                (CostModel(), 53.5 / 140.0)):
+            rates = []
+            for contracts in (1, 4):
+                priced = price_trades(raw, MES, costs, contracts)
+                by_reason = dict(zip(raw["exit_reason"], priced["net_pnl"]))
+                win, loss = by_reason["target"], -by_reason["stop"]
+                rates.append(loss / (win + loss))
+            assert rates[0] == pytest.approx(rates[1])
+            assert rates[0] == pytest.approx(expected)
+            assert rates[0] == pytest.approx(bracket_break_even(10.0, 18.0, MES, costs))
 
 
 class TestPayoutInThePooledBlock:
@@ -490,3 +508,15 @@ class TestPayoutInThePooledBlock:
         assert "Pass probability" in text
         assert "Payout probability" in text
         assert text.index("Payout probability") > text.index("Pass probability")
+
+    def test_pooled_block_states_the_break_even_for_the_run_cost(self):
+        """39.29% was a literal in the report. It follows the cost model now,
+        so the saved $1.25 reports still read 39.29% when reproduced and a
+        run at the verified $0.50 reads 38.21%."""
+        from run_orb2 import pooled_block
+
+        historical = CostModel(commission_per_side=rules.ASSUMED_COMMISSION_PER_SIDE)
+        old, _ = pooled_block(self._stream(), 4, "fixture", paths=200, costs=historical)
+        new, _ = pooled_block(self._stream(), 4, "fixture", paths=200)
+        assert "break-even 39.29%" in old
+        assert "break-even 38.21%" in new

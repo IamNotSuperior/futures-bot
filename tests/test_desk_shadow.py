@@ -119,9 +119,10 @@ def test_closed_shadow_pnl_matches_the_engine_exactly(shadow_journal):
     """One trade, hand-checked against engine.price_trades.
 
     A 10-point loss on 1 MES at 1 tick a side: entry fills at 6800.25, exit at
-    6789.75, so 10.5 points against at $5 a point is -$52.50, less a $2.50
-    round turn = **-$55.00**. Before the double-count was fixed this produced
-    -$56.25, and the replay posted that figure to Discord.
+    6789.75, so 10.5 points against at $5 a point is -$52.50, less the round
+    turn - **-$53.50** at Lucid's verified $0.50 a side (it was -$55.00 at the
+    $1.25 assumed before 2026-09-11). Before the double-count was fixed this
+    produced -$56.25, and the replay posted that figure to Discord.
     """
     signal = make_signal(direction="long", entry_price=6800.0,
                          stop_price=6790.0, target_price=None)
@@ -133,8 +134,10 @@ def test_closed_shadow_pnl_matches_the_engine_exactly(shadow_journal):
         signal.bar_time + pd.Timedelta(minutes=5), "stop", shadow_journal)
 
     assert closed.entry_price == 6800.0
-    assert closed.net_pnl == pytest.approx(-55.00)
-    assert closed.commission == pytest.approx(2.50)
+    round_turn = 2 * rules.COMMISSION_PER_SIDE
+    assert round_turn == pytest.approx(1.00)
+    assert closed.net_pnl == pytest.approx(-52.50 - round_turn)
+    assert closed.commission == pytest.approx(round_turn)
     assert closed.min_hold_ok is True
 
 

@@ -251,10 +251,13 @@ class TestRequestSanity:
 
 class TestRiskCalculation:
     def test_includes_slippage_and_commission(self):
-        """5 points on 1 MES is $25, plus 2 ticks ($2.50) and $2.50 commission."""
+        """5 points on 1 MES is $25, plus 2 ticks ($2.50) and the round-turn
+        commission - $1.00 at Lucid's verified $0.50 a side, read from rules."""
         d = evaluate(req(entry_price=6800.0, stop_price=6795.0, contracts=1),
                      flat(), et(f"{SUMMER_DAY} 10:00"))
-        assert d.risk_dollars == pytest.approx(25.0 + 2.50 + 2.50)
+        round_turn = 2 * rules.COMMISSION_PER_SIDE
+        assert round_turn == pytest.approx(1.00)
+        assert d.risk_dollars == pytest.approx(25.0 + 2.50 + round_turn)
 
     def test_scales_with_contracts(self):
         one = evaluate(req(contracts=1), flat(), et(f"{SUMMER_DAY} 10:00"))
@@ -305,14 +308,17 @@ class TestJournalRoundTrip:
         )
         store.append(closed, path)
 
-        # +10 points less 2 ticks slippage = 9.50 pts = $47.50, less $2.50.
-        assert closed.net_pnl == pytest.approx(45.00)
+        # +10 points less 2 ticks slippage = 9.50 pts = $47.50, less the $1.00
+        # round turn at the verified $0.50 a side.
+        expected = 47.50 - 2 * rules.COMMISSION_PER_SIDE
+        assert expected == pytest.approx(46.50)
+        assert closed.net_pnl == pytest.approx(expected)
         assert closed.min_hold_ok is True
 
         loaded = store.load_closed(path)
         assert len(loaded) == 1
         assert store.net_open_position(path) == 0
-        assert store.realised_pnl_on(date(2025, 7, 16), path) == pytest.approx(45.00)
+        assert store.realised_pnl_on(date(2025, 7, 16), path) == pytest.approx(expected)
 
     def test_append_only_history_is_preserved(self, tmp_path):
         path = tmp_path / "trades.jsonl"

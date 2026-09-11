@@ -20,14 +20,16 @@ from engine import MES, CostModel
 ET = "America/New_York"
 START = date(2025, 7, 14)  # a Monday
 CONTRACTS = 4
+#: $1.25 a side, 1 tick - the arithmetic below was worked out at this model.
+COSTS = CostModel(commission_per_side=rules.ASSUMED_COMMISSION_PER_SIDE)
 
 
 def synthetic_days(moves: list[float]):
     """One trade per session, entered 09:46 at 100 and exited 10:30 at 100+move.
 
     Bars are flat at 100 so the daily loss limit never marks a breach intrabar;
-    the only guard that can fire is the trailing halt. At 4 contracts and the
-    default cost model a move of ``m`` points nets ``20 * m - 20`` dollars.
+    the only guard that can fire is the trailing halt. At 4 contracts and
+    ``COSTS`` a move of ``m`` points nets ``20 * m - 20`` dollars.
     """
     bar_frames, signal_frames = [], []
     for i, move in enumerate(moves):
@@ -61,7 +63,7 @@ class TestBothRunnersApplyTheSameHalt:
         from engine import build_trades, price_trades
 
         bars, signals = synthetic_days(MOVES)
-        priced = price_trades(build_trades(signals, bars), MES, CostModel(), CONTRACTS)
+        priced = price_trades(build_trades(signals, bars), MES, COSTS, CONTRACTS)
         assert list(priced["net_pnl"]) == [-800.0, -800.0, 500.0, 500.0]
 
     def test_entry_5_runner_and_generated_runner_agree_trade_for_trade(self):
@@ -69,7 +71,7 @@ class TestBothRunnersApplyTheSameHalt:
         import run_orb_flat
 
         bars, signals = synthetic_days(MOVES)
-        costs = CostModel()
+        costs = COSTS
         end = START + timedelta(days=len(MOVES))
 
         by_hand, hand_loss, hand_dd = run_orb_flat.build_stream(
@@ -88,7 +90,7 @@ class TestBothRunnersApplyTheSameHalt:
         import run_orb_flat
 
         bars, signals = synthetic_days(MOVES)
-        costs = CostModel()
+        costs = COSTS
         end = START + timedelta(days=len(MOVES))
 
         by_hand, _, _ = run_orb_flat.build_stream(

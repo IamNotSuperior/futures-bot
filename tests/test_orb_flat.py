@@ -15,7 +15,7 @@ import pytest
 import rules
 from engine import MES, CostModel, build_trades, price_trades
 from orb2 import ORB2, ORB2Params
-from run_orb_flat import BREAK_EVEN, entry5_params
+from run_orb_flat import break_even, entry5_params
 
 ET = "America/New_York"
 DAY = date(2025, 7, 16)
@@ -60,9 +60,15 @@ class TestEntry5Params:
         assert p.use_trend_filter is False
         assert p.flatten_at_next_open is True
 
-    def test_break_even_constant_is_the_bracket_arithmetic(self):
-        assert BREAK_EVEN == pytest.approx(55.0 / 140.0)
-        assert BREAK_EVEN == pytest.approx(0.392857, abs=1e-6)
+    def test_break_even_is_the_bracket_arithmetic_at_the_run_cost(self):
+        """55/140 = 39.29% at the $1.25 entry 5 was scored at; 53.5/140 =
+        38.21% at Lucid's verified $0.50. The figure follows the cost model
+        the run is given, so ``--commission 1.25`` reproduces the old report."""
+        historical = CostModel(commission_per_side=rules.ASSUMED_COMMISSION_PER_SIDE)
+        assert break_even(historical) == pytest.approx(55.0 / 140.0)
+        assert break_even(historical) == pytest.approx(0.392857, abs=1e-6)
+        assert break_even(CostModel()) == pytest.approx(53.5 / 140.0)
+        assert break_even(CostModel()) == pytest.approx(0.382143, abs=1e-6)
 
 
 class TestFlattenAtNextOpen:

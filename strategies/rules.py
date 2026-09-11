@@ -167,6 +167,23 @@ ACCOUNT_SIZE = FIRM.account_size
 # therefore never lower than its pass probability.
 PAYOUT_BALANCE = ACCOUNT_SIZE + FIRM.payout_buffer
 
+# ===========================================================================
+# Costs: the commission Lucid confirmed, and the figure it replaces
+# ===========================================================================
+#
+# MES commission per contract per side on a 50K LucidPro evaluation is $0.50 -
+# $1.00 a round turn. Confirmed by Lucid support on 2026-09-11; the source is
+# support.lucidtrading.com article 11508978. Every cost model in the project
+# reads this value and nothing restates it (CLAUDE.md rule 9 applied to a cost
+# rather than a limit). Slippage is unaffected and remains an assumption: at
+# one tick a side it is now the larger part of a round turn.
+COMMISSION_PER_SIDE = 0.50
+
+# What every verdict before 2026-09-11 was scored at - the assumption, not a
+# rate anyone quoted. Kept by name so those runs can be reproduced exactly
+# (`--commission 1.25` on any runner). It is never a default.
+ASSUMED_COMMISSION_PER_SIDE = 1.25
+
 
 class RuleViolation(Exception):
     """Raised when an action would breach a hard rule."""

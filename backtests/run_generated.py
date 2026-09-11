@@ -10,7 +10,13 @@ cheap.
 Costs are **not** optional and **not** configurable from chat. CLAUDE.md rule
 10: no backtest, parameter scan or performance report may run on a frictionless
 fill model. The base case is 2 ticks of slippage per side, which is rule 13's
-survival bar - a strategy is only accepted if it survives there.
+survival bar - a strategy is only accepted if it survives there - at the
+commission in ``rules.COMMISSION_PER_SIDE``. The CLI's ``--commission`` exists
+so a verdict scored before 2026-09-11 can be reproduced at the $1.25 it
+carried (``rules.ASSUMED_COMMISSION_PER_SIDE``); the bot never passes it.
+
+    python backtests/run_generated.py <name> --class-path <module:Class>
+    python backtests/run_generated.py <name> --class-path <module:Class> --commission 1.25
 """
 
 from __future__ import annotations
@@ -59,7 +65,8 @@ def score_slice(frame, data_end):
 
 #: Entry 6's base case and rule 13's survival bar. Not a parameter.
 BASE_SLIPPAGE_TICKS = 2.0
-COMMISSION_PER_SIDE = 1.25
+#: Read from rules, never restated: Lucid's confirmed $0.50 a side.
+COMMISSION_PER_SIDE = rules.COMMISSION_PER_SIDE
 
 #: Rule 13: profitable in a majority of yearly folds, positive total after
 #: costs, surviving at 2 ticks. Restated nowhere else - imported from here.
@@ -111,6 +118,9 @@ class WalkforwardResult:
     dd_halts: int | None = None
     #: The same signals without the trailing halt. None when not computed.
     comparable: BasisSummary | None = None
+    #: The commission this run was priced at. NaN when unset, so a result
+    #: built without one cannot print a plausible rate it did not use.
+    commission_per_side: float = float("nan")
 
     @property
     def net_pnl(self) -> float:
@@ -211,11 +221,19 @@ def summarise_basis(trades: pd.DataFrame, paths: int) -> BasisSummary:
 
 def run(name: str, class_path: str, symbol: str = "MES",
         contracts: int | None = None, paths: int = 20_000,
-        progress=None) -> WalkforwardResult:
-    """Generate signals over the full history, then score by year."""
+        progress=None, commission: float | None = None) -> WalkforwardResult:
+    """Generate signals over the full history, then score by year.
+
+    ``commission`` defaults to :data:`COMMISSION_PER_SIDE`. It is a parameter
+    only so a pre-2026-09-11 verdict can be reproduced at the $1.25 it was
+    scored at; the bot's call site never passes it.
+    """
     def say(message: str) -> None:
         if progress:
             progress(message)
+
+    if commission is None:
+        commission = COMMISSION_PER_SIDE
 
     parquet = parquet_for(symbol)
     if not parquet.exists():
@@ -239,10 +257,10 @@ def run(name: str, class_path: str, symbol: str = "MES",
     signals = score_slice(signals, data_end)
     signal_bars = score_slice(signal_bars, data_end)
 
-    say(f"pricing {contracts} contract(s) at 2 ticks/side, "
-        f"{SCORE_START} .. {data_end} ...")
+    say(f"pricing {contracts} contract(s) at {BASE_SLIPPAGE_TICKS:g} ticks/side, "
+        f"${commission:.2f}/side commission, {SCORE_START} .. {data_end} ...")
     spec = MES if symbol.upper() == "MES" else MNQ
-    costs = CostModel(commission_per_side=COMMISSION_PER_SIDE,
+    costs = CostModel(commission_per_side=commission,
                       slippage_ticks=BASE_SLIPPAGE_TICKS)
     trades, halts, dd_halts, comparable_trades = guarded_streams(
         signals, signal_bars, spec, costs, contracts)
@@ -292,6 +310,7 @@ def run(name: str, class_path: str, symbol: str = "MES",
         span=(SCORE_START, data_end),
         payout_probability=sim.payout_probability,
         dd_halts=len(dd_halts), comparable=comparable,
+        commission_per_side=commission,
     )
 
 
@@ -311,7 +330,7 @@ def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
         "",
         f"Walk-forward over {TOTAL_FOLDS} yearly folds at "
         f"{BASE_SLIPPAGE_TICKS:g} ticks of slippage per side and "
-        f"${COMMISSION_PER_SIDE:.2f} commission per side, "
+        f"${result.commission_per_side:.2f} commission per side, "
         f"**{result.contracts} contract(s)**, under both internal guards: the "
         f"${rules.DAILY_LOSS_LIMIT:,.0f} daily loss limit and the "
         f"${rules.TRAILING_DD_STOP:,.0f} end-of-day trailing halt.",
@@ -386,10 +405,15 @@ def main(argv=None) -> int:
     ap.add_argument("--contracts", type=int, default=None,
                     help="override the size the strategy declares")
     ap.add_argument("--paths", type=int, default=20_000)
+    ap.add_argument("--commission", type=float, default=None,
+                    help="per side; defaults to rules.COMMISSION_PER_SIDE. "
+                         "Pass 1.25 to reproduce a verdict scored before "
+                         "2026-09-11.")
     args = ap.parse_args(argv)
 
     result = run(args.name, args.class_path, args.symbol, args.contracts,
-                 args.paths, progress=lambda m: print(f"  {m}", flush=True))
+                 args.paths, progress=lambda m: print(f"  {m}", flush=True),
+                 commission=args.commission)
     print()
     print(verdict_block(result, 0))
     return 0
