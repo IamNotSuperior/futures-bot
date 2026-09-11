@@ -3658,8 +3658,7 @@ folds against 4, with a negative total on both bases. Rule 13 fails on both
 bases. REJECTED stands. The results CSVs now hold the $0.50 streams;
 `--commission 1.25` reproduces the $1.25 ones.
 
-## 10. London 1×/ON held through the US session — PROPOSED
-
+## 10. London 1×/ON held through the US session — REJECTED
 **Date:** 2026-09-11
 **Spec frozen at:** the commit adding this entry
 **Code:** not yet written
@@ -4009,6 +4008,90 @@ the commit hash recorded in a follow-up commit. **If ACCEPTED, the verdict must
 carry, on its first line, that the idea was chosen after seeing the exit-reason
 table of the data it was tested on, and that its cost basis rests on an
 unmeasured 03:00 slippage assumption.**
+
+### Verdict: REJECTED
+
+**Rejected on the pre-registered criteria, on the data the idea was drawn from.** The upward bias of the prior recorded above did not carry the entry over a bar set above the effect that motivated it.
+
+**Date:** 2026-09-11
+**Code:** `strategies/london.py` (`flatten_time`, `early_close_flatten_time`, `size_on`), `backtests/run_entry10.py`
+**Reports:** `backtests/results/entry10_report.txt`; per instrument `entry10_<mes|mnq>_slip2.csv` (standard) and `_slip2_nohalt.csv` (comparable), `_slip1`/`_slip3` sensitivities, `_folds.csv`, and the attribution streams `_0925_stop.csv` and `_0925_range.csv`
+
+Entry 6's 1×/ON specification held to 15:55 ET (12:55 on early-close sessions), realised-stop sizing, $0.50 a side commission, **2 ticks of slippage per side as the base case**, 2020-01-01 .. 2026-08-31, nothing selected. Guards: the $400 daily loss limit per size group, then the $1,500 end-of-day trailing halt on the combined stream — the two engine functions `apply_internal_guards` composes, in its order, composed per size group because size varies per session (exact given one trade a day). The benchmark is entry 7's de-meaned bootstrap at the 15:55 horizon, early-close days truncated at 12:55, seed 0.
+
+#### Kill criteria — every line must pass on both instruments
+
+| # | Criterion | MES | MNQ | Line | |
+|---|---|---|---|---|---|
+| 1 | Rule 13: >= 4 of 7 folds profitable and P&L > 0 | 0 of 7, $-1,298 | 1 of 7, $1,239 | >= 4 of 7 and > 0 | **FAIL** |
+| 2 | Pooled pass probability | 1.29% | 50.82% | >= 35% | **FAIL** |
+| 3 | z against the 15:55-horizon benchmark, one-sided | +0.35 | +1.16 | >= 2.5 | **FAIL** |
+| 4 | Departure from the benchmark, points | +1.89 | +5.47 | >= +2 | **FAIL** |
+
+**REJECTED.** Failed on: MES: Rule 13: >= 4 of 7 folds profitable and P&L > 0; MES: Pooled pass probability; MES: z against the 15:55-horizon benchmark, one-sided; MES: Departure from the benchmark, points; MNQ: Rule 13: >= 4 of 7 folds profitable and P&L > 0; MNQ: z against the 15:55-horizon benchmark, one-sided. Any one failure on either instrument kills the entry as a whole, as pre-registered.
+
+#### MES
+
+| 2020–2026, 2 ticks, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 117 | 669 |
+| Net P&L | $-1,297.50 | $-2,583.25 |
+| Mean per trade | $-11.09 | $-3.86 |
+| Folds profitable | 0 of 7 | 2 of 7 |
+| Sharpe | -1.29 | -0.41 |
+| Profit factor | 0.836 | 0.947 |
+| Max drawdown | $-1,538.50 | $-3,591.75 |
+| Worst day | $-213.00 | $-230.00 |
+| Pass probability | 1.29% | 10.00% |
+| Payout probability ($52,100) | 5.28% | 21.29% |
+| Evaluations blown (read on the comparable basis) | 2 | 2 |
+| Sessions blocked by the trailing halt | 552 | — |
+| Avg hold | 440.6 min | 328.5 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+**Exits, standard stream:** 47 targets, 40 stops, 30 flattens (25.6% of trades), 0 daily-loss flattens, 0 daily-loss halts. **Observed target share 54.02%** on 87 resolved trades against a **benchmark of 52.14%** (117 trades bootstrapped, 1,000 replications, resolved fraction 78.63%): **departure +1.89 points, z = +0.35**. Realised break-even from mean stop and mean target: 56.30%.
+
+**Sizing and risk:** contracts {1: 62, 2: 31, 3: 15, 4: 4, 5: 5}; realised risk median $158.75, mean $155.10, max $198.75; overshoot median 1.00 pts, mean 1.50, max 6.50.
+
+Per fold, standard: 2020 $-613.75; 2021 $-683.75; 2022 $0.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+**1 tick sensitivity:** standard 272 trades, $-100.25, 1 of 7 folds, pass 15.51%, payout 29.81%; comparable $884.25, 1 blown.
+**3 ticks sensitivity:** standard 96 trades, $-1,529.25, 0 of 7 folds, pass 0.29%, payout 1.57%; comparable $-6,050.75, 4 blown.
+
+**Attribution (criterion 5), standard basis at the base case:** the 15:55/stop-sized stream nets $-1,297.50 over 117 trades; the same signals flattened at 09:25 with stop sizing net $-789.75 over 185; entry 6's rule (09:25, range sizing) at these costs nets $-871.00 over 108. **The extended hold is worth $-507.75; the sizing change is worth $81.25.**
+
+#### MNQ
+
+| 2020–2026, 2 ticks, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 124 | 406 |
+| Net P&L | $1,239.00 | $-505.00 |
+| Mean per trade | $9.99 | $-1.24 |
+| Folds profitable | 1 of 7 | 4 of 7 |
+| Sharpe | 1.10 | -0.14 |
+| Profit factor | 1.156 | 0.983 |
+| Max drawdown | $-1,535.00 | $-4,005.00 |
+| Worst day | $-206.00 | $-215.00 |
+| Pass probability | 50.82% | 13.87% |
+| Payout probability ($52,100) | 67.05% | 27.38% |
+| Evaluations blown (read on the comparable basis) | 1 | 1 |
+| Sessions blocked by the trailing halt | 282 | — |
+| Avg hold | 328.4 min | 298.5 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+**Exits, standard stream:** 65 targets, 47 stops, 12 flattens (9.7% of trades), 0 daily-loss flattens, 0 daily-loss halts. **Observed target share 58.04%** on 112 resolved trades against a **benchmark of 52.56%** (124 trades bootstrapped, 1,000 replications, resolved fraction 91.40%): **departure +5.47 points, z = +1.16**. Realised break-even from mean stop and mean target: 54.53%.
+
+**Sizing and risk:** contracts {1: 83, 2: 27, 3: 10, 4: 2, 5: 2}; realised risk median $160.25, mean $154.16, max $200.00; overshoot median 3.88 pts, mean 4.93, max 19.50.
+
+Per fold, standard: 2020 $1,600.50; 2021 $-56.50; 2022 $-305.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+**1 tick sensitivity:** standard 126 trades, $1,339.00, 2 of 7 folds, pass 52.80%, payout 68.77%; comparable $53.00, 1 blown.
+**3 ticks sensitivity:** standard 124 trades, $1,054.00, 1 of 7 folds, pass 44.77%, payout 61.79%; comparable $-1,063.00, 2 blown.
+
+**Attribution (criterion 5), standard basis at the base case:** the 15:55/stop-sized stream nets $1,239.00 over 124 trades; the same signals flattened at 09:25 with stop sizing net $835.00 over 157; entry 6's rule (09:25, range sizing) at these costs nets $1,390.50 over 339. **The extended hold is worth $404.00; the sizing change is worth $-555.50.**
+
+In-sample results are never evidence, and this is the out-of-sample answer on both instruments.
+
 
 ## Template for new entries
 
