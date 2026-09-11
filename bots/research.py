@@ -247,6 +247,7 @@ async def _run_generated_walkforward(interaction, name: str) -> None:
                 "Max drawdown": f"${result.metrics['max_drawdown']:,.2f}",
                 "Worst day": f"${result.metrics['max_daily_loss']:,.2f}",
                 "Pass probability": f"{result.pass_probability:.2%}",
+                "Payout probability": f"{result.payout_probability:.2%}",
                 "Evaluations blown": f"{result.blowups}",
                 "Costs": "2 ticks/side slippage, $1.25/side commission",
             },
@@ -261,7 +262,7 @@ async def _run_generated_walkforward(interaction, name: str) -> None:
 
 
 @bot.tree.command(name="evalsim",
-                  description="Evaluation pass probability and expected attempts")
+                  description="Evaluation pass and payout probability, expected attempts")
 @app_commands.describe(strategy="registry name")
 @app_commands.autocomplete(strategy=strategy_autocomplete)
 async def evalsim(interaction: discord.Interaction, strategy: str) -> None:

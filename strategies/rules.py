@@ -67,6 +67,12 @@ class FirmLimits:
     consistency_pct: float = 40.0
     #: Profit needed to pass the evaluation.
     profit_target: float = 3_000.0
+    #: Account terms, not ceilings. A withdrawal needs the balance this far
+    #: above the start (the drawdown plus $100), and takes at least
+    #: ``min_payout``. Nothing enforces against either; the simulator reports
+    #: the line as a milestone alongside the pass.
+    payout_buffer: float = 2_100.0
+    min_payout: float = 500.0
 
 
 @dataclass(frozen=True)
@@ -155,6 +161,11 @@ WORST_DAY_FLAG_PCT = INTERNAL.consistency_warn_pct
 # The evaluation target, for the simulator and the journal.
 PROFIT_TARGET = FIRM.profit_target
 ACCOUNT_SIZE = FIRM.account_size
+
+# The balance at which a payout first becomes possible. Below the target, so
+# every passing path reaches it first; the simulator's payout probability is
+# therefore never lower than its pass probability.
+PAYOUT_BALANCE = ACCOUNT_SIZE + FIRM.payout_buffer
 
 
 class RuleViolation(Exception):

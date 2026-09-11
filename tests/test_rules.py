@@ -408,6 +408,22 @@ class TestLimitSeparation:
         with pytest.raises(Exception):
             rules.INTERNAL.daily_loss = 999
 
+    def test_payout_terms_match_the_lucid_50k_pro_account(self):
+        """A withdrawal needs the balance $2,100 over the start, $500 minimum.
+
+        These are account terms, not ceilings: nothing enforces against them,
+        and the simulator reports the line as a milestone alongside the pass.
+        """
+        assert rules.FIRM.payout_buffer == 2_100
+        assert rules.FIRM.min_payout == 500
+        assert rules.PAYOUT_BALANCE == rules.ACCOUNT_SIZE + rules.FIRM.payout_buffer
+        assert rules.PAYOUT_BALANCE == 52_100
+
+    def test_payout_line_sits_below_the_profit_target(self):
+        """Every passing path reaches payout first; the ordering is load-bearing
+        for the simulator's payout-never-below-pass property."""
+        assert rules.FIRM.payout_buffer < rules.FIRM.profit_target
+
 
 # ---------------------------------------------------------------------------
 # Rule 5b: end-of-day trailing drawdown

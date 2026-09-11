@@ -81,7 +81,7 @@ commands to every guild it is in on startup, which is immediate. Commands:
 |---|---|
 | `/backtest <strategy> <start> <end>` | Metrics embed plus an equity-curve PNG |
 | `/walkforward <strategy>` | Per-fold table from the saved run |
-| `/evalsim <strategy>` | Pass probability and expected attempts |
+| `/evalsim <strategy>` | Pass probability, payout probability ($52,100 line) and expected attempts |
 | `/hypotheses [n]` | The log: all entries, or one in detail |
 | `/status` | The strategy registry |
 

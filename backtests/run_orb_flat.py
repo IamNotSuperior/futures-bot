@@ -180,6 +180,7 @@ def window_stats(trades: pd.DataFrame, label: str, paths: int) -> dict:
         "sd_day": float(daily.std(ddof=1)),
         "trading_days": int(len(daily)),
         "pass_probability": sim.pass_probability,
+        "payout_probability": sim.payout_probability,
         "ci_low": sim.ci_low,
         "ci_high": sim.ci_high,
         "blowup_probability": sim.blowup_probability,
@@ -232,6 +233,8 @@ def side_by_side(a: dict, b: dict) -> str:
     out.append("  eval_sim, run on each window's own daily distribution")
     row("Pass probability", lambda r: pct(r["pass_probability"]))
     row("  95% CI", lambda r: f"{pct(r['ci_low'])} - {pct(r['ci_high'])}")
+    row(f"Payout probability (${rules.PAYOUT_BALANCE:,.0f})",
+        lambda r: pct(r["payout_probability"]))
     row("Blow-up probability", lambda r: pct(r["blowup_probability"]))
     row("Timeout probability", lambda r: pct(r["timeout_probability"]))
     row("Expected attempts to pass", lambda r: f"{r['expected_attempts']:.2f}")

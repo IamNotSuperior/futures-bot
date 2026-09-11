@@ -229,6 +229,15 @@ class TestEvalsim:
         assert "Expected attempts" in fields
         assert fields["Pass probability"].endswith("%")
 
+    def test_payout_probability_renders_alongside_pass(self):
+        """The $52,100 milestone is reported next to the $3,000 pass."""
+        _require("orb", "oos_csv")
+        fields = runners.run_evalsim("orb", paths=2_000)
+        assert "Payout probability" in fields
+        assert fields["Payout probability"].endswith("%")
+        keys = list(fields)
+        assert keys.index("Payout probability") == keys.index("Pass probability") + 1
+
     def test_reports_its_source_and_when_it_was_produced(self):
         _require("orb", "oos_csv")
         fields = runners.run_evalsim("orb", paths=1_000)

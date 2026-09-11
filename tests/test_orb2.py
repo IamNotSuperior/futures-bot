@@ -465,3 +465,28 @@ class TestSizeLinearity:
             rates.append(loss / (win + loss))
         assert rates[0] == pytest.approx(rates[1])
         assert rates[0] == pytest.approx(55.0 / 140.0)
+
+
+class TestPayoutInThePooledBlock:
+    """Entry 4's pooled figures carry the payout milestone next to the pass."""
+
+    def _stream(self):
+        raw = pd.DataFrame([
+            {"entry_time": pd.Timestamp(f"2025-07-{d:02d} 09:46", tz=ET),
+             "exit_time": pd.Timestamp(f"2025-07-{d:02d} 11:00", tz=ET),
+             "direction": "long", "entry_price": 100.0,
+             "exit_price": 100.0 + move, "exit_reason": reason}
+            for d, move, reason in ((14, 18.0, "target"), (15, -10.0, "stop"),
+                                    (16, 18.0, "target"), (17, -10.0, "stop"))
+        ])
+        return price_trades(raw, MES, CostModel(), 4)
+
+    def test_pooled_block_reports_payout_under_pass(self):
+        from run_orb2 import pooled_block
+
+        text, stats = pooled_block(self._stream(), 4, "fixture", paths=200)
+        assert "payout_probability" in stats
+        assert stats["payout_probability"] >= stats["pass_probability"]
+        assert "Pass probability" in text
+        assert "Payout probability" in text
+        assert text.index("Payout probability") > text.index("Pass probability")

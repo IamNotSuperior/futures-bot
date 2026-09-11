@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import rules
-from eval_sim import EvalConfig, daily_pnl_from_trades, simulate
+from eval_sim import EvalConfig, daily_pnl_from_trades, format_result, simulate
 
 import pandas as pd
 
@@ -125,6 +125,73 @@ class TestConfigDefaults:
         line. The internal stop is a trading guard, not a termination."""
         assert EvalConfig().trailing_drawdown == 2_000
         assert EvalConfig().trailing_drawdown != rules.INTERNAL.trailing_drawdown_stop
+
+
+class TestPayoutMilestone:
+    """The $52,100 payout line, reported alongside the $3,000 pass.
+
+    A path reaches payout when its end-of-day balance touches the starting
+    balance plus the firm's payout buffer before the trailing line ends the
+    account. Reaching it does not end the path - the evaluation carries on to
+    pass, blow up or time out - so the two figures are measured on the same
+    resampled days.
+    """
+
+    def test_constant_winner_reaches_payout_before_it_passes(self):
+        """+$700 a day: 52,100 on day 3, 53,000 on day 5."""
+        r = simulate(np.array([700.0]), EvalConfig(max_days=10), paths=200)
+        assert r.payout_probability == 1.0
+        assert r.median_days_to_payout == 3
+        assert r.median_days_to_pass == 5
+
+    def test_constant_loser_never_reaches_payout(self):
+        r = simulate(np.array([-500.0]), EvalConfig(max_days=10), paths=200)
+        assert r.payout_probability == 0.0
+        assert np.isnan(r.median_days_to_payout)
+
+    def test_horizon_can_prevent_a_payout(self):
+        """+$700 a day is 52,100 on day 3, so a two-day horizon never gets there."""
+        r = simulate(np.array([700.0]), EvalConfig(max_days=2), paths=100)
+        assert r.payout_probability == 0.0
+
+    def test_exactly_on_the_line_is_a_payout_but_not_a_pass(self):
+        r = simulate(np.array([2_100.0]), EvalConfig(max_days=1), paths=100)
+        assert r.payout_probability == 1.0
+        assert r.pass_probability == 0.0
+
+    def test_touching_payout_then_dying_still_counts(self):
+        """+2,500 then -2,000 over two days.
+
+        Day 1 up reaches 52,500, which is past the payout line, on half of all
+        paths; the other half die on day 1. Of the paths that reached payout,
+        half go on to pass and half are ended by the trail on day 2 - and those
+        still reached payout, because the milestone is a touch, not a survival.
+        """
+        r = simulate(np.array([2_500.0, -2_000.0]), EvalConfig(max_days=2),
+                     paths=8_000, seed=1)
+        assert r.payout_probability == pytest.approx(0.5, abs=0.03)
+        assert r.pass_probability == pytest.approx(0.25, abs=0.03)
+
+    def test_payout_probability_is_never_below_pass_probability(self):
+        """The payout line is below the target, so every pass touched it first."""
+        r = simulate(np.array([400.0, -200.0, 150.0, -350.0]),
+                     EvalConfig(max_days=60), paths=5_000, seed=4)
+        assert r.pass_probability > 0.0, "the fixture must produce some passes"
+        assert r.payout_probability >= r.pass_probability
+
+    def test_buffer_defaults_to_the_firms_term(self):
+        cfg = EvalConfig()
+        assert cfg.payout_buffer == rules.FIRM.payout_buffer
+        assert cfg.starting_balance + cfg.payout_buffer == rules.PAYOUT_BALANCE
+
+    def test_report_shows_payout_alongside_pass(self):
+        cfg = EvalConfig(max_days=10)
+        daily = np.array([700.0, 700.0])  # two days, so the day sd is defined
+        r = simulate(daily, cfg, paths=100)
+        text = format_result(r, daily, cfg, "fixture")
+        assert "PASS probability" in text
+        assert "PAYOUT probability" in text
+        assert "52,100" in text
 
 
 class TestDailyAggregation:

@@ -178,6 +178,7 @@ def pooled_block(stream: pd.DataFrame, contracts: int, label: str,
         "mean_day": float(daily.mean()),
         "sd_day": float(daily.std(ddof=1)),
         "pass_probability": sim.pass_probability,
+        "payout_probability": sim.payout_probability,
         "blowup_probability": sim.blowup_probability,
         "timeout_probability": sim.timeout_probability,
         "expected_attempts": sim.expected_attempts,
@@ -198,6 +199,8 @@ def pooled_block(stream: pd.DataFrame, contracts: int, label: str,
         f"  Evaluations blown / passed      {stats['blowups']} / {stats['passes']}",
         f"  Pass probability                {fmt_pct(sim.pass_probability)}"
         f"   (95% CI {fmt_pct(sim.ci_low)} - {fmt_pct(sim.ci_high)})",
+        f"  Payout probability              {fmt_pct(sim.payout_probability)}"
+        f"   (touched ${rules.PAYOUT_BALANCE:,.0f} before the trail)",
         f"  Blow-up / timeout               {fmt_pct(sim.blowup_probability)} / "
         f"{fmt_pct(sim.timeout_probability)}",
         f"  Expected attempts to pass       {sim.expected_attempts:.2f}",

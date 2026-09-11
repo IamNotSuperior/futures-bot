@@ -401,6 +401,7 @@ def run_evalsim(name: str, paths: int = 20_000) -> dict:
         "Mean day": f"${daily.mean():,.2f}",
         "Day sd": f"${daily.std(ddof=1):,.2f}",
         "Pass probability": f"{result.pass_probability:.2%}",
+        "Payout probability": f"{result.payout_probability:.2%}",
         "95% CI": f"{result.ci_low:.2%} - {result.ci_high:.2%}",
         "Blow-up probability": f"{result.blowup_probability:.2%}",
         "Ran out of time": f"{result.timeout_probability:.2%}",

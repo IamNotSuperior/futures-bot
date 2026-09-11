@@ -480,6 +480,36 @@ class TestScoredSpan:
         assert "| Scored span | 2020-01-01 .. 2026-08-31" in block
         assert "indicator history only" in block
 
+    def test_the_verdict_block_reports_the_payout_milestone(self):
+        """The $52,100 payout probability sits directly under the pass figure."""
+        import pandas as pd
+        from datetime import date
+
+        import run_generated
+
+        result = run_generated.WalkforwardResult(
+            name="x", folds=pd.DataFrame({"test_net_pnl": [1.0] * 7}),
+            trades=pd.DataFrame({"net_pnl": [10.0]}),
+            metrics={"sharpe": 1.0, "profit_factor": 1.5, "max_drawdown": -10.0,
+                     "max_daily_loss": -5.0, "avg_duration_seconds": 600.0,
+                     "microscalp_profit_pct": 0.0},
+            pass_probability=0.3, payout_probability=0.45, blowups=0,
+            profitable_folds=5, accepted=True, reasons=[], contracts=1,
+            size_note="1", span=(date(2020, 1, 1), date(2026, 8, 31)))
+        block = run_generated.verdict_block(result, 9)
+        pass_row = "| Pass probability | 30.00% |"
+        payout_row = "| Payout probability | 45.00% |"
+        assert pass_row in block and payout_row in block
+        assert block.index(payout_row) > block.index(pass_row)
+
+    def test_the_embed_reports_the_payout_milestone(self):
+        import inspect
+
+        import research
+
+        source = inspect.getsource(research._run_generated_walkforward)
+        assert '"Payout probability": f"{result.payout_probability:.2%}"' in source
+
 
 class TestCleanLogGuard:
     """The bot only ever commits its own append.

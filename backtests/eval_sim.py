@@ -3,7 +3,10 @@
 Given a trade-level P&L distribution, resample trade sequences and estimate:
 
   * the probability of reaching the profit target before the end-of-day
-    trailing drawdown ends the account, and
+    trailing drawdown ends the account,
+  * the probability of touching the payout line first - the balance at which
+    a withdrawal becomes possible, reported alongside the pass and never
+    below it, since the line sits under the target - and
   * how many paid attempts it takes, in expectation, to pass once.
 
 Why resample rather than read the backtest's single path
@@ -57,6 +60,9 @@ class EvalConfig:
     profit_target: float = rules.PROFIT_TARGET
     trailing_drawdown: float = rules.FIRM.max_trailing_drawdown
     daily_loss_limit: float = rules.DAILY_LOSS_LIMIT
+    #: The payout milestone: a balance this far above the start is the first
+    #: point a withdrawal is possible. Reported, never enforced.
+    payout_buffer: float = rules.FIRM.payout_buffer
     attempt_cost: float = DEFAULT_ATTEMPT_COST
     max_days: int = DEFAULT_MAX_DAYS
 
@@ -72,6 +78,12 @@ class SimResult:
     mean_final_balance: float
     ci_low: float
     ci_high: float
+    #: Share of paths whose end-of-day balance touched the payout line before
+    #: the trailing drawdown ended the account. A touch, not a survival: a path
+    #: that reaches it and is later ended still counts. Never below
+    #: ``pass_probability``, because the line sits below the target.
+    payout_probability: float = float("nan")
+    median_days_to_payout: float = float("nan")
 
     @property
     def expected_cost_to_pass(self) -> float:
@@ -113,9 +125,12 @@ def simulate(
     peak = np.full(paths, config.starting_balance)
     status = np.zeros(paths, dtype=np.int8)  # 0 running, 1 passed, -1 blown
     days_taken = np.full(paths, config.max_days, dtype=int)
+    paid = np.zeros(paths, dtype=bool)
+    days_to_payout = np.full(paths, config.max_days, dtype=int)
 
     floor_gap = config.trailing_drawdown
     target_balance = config.starting_balance + config.profit_target
+    payout_balance = config.starting_balance + config.payout_buffer
 
     for day in range(config.max_days):
         live = status == 0
@@ -128,6 +143,13 @@ def simulate(
         blown = live & ((peak - balance) >= floor_gap)
         passed = live & ~blown & (balance >= target_balance)
 
+        # The payout milestone is a touch on a live account. It does not end
+        # the path - the evaluation carries on to pass, blow up or time out -
+        # so both figures are measured on the same resampled days.
+        reached = live & ~blown & ~paid & (balance >= payout_balance)
+        paid[reached] = True
+        days_to_payout[reached] = day + 1
+
         status[blown] = -1
         days_taken[blown] = day + 1
         status[passed] = 1
@@ -139,6 +161,7 @@ def simulate(
     passes = int((status == 1).sum())
     blown_n = int((status == -1).sum())
     timeouts = paths - passes - blown_n
+    paid_n = int(paid.sum())
 
     p = passes / paths
     # Wilson-free normal approximation is fine at these path counts.
@@ -156,6 +179,10 @@ def simulate(
         mean_final_balance=float(balance.mean()),
         ci_low=max(0.0, p - 1.96 * se),
         ci_high=min(1.0, p + 1.96 * se),
+        payout_probability=paid_n / paths,
+        median_days_to_payout=(
+            float(np.median(days_to_payout[paid])) if paid_n else float("nan")
+        ),
     )
 
 
@@ -192,11 +219,16 @@ def format_result(result: SimResult, daily_pnl: np.ndarray,
         f"  Target                     +${config.profit_target:,.0f}",
         f"  Trailing drawdown          -${config.trailing_drawdown:,.0f} "
         f"(end-of-day, from peak)",
+        f"  Payout line                +${config.payout_buffer:,.0f} "
+        f"(balance ${config.starting_balance + config.payout_buffer:,.0f}; "
+        f"${rules.FIRM.min_payout:,.0f} minimum withdrawal)",
         f"  Horizon                    {config.max_days} trading days",
         f"  Paths                      {result.paths:,}",
         "",
         f"  PASS probability           {result.pass_probability:>10.2%}   "
         f"95% CI [{result.ci_low:.2%}, {result.ci_high:.2%}]",
+        f"  PAYOUT probability         {result.payout_probability:>10.2%}   "
+        f"touched the payout line before the trail; never below PASS",
         f"  Blow-up probability        {result.blowup_probability:>10.2%}",
         f"  Ran out of time            {result.timeout_probability:>10.2%}",
         "",
@@ -206,6 +238,7 @@ def format_result(result: SimResult, daily_pnl: np.ndarray,
         if np.isfinite(result.expected_attempts) else
         "  Expected cost              never passes in this model",
         f"  Median days to pass        {result.median_days_to_pass:>10.0f}",
+        f"  Median days to payout      {result.median_days_to_payout:>10.0f}",
     ]
     out.append(line)
     return "\n".join(out)

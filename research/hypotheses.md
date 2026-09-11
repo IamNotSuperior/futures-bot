@@ -1419,6 +1419,37 @@ If any of this is ever pursued it gets a new entry with its own mechanism,
 counterparty, kill criteria and grid, written before anything further is run —
 not an extension of this one.
 
+### Addendum, 2026-09-11 — payout probability, from the saved streams
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** `backtests/eval_sim.py` now reports, alongside the $3,000 pass
+probability, the probability that a path's end-of-day balance touches
+**$52,100** — the Lucid 50K account's payout line, $2,100 over the start with
+a $500 minimum withdrawal (`rules.FIRM.payout_buffer`, `rules.PAYOUT_BALANCE`)
+— before the $2,000 trail ends the account, within the same 250-day horizon
+and on the same resampled days. Reaching the line does not end a path, and
+because it sits below the target every passing path has touched it first, so
+the figure is never below the pass probability. It is a milestone, not a
+criterion: nothing in this entry keys on it.
+
+Recomputed with `run_orb2.py --from-cache` from the saved out-of-sample
+streams. Every other line of both reports came out identical to the saved
+ones; the payout row is the only difference.
+
+| Pooled OOS 2020–2026, 4 contracts | ON, 1 tick | OFF, 1 tick | ON, 2 ticks | OFF, 2 ticks |
+|---|---|---|---|---|
+| Pass probability (as recorded) | 16.11% | 15.86% | 8.40% | 8.36% |
+| **Payout probability** | **27.31%** | **27.04%** | **17.14%** | **16.73%** |
+
+At 1 contract, where the pass probability rounds to zero, the payout line is
+touched on 1.05% (ON) and 0.93% (OFF) of paths at 1 tick, 0.18% and 0.16% at 2.
+
+Roughly six in ten of the 4-contract paths that reach $52,100 go on to reach
+the target; the other four are ended by the trail, or run out of horizon, in
+the $900 between the two lines. That gap is the whole difference between the
+two figures, and neither is close to the 25% the kill criterion asked of the
+pass probability.
+
 
 ---
 
@@ -1823,6 +1854,30 @@ decision this log cannot make. What it can record is that the script's own
 guards stopped the equivalent backtest in 2020, that its unguarded seven-year
 result is −$11,780 at 1 tick and −$16,560 at 2, and that its gross expectancy
 before costs is negative.
+
+### Addendum, 2026-09-11 — payout probability, both bases
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** The simulator now reports the probability of touching the **$52,100**
+payout line before the trail, alongside the pass probability — see entry 4's
+addendum of the same date for the definition. `run_orb_flat.py` regenerates
+its signals rather than reading a cache, and both reports came out identical
+to the saved ones apart from the added row, which is also the check that the
+re-run reproduced the verdict.
+
+| Seven years, 4 contracts | Halt ON, 1 tick | Halt OFF, 1 tick | Halt ON, 2 ticks | Halt OFF, 2 ticks |
+|---|---|---|---|---|
+| Trades | 45 | 478 | 33 | 478 |
+| Pass probability (as recorded) | 0.00% | 0.22% | 0.00% | 0.02% |
+| **Payout probability** | **0.01%** | **1.29%** | **0.00%** | **0.29%** |
+
+Two-year window, 1 tick: halt ON 0.75% (pass 0.13%), halt OFF 0.83% (pass
+0.12%). At 2 ticks: 0.52% and 0.21%.
+
+With a seven-year mean day between −$25 and −$49 on every basis, reaching
+$2,100 over the start is a tail event, and the payout figure says the same thing the pass
+figure did with one more decimal place. Recorded so the entry carries the
+milestone every later verdict reports.
 
 ---
 

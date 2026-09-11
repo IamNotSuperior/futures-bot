@@ -129,6 +129,38 @@ class TestFlattenAtNextOpen:
         assert len(entries) == 1 and entries[0].time() == time(10, 29)
 
 
+class TestPayoutInTheReport:
+    """Entry 5's window stats carry the payout milestone next to the pass."""
+
+    def _priced(self):
+        raw = pd.DataFrame([
+            {"entry_time": pd.Timestamp(f"2025-07-{d:02d} 09:46", tz=ET),
+             "exit_time": pd.Timestamp(f"2025-07-{d:02d} 10:30", tz=ET),
+             "direction": "long", "entry_price": 100.0,
+             "exit_price": 100.0 + move, "exit_reason": "session_end"}
+            for d, move in ((14, 2.0), (15, -1.0), (16, 3.0), (17, -2.0))
+        ])
+        return price_trades(raw, MES, CostModel(), 4)
+
+    def test_window_stats_carry_the_payout_probability(self):
+        from run_orb_flat import window_stats
+
+        stats = window_stats(self._priced(), "fixture", paths=200)
+        assert "payout_probability" in stats
+        assert 0.0 <= stats["payout_probability"] <= 1.0
+        assert stats["payout_probability"] >= stats["pass_probability"]
+
+    def test_side_by_side_prints_payout_under_pass(self):
+        from run_orb_flat import side_by_side, window_stats
+
+        a = window_stats(self._priced(), "A", paths=200)
+        b = window_stats(self._priced(), "B", paths=200)
+        text = side_by_side(a, b)
+        assert "Pass probability" in text
+        assert "Payout probability" in text
+        assert text.index("Payout probability") > text.index("Pass probability")
+
+
 class TestTrailingDrawdownHalt:
     def _trades(self, pnls, start=date(2025, 7, 14)):
         return pd.DataFrame([

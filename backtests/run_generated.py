@@ -81,6 +81,10 @@ class WalkforwardResult:
     contracts: int = 1
     size_note: str = ""
     span: tuple = ()
+    #: Probability of touching the payout line ($52,100) before the trail.
+    #: NaN rather than zero when unset, so a missing figure cannot read as a
+    #: plausible one.
+    payout_probability: float = float("nan")
 
     @property
     def net_pnl(self) -> float:
@@ -218,6 +222,7 @@ def run(name: str, class_path: str, symbol: str = "MES",
         profitable_folds=profitable, accepted=not reasons, reasons=reasons,
         contracts=contracts, size_note=size_note,
         span=(SCORE_START, data_end),
+        payout_probability=sim.payout_probability,
     )
 
 
@@ -254,6 +259,7 @@ def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
         f"| Profit from <=5s holds | "
         f"{result.metrics.get('microscalp_profit_pct', 0.0):.2f}% |",
         f"| Pass probability | {result.pass_probability:.2%} |",
+        f"| Payout probability | {result.payout_probability:.2%} |",
         f"| Evaluations blown | {result.blowups} |",
         "",
     ]
