@@ -4095,6 +4095,71 @@ In-sample results are never evidence, and this is the out-of-sample answer on bo
 
 **Verdict commit:** `82006bf`
 
+### Addendum, 2026-09-11 — attribution like-for-like, and the sample the halt left the z test
+
+Added after the verdict; **the verdict is unchanged and this does not reopen
+it.** Two things the frozen block does not say properly.
+
+**1. Criterion 5's attribution, like-for-like.** The block compared the three
+streams on the standard basis, and each stream's trailing halt fired on its own
+date — the 15:55 stream after 117 MES trades, the 09:25 stop-sized stream after
+185 — so the differences mixed truncation with the effect being attributed.
+Recomputed on the comparable (halt-OFF) basis at the base case, where the 15:55
+and 09:25 stop-sized streams take **identical entries at identical sizes**
+(checked), so A − B is purely the exit. C is entry 6's rule at these costs and
+reproduces entry 6's and entry 7's re-priced figures exactly.
+
+| Halt OFF, 2 ticks, $0.50 | MES | MNQ |
+|---|---|---|
+| A: 15:55, stop sizing | −$2,583.25 over 669 (342 targets / 276 stops / 51 flattens) | −$505.00 over 406 (211 / 176 / 19) |
+| B: 09:25, stop sizing | −$4,712.00 over 669 (195 / 143 / 331) | −$669.50 over 406 (124 / 94 / 188) |
+| C: 09:25, range sizing — entry 6 | −$5,386.50 over 686 | +$1,085.00 over 438 |
+| **Extended hold, A − B** | **+$2,128.75** | **+$164.50** |
+| **Sizing change, B − C** | **+$674.50** | **−$1,754.50** |
+| Total, A − C | +$2,803.25 | −$1,590.00 |
+
+The extended hold is worth $2,129 on MES and $165 on MNQ, and neither arm is
+profitable with it. **What it did to the target share is the finding.** On MES
+the 280 trades that 09:25 had flattened resolved at 147 targets to 133 stops —
+**52.5%, the benchmark rate** — and pulled the pooled share from 57.69% to
+55.34%, under the 56.30% realised break-even. On MNQ the 169 newly resolved
+trades went 87 to 82, **51.5%**, pulling the share from 56.88% to 54.52%,
+exactly at the 54.53% break-even. **Prediction 2 held on both instruments: the
+trades the US session resolved resolved like a driftless process, and the
+departure shrank.** Entry 6's bracket edge lived in the trades that resolved
+quickly; giving the rest all day did not add to it. The exit was not hiding an
+edge.
+
+On MNQ the sizing change cost $1,755. Realised-stop sizing skips 32 sessions
+whose one-contract stop is over budget and sizes smaller wherever the overshoot
+is large — and MNQ's overshoot (median 3.88 points, mean 4.93) is four times
+MES's. That, not the exit, is most of the distance between entry 7's +$1,085 and
+this entry's −$505; it is the corrected rule pricing risk entry 6's rule ignored.
+
+**2. The sample the halt left the z test.** The entry pre-registered criterion 3
+on the guarded stream, and its power arithmetic assumed roughly 650 resolved
+trades on MES and 420 on MNQ. The trailing halt ended both streams in their
+second year — 552 MES sessions and 282 MNQ sessions blocked — leaving **87 and
+112 resolved trades**. At those sizes the standard error of the share is about
+5.4 and 4.7 points, so z = 2.5 needed a departure of roughly **+13 and +12
+points**, three times the effect the entry was written to detect. Criterion 3
+was therefore close to unpassable for any effect this log has ever measured.
+**That is a property of the pre-registration, not a reason to revise the
+verdict** — the entry chose the guarded stream and the halt did what it is for.
+Recorded so that the next entry combining a trailing halt with a share test
+states which stream the test runs on and what sample the halt will leave it.
+On the unhalted streams the observed shares are 55.34% (MES) and 54.52% (MNQ);
+no benchmark was bootstrapped for those streams and no z is claimed for them.
+
+**What this closes.** Entry 6's Next section said the exit, not the entry, was
+the one thing worth carrying forward. It has now been carried forward, on both
+instruments, with the bar raised for the bias, and it did not pay: the
+unresolved half of the bracket resolves at the driftless rate when given the
+day. **The London family is closed again, and this time on the exit as well as
+the entry.** No further flatten time, no further instrument. Entry 1's condition
+— order-flow evidence about who takes the other side of a range break — remains
+the only route back for any breakout idea.
+
 ## Template for new entries
 
 ```
