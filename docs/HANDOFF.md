@@ -13,7 +13,7 @@ why). Read those three first; this is the delta.
 
 **Branch** `master`, tracking `origin/master` at
 <https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
-**1,093 tests pass**, 2 skipped (a symlink test the OS refuses, and one
+**1,111 tests pass**, 2 skipped (a symlink test the OS refuses, and one
 that needs an orphaned generated module on disk, of which there is none) —
 
 ```powershell
@@ -27,8 +27,7 @@ strategy's own generated test (§5).
 
 **Working tree is clean.**
 
-**Ten hypothesis entries. Eight rejected, two open:** entry 3, untouched, and
-entry 10, built and awaiting the operator's go for its first real run (§2).
+**Ten hypothesis entries. Nine rejected, one open and untouched (entry 3).**
 No strategy has ever reached `paper`.
 
 | # | Idea | Status |
@@ -42,7 +41,7 @@ No strategy has ever reached `paper`.
 | 7 | Replication of entry 6's non-null finding, on MNQ | REJECTED (not replicated) |
 | 8 | `orborb_flat_1030` — entry 5 re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
 | 9 | `orb_full_day_test` — entry 4's OFF arm re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
-| 10 | `london_full_day` — entry 6's 1×/ON held to 15:55, MES and MNQ | **PROPOSED — frozen `fd0c5c8`, reproduction passed, 15:55 run not yet authorised** |
+| 10 | `london_full_day` — entry 6's 1×/ON held to 15:55, MES and MNQ | REJECTED (both instruments; verdict `82006bf`, see §2) |
 
 `venv\Scripts\python.exe strategies\registry.py` prints the registry; it agrees
 with the log.
@@ -126,39 +125,53 @@ both bases. Under the halt entry 9 (4 contracts) stops trading on 2020-05-29
 after 27 trades, as entry 5 did in 2020; entry 8 (1 contract) takes until
 2022-11-17 and 214 trades to lose the same $1,500. Neither resumes.
 
-### Entry 10 — built, reproduction passed, waiting for the operator's go
+### Entry 10 — REJECTED on both instruments, 2026-09-11 (verdict `82006bf`)
 
-Entry 10 is entry 6's 1×/ON London breakout held to **15:55 ET** (12:55 on
-early-close days) instead of 09:25, on **both MES and MNQ**, with the log's
-corrected realised-stop sizing. It overrides entry 7's closure of the London
-family by operator direction and says so; it is informed by entry 6's post-hoc
-exit-reason finding and says that too, which is why its bar sits above the
-effect that motivated it: pooled pass probability ≥ 35% and z ≥ 2.5 against
-the finite-horizon bootstrap benchmark recomputed for the 15:55 horizon, at 2
-ticks, on both instruments, plus rule 13. Frozen at `fd0c5c8` before any code.
+Entry 6's 1×/ON London breakout held to **15:55 ET** (12:55 on early-close
+days) instead of 09:25, on **both MES and MNQ**, with the log's corrected
+realised-stop sizing. It overrode entry 7's closure of the London family by
+operator direction and said so; it was informed by entry 6's post-hoc
+exit-reason finding and said that too, which is why its bar sat above the
+effect that motivated it: pooled pass probability ≥ 35%, z ≥ 2.5 against the
+bootstrap benchmark recomputed for the 15:55 horizon, departure ≥ +2 points,
+plus rule 13, at 2 ticks, every line on both instruments. Frozen at `fd0c5c8`
+before any code; reproduction of entries 6 and 7 trade for trade at `3ff81fe`;
+verdict written into the entry and committed before anyone read it.
 
-**What exists.** `strategies/london.py` gained three parameters whose defaults
-are entry 6's, so entries 6 and 7 are untouched: `flatten_time` now labels its
-exit by time (`flatten_1555`), `early_close_flatten_time` (rule 2's deadline
-is the backstop when unset), and `size_on="stop"` — `floor(min($200, daily
-loss limit) / (stop_distance × point_value))`, skipping the session when one
-contract is over budget. `backtests/run_entry10.py` carries the frozen
-parameter sets and **only** the reproduction mode. `registry.yaml` has
-`london_full_day` at `proposed`.
+**Result.** MES failed all four criteria (0 of 7 folds, −$1,298; 1.29% pass;
+z +0.35; +1.89 points). MNQ passed the pass probability (50.82%) and the
+departure (+5.47) and failed rule 13 (1 of 7, +$1,239) and z (+1.16). Three
+findings, all in the entry's 2026-09-11 addendum:
 
-**The reproduction check (the entry's test 9) passed on both instruments,
-2026-09-11:** the new code at 09:25, $1.25 and range-based sizing reproduced
-entry 6's MES stream (686 trades, −$7,702.50) and entry 7's MNQ stream (438,
-+$116.00) **trade for trade** on entry and exit time, direction, prices, exit
-reason, size and net P&L. Output in `backtests/results/entry10_reproduction_*.csv`.
+- **The exit was not hiding an edge.** Like-for-like on the unhalted streams,
+  the extended hold is worth $2,129 on MES and $165 on MNQ, and the trades the
+  US session resolved did so at the driftless rate — 52.5% on MES, 51.5% on
+  MNQ — pulling the pooled target share under break-even. Prediction 2 held.
+- **The trailing halt left the z test almost no sample.** It ended both guarded
+  streams in year two (552 and 282 sessions blocked), leaving 87 and 112
+  resolved trades where the entry's power arithmetic assumed ~650 and ~420, so
+  z = 2.5 needed +13 points. A property of the pre-registration, not a reason
+  to revise anything; the next entry that combines a halt with a share test
+  must say which stream the test runs on.
+- **On MNQ the corrected sizing rule cost $1,755 against entry 6's**, because
+  MNQ's overshoot is four times MES's and the rule prices it.
 
-**What does not exist, on purpose: the 15:55 run.** The operator asked for the
-reproduction first and a stop before any 15:55 number is produced. The next
-session adds that mode to `run_entry10.py` — both guards via
-`engine.apply_internal_guards`, the halt-OFF basis alongside, `fold_frame`,
-`eval_sim`, the bootstrap at the 15:55 horizon with early-close days truncated
-at 12:55 — and writes the verdict into entry 10 and commits it **before**
-anyone sees a number, as every verdict in this log has been.
+**The London family is closed again, on the exit as well as the entry.** Entry
+1's condition — order-flow evidence about the counterparty — remains the only
+route back for any breakout idea.
+
+**Code that exists.** `strategies/london.py` gained three parameters whose
+defaults are entry 6's, so entries 6 and 7 are untouched: `flatten_time` labels
+its exit by time (`flatten_1555`), `early_close_flatten_time` (rule 2's
+deadline is the backstop when unset), and `size_on="stop"`.
+`backtests/run_entry10.py --reproduce` is the reproduction check;
+`--run` is the 15:55 test (both guards as the two engine functions
+`apply_internal_guards` composes, applied per size group; halt-OFF alongside;
+1 and 3 ticks as sensitivities; the bootstrap at the 15:55 horizon with
+early-close days truncated at 12:55; the verdict block to
+`backtests/results/entry10_verdict.md`). Streams and folds are in
+`backtests/results/entry10_*`; the bot's `london_full_day` runner reads the
+MES base case.
 
 **The sandbox is two layers.** `safe_write` confines writes to
 `strategies/generated/` and `tests/generated/`, resolving before comparing so
