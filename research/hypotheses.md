@@ -4160,6 +4160,313 @@ the entry.** No further flatten time, no further instrument. Entry 1's condition
 — order-flow evidence about who takes the other side of a range break — remains
 the only route back for any breakout idea.
 
+## 11. Turn-of-month institutional flows, intraday — PROPOSED
+
+**Date:** 2026-09-11
+**Spec frozen at:** the commit adding this entry
+**Code:** not yet written
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES, 1-minute bars, RTH only (09:30 to 15:55 ET)
+**Source:** the operator's specification, 2026-09-11, transcribed below. The
+published effect is Etula, Rinne, Suominen & Vaittinen (2020), *Dash for Cash:
+Monthly Market Impact of Institutional Liquidity Needs*.
+
+**Operator decisions, stated before this entry was frozen:** long only; the
+signal arm carries no stop because it measures drift; a second arm carries a
+15-point stop as the Lucid-safe form; 4 contracts; $0.50 a side; 1 tick a side
+is the base case because every fill is in RTH, with 2 ticks as the sensitivity;
+roll days skipped; both internal guards on the standard basis with the halt-OFF
+stream alongside; the control is the open-to-close return of every non-window
+session; yearly folds 2020–2026 with nothing selected; a power check before any
+strategy code; the per-day breakdown is reported and never selected on.
+
+### Mechanism claimed
+
+Pension funds, mutual funds and retirement plans receive contributions and pay
+obligations on a monthly schedule. The cash arrives and leaves at month
+boundaries, and the institutions that hold it deploy contributions into the
+market and raise cash for redemptions and benefit payments in the last one to
+two and the first one to three trading days of the month. That trading is
+driven by the calendar, not by price: a plan that must fund a payment on the
+first of the month sells whatever the market is offering, and a plan that
+received contributions invests them on the schedule its mandate sets. Etula,
+Rinne, Suominen and Vaittinen (2020) document the resulting turn-of-month
+pattern in equity index returns and attribute it to exactly this institutional
+liquidity cycle, with the selling pressure into month end reversing into buying
+in the first days of the new month.
+
+**Who is on the other side:** the institution meeting a dated obligation, which
+is constrained by the date and not by the price. A pension paying benefits on
+the first cannot wait for a better level; a fund investing month-start
+contributions is measured against the benchmark from the day the cash arrives
+and is penalised for holding it. Their counterparty in the market is the
+liquidity provider who absorbs the flow and is paid for it in price impact. The
+edge claimed here is to sit on the liquidity provider's side of that flow in
+the days the schedule makes it predictable. The constraint is contractual and
+calendar-bound, which puts this in the same class of counterparty claim as
+entry 2 and a different class from the breakout family, whose counterparty was
+never identified.
+
+**Stated honestly, before any data:** most of the published effect is measured
+close to close and accrues over several days, and a substantial part of any
+multi-day equity premium is overnight. The intraday open-to-close slice that
+this project's rules allow it to hold may carry none of it. This entry does not
+test whether the turn-of-month effect exists; it tests whether the part of it
+that can be captured between 09:30 and 15:55 ET, on MES, after costs, is
+distinguishable from zero. That may well be nothing, and a null here says
+nothing against the published finding.
+
+### Signal definition
+
+Fixed now, in this order, and not to be changed after any number is seen.
+
+**The trading calendar.** A trading day is a session in the bar data with a
+09:30 ET RTH bar, **excluding sessions on which the cash equity market is
+closed**. The operator specified the CME trading calendar; CME lists holiday
+Globex-only sessions (Martin Luther King Day, Presidents Day, Memorial Day,
+Juneteenth, Independence Day, Labor Day, Thanksgiving Day) as trading days with
+a 13:00 ET close, and on those days no fund flow executes because the cash
+market is shut. Counting them would shift T+1 onto a day the mechanism does
+not run; in September 2024 and 2025 Labor Day would have been T+1 or T+2.
+Those sessions are removed from the calendar. The three true half-days on which
+the cash market is open until 13:00 (the day after Thanksgiving; December 24
+when December 25 falls Tuesday to Friday; July 3 when July 4 falls Tuesday to
+Friday) **stay in the calendar** so that T+2 stays T+2, and are **skipped as
+trade days** because they have no 15:55. `loader.detect_early_close_dates`
+flags both kinds; the classification between them is by the three date rules
+above and nothing else.
+
+**Window days.** For every month boundary observed in the data: **T-1** is the
+last trading day of the month, **T+1, T+2, T+3** are the first three trading
+days of the following month. Four window days per month. A boundary is only
+labelled when both sides of it are in the data, so the first and last partial
+months of the file contribute no mislabelled days.
+
+**Trade days.** Window days that are not a roll day (`loader.detect_roll_dates`)
+and not an early-close session. Skipped window days are counted and reported.
+
+**Entry.** Long, at the open of the bar labelled 09:30 ET, on every trade day.
+Exactly one trade per session.
+
+**Exit.** At the open of the bar labelled 15:55 ET, the price as of 15:55:00,
+labelled `flatten_1555`. The exit is marked on the 15:55 bar per the
+interface convention in `strategies/base.py`, so the engine fills it at that
+bar's open, exactly as entry 10's flatten did.
+
+**Two arms, identical entries.**
+
+- **Signal arm:** no stop. Its gross points per trade *are* the session's
+  open-to-15:55 return; the engine's guards then apply to it like any other
+  stream, and the daily loss limit will flatten it on a session that falls 20
+  points at 4 contracts. This arm is reported under both guard bases; it is
+  what the trade stream of the mechanism looks like.
+- **Stop arm:** a 15-point stop below the entry fill, checked bar by bar from
+  the bar after the entry bar, filled at the stop level, stop-first. This is
+  the Lucid-safe form: 15 points at 4 contracts is $300 plus costs, inside the
+  $400 daily limit, so one trade cannot reach the daily loss limit and
+  `loss_limit_flatten` is expected never to fire on it (its count is
+  reported). Entry-bar stop breaches, where the 09:30 bar's low is already
+  through the stop, are not acted on and are counted as a diagnostic; at 15
+  points on a one-minute bar the expected count is zero.
+
+**Size.** 4 contracts, fixed. Below the 5-contract cap. Rule 4's cap is the
+engine's; nothing here restates it.
+
+**Costs.** `rules.COMMISSION_PER_SIDE` ($0.50 a side, $1.00 a round turn) and
+**1 tick a side as the base case**, because every fill in this entry is at
+09:30 or 15:55 in RTH liquidity, or at a 15-point stop level during RTH. 2
+ticks a side is the sensitivity and is where rule 13 is decided. One round
+turn per contract at the base case is $1.00 + $2.50 = $3.50, which is **0.70
+MES points**; at 2 ticks it is $6.00, 1.20 points. Both figures are computed
+from `engine.CostModel` and the MES spec in the runner, never written down.
+
+**The control.** The open-to-15:55 return, in points, of **every eligible
+non-window session** in the same span: sessions with a 09:30 bar and a 15:55
+bar, not a roll day, not an early close, not T-1 to T+3. Same instrument, same
+bars, same horizon, same exclusions. The only thing that differs between the
+window and control populations is the calendar label.
+
+**Guards.** `engine.apply_internal_guards` at 4 contracts, in its order: the
+$400 daily loss limit marked to market, then the $1,500 end-of-day trailing
+halt on the loss-limited stream. That is the standard basis. The same signals
+with the halt off are the comparable basis, reported alongside; **evaluations
+blown are read on the comparable stream**, as entries 5 and 10 established,
+because a halt that ends a stream in year one leaves nothing to blow.
+
+**Scored span.** From the first walk-forward fold's test start
+(`walkforward.build_folds()[0].test_start`, 2020-01-01) to the end of the data
+(2026-08-31), imported, not restated. Signals are generated over the whole
+file and sliced.
+
+### The walk-forward here is seven out-of-sample years, nothing selected
+
+There is no parameter grid. Every constant above is fixed by the operator's
+specification. The yearly folds of `backtests/walkforward.py` are therefore
+seven consecutive out-of-sample observations of one rule, as in entries 4, 5,
+6, 7 and 10, and "walk-forward" here means that and nothing more.
+
+### Rules compatibility
+
+Entry at 09:30 is before the 16:20 cutoff; the 15:55 exit is before the 16:30
+flatten on a normal day; early-close sessions are never traded so rule 2's
+13:00 deadline is never reached with a position open. The hold is about six
+and a half hours, so rule 6's 30-second floor and rule 7's five-second measure
+are untouched: rule 7's share must read 0.00%, and any other value is a bug.
+The trade sits entirely inside one calendar date, so `rules.session_date`
+groups it correctly for the daily loss limit. Sessions are independent, so
+generating signals over the whole history and slicing by date is exact, as
+`tests/test_scan.py` asserts for the other strategies.
+
+### Power check, run before any strategy code
+
+**Sample size guard, fixed now:** the count of eligible window sessions per
+fold year. **If any fold year 2020–2025 has fewer than 20 eligible window
+sessions, or 2026 (eight months) has fewer than 20, the entry stops here** and
+records why. The check reads calendar labels and the bar index only; it never
+computes a return, so it is a power check and not a peek. It also reports how
+many window days each exclusion removes (cash-closed holiday sessions, true
+half-days, roll days) so the calendar decision above is visible in numbers
+before any outcome is.
+
+**Power arithmetic, so the bar is understood before the run.** Roughly 48
+window days a year less exclusions gives about 300 pooled window sessions and
+about 1,350 control sessions over 2020–2026. The standard deviation of the
+MES open-to-15:55 return over this span is on the order of 25 to 40 points,
+2020 at the top of that range. At 30 points and those counts the standard
+error of the difference of means is about 1.9 points, so a Welch t of 2.0
+needs a pooled excess of roughly **3.5 to 4 points a day**, about five times
+one round turn. **The t criterion, not the cost criterion, is the binding
+one**, and an effect the size of one round turn cannot pass it at this sample.
+That is intended: an excess that clears costs but not significance is a
+pattern, not a hypothesis, and the operator set both lines.
+
+### Pre-registered tests
+
+Pooled 2020–2026, at the base case, one configuration:
+
+1. **The reproduction check, first, gating.** The signal arm's unguarded
+   one-contract trade stream, priced at zero commission and zero slippage,
+   must have exactly the eligible window sessions as its trade dates and its
+   `gross_points` must equal the bar-derived open-to-15:55 return on every one
+   of them, to floating-point tolerance. The 4-contract stream's gross P&L
+   must be exactly four times the 1-contract stream's. The stop arm's entry
+   times and entry prices must be identical to the signal arm's. **A strategy
+   that does not reproduce the returns the signal test is run on is not a
+   test of the mechanism, and the entry stops there.**
+2. **Window versus control, pre-cost:** n, mean, standard deviation and
+   median of the open-to-15:55 return in points for the window and the
+   control; the difference of means; Welch's t and its one-sided p, window
+   greater than control.
+3. **Per year, the same**, 2020 to 2026, and whether the window mean exceeds
+   the control mean in that year.
+4. **Per window day, T-1, T+1, T+2, T+3:** n, mean, standard deviation,
+   difference against the control and its t. **Reported, never selected on**:
+   the criteria below use the pooled four-day window and nothing else.
+5. **Both arms, both guard bases, 4 contracts, at 1 tick:** trades, net P&L,
+   mean per trade, folds profitable, Sharpe, profit factor, max drawdown, exit
+   reasons, `eval_sim` pass and payout probability, evaluations blown on the
+   comparable stream, sessions blocked by the halt, daily-loss flattens, and
+   every rule 11 figure: max daily loss, worst day as a percentage of total
+   profit, best day as a percentage of total profit, average trade duration,
+   and the share of profit from trades held five seconds or less.
+6. **Everything in 5 repeated at 2 ticks.**
+7. **Diagnostics:** window days skipped as early-close or roll sessions, by
+   year; entry-bar stop breaches on the stop arm; `loss_limit_flatten` counts
+   on both arms.
+
+### Kill criteria — decided now
+
+Any **one** failure kills the entry. Criteria 1 and 2 are the mechanism test
+on pre-cost returns, in the manner entry 2 established for a calendar effect;
+3 and 4 are the account test on the stop arm; 5 is CLAUDE.md's standing
+standard.
+
+1. **Pooled excess and significance.** The window mean open-to-15:55 return
+   minus the control mean, pre-cost, in points, must exceed **one round turn
+   per contract at the base case** (0.70 points, computed from the cost
+   model), **and** Welch's t for the difference must be **at least 2.0**.
+   Either shortfall fails.
+2. **Window beats control in at least 4 of 7 years**, on the yearly means of
+   test 3.
+3. **Stop arm, standard (guarded) stream, 1 tick: `eval_sim` pass probability
+   at least 25%.** Entry 10 recorded that a trailing halt truncates the sample
+   a pooled test runs on; the stream this criterion runs on is therefore
+   named here, and the number of trading days the halt left it is reported
+   beside the figure. The comparable stream's pass probability is reported
+   alongside and decides nothing.
+4. **Stop arm, comparable (halt-OFF) stream, 1 tick: evaluations blown at
+   most 1**, by `engine.count_evaluation_blowups` against the firm's $2,000
+   line.
+5. **Rule 13 on the stop arm, standard stream: profitable in at least 4 of 7
+   folds and positive total P&L after commission and slippage, at 1 tick and
+   at 2 ticks.** *This criterion is not in the operator's list of 2026-09-11.
+   It is added because CLAUDE.md rule 13 is the acceptance standard for every
+   strategy in this repository and an entry cannot opt out of it; the log
+   says so here rather than applying it silently.*
+
+No appeal, no second stop distance, no short arm, no different window, no
+different exit time, no selection on the per-day breakdown. If the per-day
+table shows one day carrying the whole effect, that is a finding for the
+*What was learned* section and a different entry with a different mechanism,
+not a re-run of this one.
+
+### Prediction on record
+
+Nothing below has been computed. No return has been inspected.
+
+1. **The pooled intraday excess is small and below one round turn:** between
+   −1 and +1 point a day, so criterion 1 fails on the cost line and on the t
+   line together. The published effect is close to close and multi-day; the
+   09:30-to-15:55 slice of it, on an index future in 2020–2026, is expected to
+   be inside the noise.
+2. **If any excess is present it concentrates on T-1 and T+1**, the days
+   nearest the boundary, with T+2 and T+3 near zero. Reported, not acted on.
+3. **Criterion 2 lands at 3 or 4 of 7**, the coin-flip range, because yearly
+   means over roughly 44 sessions each have standard errors of 4 to 6 points
+   and the true excess is smaller than that.
+4. **The stop arm is near break-even before costs and negative after**, with
+   pass probability under 25% and 1 to 2 evaluations blown on the halt-OFF
+   stream at 4 contracts; the trailing halt is likely to fire at least once
+   in 2020 or 2022 on a stream whose daily standard deviation at 4 contracts
+   is around $600.
+5. **The signal arm under the daily loss limit flattens on some sessions**,
+   since a 20-point open-to-close drop is routine in 2020 and 2022; the
+   count is reported and is not evidence of anything.
+
+**What would falsify the pessimism:** criteria 1 through 5 all passing. The
+diagnostic pair is 1 and 2: an excess above the cost line with t above 2.0 in
+a majority of years would say the intraday slice is real; anything less says
+the operator's own prior held.
+
+**Prior for survival: low.** The counterparty is well named and well
+constrained, which is why the entry is worth writing; the claimed effect is
+being measured in the part of the day where it is least expected to live.
+
+### Data and cost
+
+`data/mes_v_0_ohlcv_1m_2019-05_2026-08.parquet`, 2019-05-05 to 2026-08-31,
+already on disk and validated in entries 1 to 10. **No data purchase.** The
+run is a single pass over the sessions plus two `eval_sim` calls per basis per
+cost level; minutes, not hours. MNQ is not tested: the operator specified MES.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged and repeated because it governs how any accepted result would be
+used. Copying identical trades across N funded accounts multiplies outcomes in
+both directions and is not diversification: the same losing day draws down
+every account at once and a trailing-drawdown breach terminates all of them on
+the same date. It is one bet at N times the size with N times the fees.
+
+### Verdict
+
+Not yet run. To be filled in after the run, with the commit hash recorded in a
+follow-up commit. If ACCEPTED, the verdict must carry on its first line that
+the effect was measured on the intraday slice only and that its cost basis
+rests on a slippage assumption no backtest can measure.
+
+---
+
 ## Template for new entries
 
 ```
