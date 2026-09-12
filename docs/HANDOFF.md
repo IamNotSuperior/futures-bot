@@ -1,6 +1,7 @@
 # Handoff
 
-Rewritten 2026-09-09. For a session starting fresh on this repository.
+Rewritten 2026-09-11, at the end of the session that closed entry 10. For a
+session starting fresh on this repository.
 
 This file holds only what is **not** already in `CLAUDE.md` (the hard rules and
 the firm/internal limit table), `README.md` (structure, how to run things, the
@@ -13,35 +14,61 @@ why). Read those three first; this is the delta.
 
 **Branch** `master`, tracking `origin/master` at
 <https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
-**1,111 tests pass**, 2 skipped (a symlink test the OS refuses, and one
-that needs an orphaned generated module on disk, of which there is none) —
+**1,111 tests pass**, 2 skipped (a symlink test the OS refuses, and one that
+needs an orphaned generated module on disk, of which there is none) —
 
 ```powershell
 venv\Scripts\python.exe -m pytest tests\ -q
 ```
 
-about two minutes. Both generated strategies and their generated tests are
-tracked and pass, so the plain command is the whole contract now; the
-`/submit` pipeline runs a subset of it — the base suite plus the submitting
-strategy's own generated test (§5).
+about two minutes. The plain command is the whole contract; the `/submit`
+pipeline runs a subset of it — the base suite plus the submitting strategy's
+own generated test (§5). **Working tree is clean.**
 
-**Working tree is clean.**
+### The research
 
-**Ten hypothesis entries. Nine rejected, one open and untouched (entry 3).**
-No strategy has ever reached `paper`.
+**Ten hypothesis entries. Nine rejected. Entry 3 is open with zero trades
+logged.** No strategy has ever reached `paper`.
 
 | # | Idea | Status |
 |---|---|---|
 | 1 | Opening Range Breakout | REJECTED |
-| 2 | Leveraged ETF end-of-day rebalance drift | REJECTED |
+| 2 | Leveraged ETF end-of-day rebalance drift | REJECTED — on its mechanism test |
 | 3 | Manual discretionary trading | **PROPOSED — open, zero trades logged** |
 | 4 | ORB-2, fixed bracket with a daily trend filter | REJECTED |
 | 5 | ORB flat by 10:30 | REJECTED |
 | 6 | London breakout of the overnight range | REJECTED |
 | 7 | Replication of entry 6's non-null finding, on MNQ | REJECTED (not replicated) |
-| 8 | `orborb_flat_1030` — entry 5 re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
-| 9 | `orb_full_day_test` — entry 4's OFF arm re-submitted through `/submit` | REJECTED (pipeline validation, see §2) |
-| 10 | `london_full_day` — entry 6's 1×/ON held to 15:55, MES and MNQ | REJECTED (both instruments; verdict `82006bf`, see §2) |
+| 8 | `orborb_flat_1030` — entry 5 re-submitted through `/submit` | REJECTED (pipeline validation) |
+| 9 | `orb_full_day_test` — entry 4's OFF arm re-submitted through `/submit` | REJECTED (pipeline validation) |
+| 10 | `london_full_day` — entry 6's 1×/ON held to 15:55, MES and MNQ | REJECTED, both instruments (verdict `82006bf`) |
+
+**The breakout family — entries 1, 4, 5, 6, 7, 8, 9 and 10 — is closed on entry
+and on exit.** Eight entries tested breakout continuation across two sessions,
+two instruments, three signal definitions, five holding periods, two benchmarks
+and two implementations. Entry 10 took the one question entry 6 left open, the
+exit, and answered it: the trades the US session resolves resolve at the
+driftless rate, and the departure shrinks. **Entry 1's order-flow condition is
+the only route back** — evidence about who takes the other side of a range
+break and under what constraint. That is a data purchase, not a backtest, and
+it is priced before it is started or not started.
+
+**Entry 2 died on its mechanism test, and still does.** At the corrected
+commission it passes two of its three criteria (4 of 7 folds profitable; median
+fold Sharpe +0.523 against a 0.30 line) and fails the third: the effect size
+does not rise with the threshold — Spearman −1.000 on pre-cost returns, the
+exact opposite of the prediction. That criterion does not depend on costs and
+is the one that tests the claimed mechanism. It is the right one to have died
+on, and the log says so in the entry's 2026-09-11 addendum.
+
+**Every verdict is now scored at $0.50 a side** — `rules.COMMISSION_PER_SIDE`,
+confirmed by Lucid support (article 11508978). The $1.25 every verdict before
+2026-09-11 carried is `rules.ASSUMED_COMMISSION_PER_SIDE`, and any earlier run
+reproduces with `--commission 1.25` on its runner. The correction moved every
+entry's margin and flipped no verdict (§3.2, §5). **Slippage is now the
+dominant cost term and is unmeasured:** $2.50 of a $3.50 round turn at one tick
+on MES, $5.00 of $6.00 at rule 13's two-tick bar. It can only be measured on a
+live account, fill by fill (§3.10).
 
 `venv\Scripts\python.exe strategies\registry.py` prints the registry; it agrees
 with the log.
@@ -55,10 +82,15 @@ recreate** — do not delete them casually.
   2019-05-05 to 2026-08-31.
 - `data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet` — 44.6 MB, same span. Pulled
   for entry 7 at **$9.4256**.
-- `backtests/results/*` — 70 files: scan CSVs, walk-forward fold tables, trade
-  streams, reports, charts. Regenerable; the ORB walk-forward takes ~55 minutes,
-  entry 6 about 20. The London and entry 7 fold tables rebuild in seconds with
-  `--folds-only`.
+- `backtests/results/*` — 102 files: scan CSVs, walk-forward fold tables, trade
+  streams, reports, charts, and 26 `entry10_*` files (the verdict block, both
+  bases at three slippage levels, folds, the attribution streams, the
+  reproduction outputs). All regenerable: the ORB walk-forward takes ~55
+  minutes, entry 6 about 20, entry 10's full run about an hour (the two
+  bootstraps are most of it). The London and entry 7 fold tables rebuild in
+  seconds with `--folds-only`. **Generated and hand-built streams in this
+  directory are now priced at $0.50**; `--commission 1.25` regenerates the
+  $1.25 ones the frozen verdicts cite.
 - `.env` — five keys: `DATABENTO_API_KEY`, `DISCORD_TOKEN`,
   `DESK_WEBHOOK_TOKEN`, `DESK_OWNER_ID`, `ANTHROPIC_API_KEY`. All set. Ignored
   at `.gitignore:2`; `.env.example` documents each.
@@ -77,13 +109,72 @@ above `--max-cost`, default $10.
 
 ## 2. What exists that is worth knowing about
 
-### The `/submit` pipeline — validated on one known verdict, one pending
+### Infrastructure, one paragraph each
 
-Strategies now arrive through Discord. `bots/submissions.py` is the pipeline;
-`bots/generate.py` calls the Claude API (`claude-opus-5`, streaming, adaptive
-thinking); `bots/sandbox.py` is what generated code may write and contain;
-`bots/submit_view.py` is the modal and approval buttons;
-`backtests/run_generated.py` is the walk-forward that actually runs.
+**The desk bot is in shadow mode.** `bots/desk.py` was built 2026-09-06 as a
+deliberate pre-gate exception to test plumbing. The only strategy it runs is
+**`orb2`, which entry 4 REJECTED** — a shadow ticket must never be mistakable
+for a result. `shadow:` in `registry.yaml` is a list of names, not a status;
+`Registry.promote` never reads it. Tickets go to `journal/shadow_trades.jsonl`,
+never `trades.jsonl`, so entry 3's count is untouched. Ticket embeds carry
+**Execute / Don't trade** buttons, owner only; presses go to
+`journal/decisions.jsonl` as the operator's record and are **reported by
+`review.py`, not counted toward entry 3**. Execute is disabled and refused for
+anything below `paper`/`live`. The desk reuses rather than reimplements:
+`tickets.evaluate_signal` calls `pretrade.evaluate` and `tests/test_desk_rules.py`
+asserts the decisions match check-for-check. Discord is required
+(`DESK_CHANNEL_NAME`, default `general`); a missing channel or token is fatal
+at startup. Bars arrive from a TradingView alert (`pine/bar_feed.pine`) through
+a Cloudflare tunnel (`bots/tunnel.py`), which refuses to start without
+`DESK_WEBHOOK_TOKEN`; the desk mirrors each bar to `journal/live_bars/` for
+`/read`, which runs in the other process.
+
+**The research bot** — `bots/research.py`: `/status`, `/hypotheses`,
+`/walkforward`, `/evalsim`, `/read`, `/submit`, plus `/backtest`. `/read`
+describes a chart with no bias label, score or opinion (by test), and its
+**Log long / Log short** buttons write to the manual journal through
+`pretrade.evaluate` — those **do** count toward entry 3, because the operator
+picks the direction and writes the thesis, which is exactly the mechanism entry
+3 pre-registered. `/walkforward` runs the folds for a generated strategy and
+reads saved output for everything else, because those verdicts are frozen.
+`/evalsim` reports the pass probability and, since 2026-09-11, the probability
+of touching Lucid's $52,100 payout line.
+
+**`/submit` is validated against two known verdicts, to within 1–2 trades.**
+Entry 8 re-submitted entry 5's description and reproduced its signal to within
+2 trades in seven years (476 against 478, 0 of 7 folds either way). Entry 9
+re-submitted entry 4's filter-OFF arm and landed within 1 trade of it (503
+against 504) and about 6% in P&L at 2 ticks. Both REJECTED, both as expected.
+The pipeline can be trusted on a new idea.
+
+**YouTube ingestion for `/submit` is NOT built.** Nothing in the repository
+reads a video, a transcript or a description; `/submit` takes the operator's
+typed mechanism, counterparty and kill criteria, and rule 12 requires that
+those be the operator's words in any case. (Tried once this session by
+opening a video in the operator's Chrome: the Claude-in-Chrome extension
+exposes only tabs in a group it creates for the session, so a URL has to be
+pasted — and what it can then read is the title, description and transcript,
+not the video.)
+
+**The execution adapter is NOT built and is gated in code.** `PaperAdapter` is
+the only adapter — a test asserts `BrokerAdapter.__subclasses__()` has exactly
+one member — and `broker.require_live_eligible` checks registry status before
+the account flag, so a flag flipped by accident still refuses. `Registry.promote`
+will not reach `paper` without an ACCEPTED walk-forward in the log, and
+`Registry.add` cannot create anything above `proposed`. **Lucid confirmed on
+2026-09-11 that API and automated order placement is permitted on evaluation
+accounts via Rithmic or Tradovate** (Other Trading Activities policy, article
+11404728) **and that MES commission is $0.50 a side** (article 11508978). The
+account side is therefore open; the evidence side is not, and nothing about
+the gate moves (§6).
+
+### The `/submit` pipeline
+
+`bots/submissions.py` is the pipeline; `bots/generate.py` calls the Claude API
+(`claude-opus-5`, streaming, adaptive thinking); `bots/sandbox.py` is what
+generated code may write and contain; `bots/submit_view.py` is the modal and
+approval buttons; `backtests/run_generated.py` is the walk-forward that
+actually runs.
 
 The ordering is the product, and must not be rearranged:
 
@@ -106,24 +197,24 @@ The ordering is the product, and must not be rearranged:
 same entry with a dated `### Attempt N` note; the pre-registration is never
 rewritten. A name that reached the registry is taken.
 
-**Where it stands: validated on two known verdicts.** Entry 8 re-submitted
-entry 5's description as a plumbing test and **reproduced entry 5's signal to
-within 2 trades in seven years** on the corrected span — 476 against entry 5's
-478, both REJECTED, 0 of 7 folds either way. Entry 8's diagnostic and addendum
-carry the full accounting. Entry 9 re-submitted entry 4's filter-OFF arm; its
-third attempt passed the suite, was approved, and landed within about 6% of
-entry 4 at 2 ticks — **−$8,450 over 503 trades against entry 4's −$8,970 over
-504**, 2 of 7 folds against 3, 8 evaluations blown against 9. REJECTED. The
-pipeline can be trusted on a new idea.
+**A generated verdict is scored under both internal guards** — the daily loss
+limit and the $1,500 trailing halt, via `engine.apply_internal_guards` — and
+reports the same signals with the halt off alongside, as the comparable basis,
+because a halt that fires in year one leaves the fold test with nothing to
+count. Rule 13 is decided on the guarded stream; evaluation blow-ups are read
+on the comparable one. `--commission` exists on the CLI so a pre-correction
+verdict is one flag away; the bot never passes it.
 
-**Since 2026-09-11 a generated verdict is scored under both internal guards**
-— the daily loss limit and the $1,500 trailing halt (§3.5) — and reports the
-same signals with the halt off alongside, as the comparable basis, because a
-halt that fires in year one leaves the fold test with nothing to count. Rule
-13 is decided on the guarded stream. Entries 8 and 9 carry dated addenda with
-both bases. Under the halt entry 9 (4 contracts) stops trading on 2020-05-29
-after 27 trades, as entry 5 did in 2020; entry 8 (1 contract) takes until
-2022-11-17 and 214 trades to lose the same $1,500. Neither resumes.
+**The sandbox is two layers.** `safe_write` confines writes to
+`strategies/generated/` and `tests/generated/`, resolving before comparing so
+`..`, absolute paths and symlinks are refused. That does not contain the code,
+which pytest imports and executes — so `screen_source` AST-screens imports
+(only pandas/numpy/base/rules/pytest and stdlib maths; a generated *test* may
+additionally import its own strategy, and no other), `eval`/`exec`/`open`/
+`__import__` and dunder reflection, and `run_tests` executes in a subprocess
+with every secret stripped from the environment. The screen guards against
+mistakes and drift; **it is not a security boundary against an adversary.**
+The scrubbed environment is what makes a miss survivable.
 
 ### Entry 10 — REJECTED on both instruments, 2026-09-11 (verdict `82006bf`)
 
@@ -141,7 +232,7 @@ verdict written into the entry and committed before anyone read it.
 **Result.** MES failed all four criteria (0 of 7 folds, −$1,298; 1.29% pass;
 z +0.35; +1.89 points). MNQ passed the pass probability (50.82%) and the
 departure (+5.47) and failed rule 13 (1 of 7, +$1,239) and z (+1.16). Three
-findings, all in the entry's 2026-09-11 addendum:
+findings, all in the entry's 2026-09-11 addendum and in §5:
 
 - **The exit was not hiding an edge.** Like-for-like on the unhalted streams,
   the extended hold is worth $2,129 on MES and $165 on MNQ, and the trades the
@@ -150,91 +241,35 @@ findings, all in the entry's 2026-09-11 addendum:
 - **The trailing halt left the z test almost no sample.** It ended both guarded
   streams in year two (552 and 282 sessions blocked), leaving 87 and 112
   resolved trades where the entry's power arithmetic assumed ~650 and ~420, so
-  z = 2.5 needed +13 points. A property of the pre-registration, not a reason
-  to revise anything; the next entry that combines a halt with a share test
-  must say which stream the test runs on.
+  z = 2.5 needed +13 points.
 - **On MNQ the corrected sizing rule cost $1,755 against entry 6's**, because
   MNQ's overshoot is four times MES's and the rule prices it.
 
-**The London family is closed again, on the exit as well as the entry.** Entry
-1's condition — order-flow evidence about the counterparty — remains the only
-route back for any breakout idea.
-
-**Code that exists.** `strategies/london.py` gained three parameters whose
-defaults are entry 6's, so entries 6 and 7 are untouched: `flatten_time` labels
-its exit by time (`flatten_1555`), `early_close_flatten_time` (rule 2's
-deadline is the backstop when unset), and `size_on="stop"`.
-`backtests/run_entry10.py --reproduce` is the reproduction check;
-`--run` is the 15:55 test (both guards as the two engine functions
-`apply_internal_guards` composes, applied per size group; halt-OFF alongside;
-1 and 3 ticks as sensitivities; the bootstrap at the 15:55 horizon with
-early-close days truncated at 12:55; the verdict block to
-`backtests/results/entry10_verdict.md`). Streams and folds are in
-`backtests/results/entry10_*`; the bot's `london_full_day` runner reads the
-MES base case.
-
-**The sandbox is two layers.** `safe_write` confines writes to
-`strategies/generated/` and `tests/generated/`, resolving before comparing so
-`..`, absolute paths and symlinks are refused. That does not contain the code,
-which pytest imports and executes — so `screen_source` AST-screens imports
-(only pandas/numpy/base/rules/pytest and stdlib maths; a generated *test* may
-additionally import its own strategy, bare or dotted, and no other),
-`eval`/`exec`/`open`/`__import__` and dunder reflection, and `run_tests`
-executes in a subprocess with every secret stripped from the environment. The
-screen guards against mistakes and drift; **it is not a security boundary
-against an adversary.** The scrubbed environment is what makes a miss
-survivable.
-
-### The desk bot — shadow mode, and its existence is not evidence the gate was met
-
-`bots/desk.py` was built 2026-09-06 as a deliberate pre-gate exception to test
-plumbing. The only strategy it runs is **`orb2`, which entry 4 REJECTED** — a
-shadow ticket must never be mistakable for a result. `shadow:` in
-`registry.yaml` is a list of names, not a status; `Registry.promote` never
-reads it. Tickets go to `journal/shadow_trades.jsonl`, never `trades.jsonl`, so
-entry 3's count is untouched. `PaperAdapter` is the only adapter — a test
-asserts `BrokerAdapter.__subclasses__()` has exactly one member — and
-`broker.require_live_eligible` checks registry status before the account flag,
-so a flag flipped by accident still refuses.
-
-The desk reuses rather than reimplements: `tickets.evaluate_signal` calls
-`pretrade.evaluate` and `tests/test_desk_rules.py` asserts the decisions match
-check-for-check. Ticket embeds carry **Execute / Don't trade** buttons, owner
-only; presses go to `journal/decisions.jsonl` as the operator's record and are
-**reported by `review.py`, not counted toward entry 3** — a click on a
-rejected strategy's signal is not a discretionary trade. Execute is disabled
-and refused for anything below `paper`/`live`.
-
-Discord is required (`DESK_CHANNEL_NAME`, default `general`); a missing
-channel or token is fatal at startup, never a silent stdout fallback. The feed
-server starts from `setup_hook`, exactly once, whatever Discord's reconnects
-do. Bars arrive from a TradingView alert (`pine/bar_feed.pine`) through a
-Cloudflare tunnel (`bots/tunnel.py`), which refuses to start without
-`DESK_WEBHOOK_TOKEN`. The desk mirrors each bar to `journal/live_bars/` for
-`/read`, which runs in the other process.
-
-### The research bot
-
-`bots/research.py`: `/backtest`, `/walkforward`, `/evalsim`, `/hypotheses`,
-`/status`, `/read`, `/submit`. `/read` describes a chart with no bias label,
-score or opinion (by test), and its **Log long / Log short** buttons write to
-the manual journal through `pretrade.evaluate` — those **do** count toward
-entry 3, because the operator picks the direction and writes the thesis, which
-is exactly the mechanism entry 3 pre-registered. Guards re-run at submit time.
-`/walkforward` runs the folds for a generated strategy and reads saved output
-for everything else, because those verdicts are frozen.
+**Code.** `strategies/london.py` gained three parameters whose defaults are
+entry 6's, so entries 6 and 7 are untouched: `flatten_time` labels its exit by
+time (`flatten_1555`), `early_close_flatten_time` (rule 2's deadline is the
+backstop when unset), and `size_on="stop"`. `backtests/run_entry10.py
+--reproduce` is the reproduction check and `--run` the 15:55 test (both guards
+as the two engine functions `apply_internal_guards` composes, applied per size
+group; halt-OFF alongside; 1 and 3 ticks as sensitivities; the bootstrap at the
+15:55 horizon with early-close days truncated at 12:55; the verdict block to
+`backtests/results/entry10_verdict.md`). The bot's `london_full_day` runner
+reads the MES base case.
 
 ### The registry and the log
 
 `Registry.promote` takes two arguments and no override; `rejected` is
 terminal; `testing → paper` requires an ACCEPTED walk-forward in the log;
 `paper → live` calls `journal/review.readiness`. `verify()` cross-checks the
-registry against the log and is how a real drift bug was caught this session.
+registry against the log and is how a real drift bug was caught once.
 
 **The evidence pipeline** is unchanged and is the product: entry with
 mechanism, counterparty and kill criteria → committed → build → walk-forward →
-verdict frozen before anyone sees numbers → hash recorded in a follow-up. Seven
-of nine entries died in it.
+verdict frozen before anyone sees numbers → hash recorded in a follow-up. Nine
+of ten entries died in it. `backtests/reprice.py` re-prices any saved stream
+between two commissions exactly, recovering each trade's size from the
+commission it carried; `backtests/eval_sim.py` reports the $52,100 payout
+probability alongside the pass probability.
 
 ---
 
@@ -246,110 +281,120 @@ rules, not an exchange feed. Check every date against
 <https://www.cmegroup.com/tools-information/holiday-calendar.html>. A wrong
 date fails in the dangerous direction: a half-day recorded as normal permits a
 late entry that should be blocked. **2026-11-26 and 2026-11-27** are the first
-dates a live paper run reaches.
+dates a live paper run reaches (§4d).
 
-**3.2 Closed, 2026-09-11: MES commission on a 50K LucidPro evaluation is
-$0.50 a side, $1.00 a round turn**, confirmed by Lucid support
-(support.lucidtrading.com article 11508978), not the $1.25 every verdict
-assumed. `rules.COMMISSION_PER_SIDE` carries it with the source beside it;
-`rules.ASSUMED_COMMISSION_PER_SIDE` keeps the $1.25 by name so any earlier
-run reproduces with `--commission 1.25`. Entries 1, 2, 4, 6 and 7 were
-re-priced from their saved streams (`backtests/reprice.py`, exact; parameter
-selection in 1 and 2 held at what $1.25 chose) and entries 5, 8 and 9 re-run
-in full with both guards re-decided. Each carries a dated addendum.
+**3.2 Closed, 2026-09-11: MES commission is $0.50 a side, $1.00 a round
+turn** (Lucid support, article 11508978). `rules.COMMISSION_PER_SIDE` carries
+it with the source beside it; `engine.CostModel` and every runner's
+`--commission` default read it, and a test scans the runners for a restated
+default. Entries 1, 2, 4, 6 and 7 were re-priced from their saved streams
+(exact; parameter selection in 1 and 2 held at what $1.25 chose) and entries
+5, 8 and 9 re-run in full with both guards re-decided; each carries a dated
+addendum. **No verdict changed. One criterion would have resolved
+differently:** entry 2's median fold Sharpe, and entry 2 still dies on its
+mechanism test. The closest any entry sits to a line is entry 4's pooled pass
+probability, 22.70% against 25% at 1 tick (12.55% at the 2-tick base case).
+Break-even figures in the entry 4 and 5 runners are now computed from the cost
+model (38.21% at 1 tick, 40.00% at 2); the frozen 2-tick reports had printed
+the 1-tick constant.
 
-**No verdict changes. One kill criterion would have resolved differently:**
-entry 2's median fold Sharpe, +0.201 → +0.523 against its 0.30 line — and
-entry 2 still dies on its pre-cost mechanism test, which is the one that
-matters. The closest any entry now sits to a line is entry 4's pooled pass
-probability, 16.11% → 22.70% against 25% at 1 tick (12.55% at the 2-tick
-base case). Entry 6's 1×/ON bracket alone turns from −$481 to +$896 while
-the arm still loses $5,387 on its flattens. MNQ (entry 7) was re-priced at
-the same $0.50 on the assumption Lucid's micro rate is common to MES and MNQ;
-**only MES was confirmed.** Break-even figures in the entry 4 and 5 runners
-are now computed from the cost model (38.21% at 1 tick, 40.00% at 2); the
-frozen 2-tick reports had printed the 1-tick constant.
+**3.3 MNQ's commission is assumed equal to MES's.** Only MES was confirmed.
+Entry 7's MNQ stream and entry 10's MNQ arm are priced at $0.50 on that
+assumption; if MNQ differs, entry 7's MNQ figure moves by $2 × 438 per $1 of
+difference a side, and nothing in any verdict rests on it.
 
-**3.3 The 13:00 versus 13:15 early-close approximation.**
+**3.4 The 13:00 versus 13:15 early-close approximation.**
 `rules.EARLY_SESSION_CLOSE` models a single 13:00 close where CME equity index
 closes 13:15 on some half-days. Over-blocking is the safe error; fixing it
 loosens a limit and must be stated as such.
 
-**3.4 The `NEEDS_VERIFICATION` dates in late 2027.** Extend the calendar
+**3.5 The `NEEDS_VERIFICATION` dates in late 2027.** Extend the calendar
 before 2028.
 
-**3.5 Closed, 2026-09-11.** `enforce_trailing_drawdown_halt` now lives in
-`backtests/engine.py` behind `engine.apply_internal_guards` — the daily loss
-limit, then the trailing halt on the loss-limited stream — which both
-`run_orb_flat.py` and `run_generated.py` call. `tests/test_guard_parity.py`
-holds them to it: a synthetic stream that trips the halt comes out identical
-through either runner, and neither may define a halt of its own. Entry 5's
-reports came out **byte-identical** before and after the move at 1 and 2
-ticks. Generated verdicts now score on the guarded stream with the halt-OFF
-stream alongside (§2).
-
-**3.6 Closed.** Entry 9's third attempt passed its suite, was approved, and
-was REJECTED by `/walkforward` on 2026-09-09 (verdict commit `29178fd`).
-Nothing left to retry; see §2 for what it validated.
+**3.6 Closed, 2026-09-11: the trailing halt lives in the engine.**
+`enforce_trailing_drawdown_halt` sits in `backtests/engine.py` behind
+`engine.apply_internal_guards` — the daily loss limit, then the trailing halt
+on the loss-limited stream — which `run_orb_flat.py` and `run_generated.py`
+call and `tests/test_guard_parity.py` holds them to. Entry 5's reports came out
+byte-identical before and after the move. Entries 8 and 9 were re-scored under
+it (both stop trading under the halt; verdicts unchanged).
 
 **3.7 Entry 3's gate has never been started.** Sixty rule-clean paper trades,
-positive expectancy, `eval_sim` pass probability above 50%. Zero trades logged,
-and `/read`'s buttons now make logging one click — which makes the discipline
-of only logging trades actually taken matter more, not less.
+positive expectancy after costs, `eval_sim` pass probability above 50%. Zero
+trades logged, and `/read`'s buttons make logging one click — which makes the
+discipline of only logging trades actually taken matter more, not less (§4b).
 
 **3.8 `rules.py` has no session-open guard.** A signal at 08:00 passes every
 check; nothing today can produce one;
-`test_premarket_signal_is_not_blocked_by_rules_py` pins it.
+`test_premarket_signal_is_not_blocked_by_rules_py` pins it. Entry 10's 03:00
+entries pass for the same arithmetic reason (§5).
 
-**3.9 The Discord user id in commit `9dc95c2`.** `tests/test_submissions.py`
+**3.9 Verified, 2026-09-11: API and automated order placement is permitted on
+Lucid evaluation accounts**, via Rithmic or Tradovate (Other Trading Activities
+policy, article 11404728). This was the account-side question that gated the
+execution layer, and it closes in the permissive direction. **Nothing else
+about the gate moves:** no execution code exists or is to be written until a
+strategy reaches `paper` (§5, §6).
+
+**3.10 Slippage is the dominant cost term, and it is an assumption.** At $0.50
+a side, commission is $1.00 of a round turn; one tick a side is $2.50 on MES,
+71% of the $3.50 total, and rule 13's two-tick bar is $5.00 of $6.00. Every
+verdict's margin rests mainly on a number nobody has measured. It can only be
+measured on a live account, fill by fill against the signal level; TradingView
+paper fills are optimistic and the journal cannot see it. Entry 10
+pre-registered that its 03:00 fills are the thinnest this project trades and
+that no backtest could settle them. Until a live fill exists, the two-tick bar
+is the hedge, not a measurement.
+
+**3.11 The Discord user id in commit `9dc95c2`.** `tests/test_submissions.py`
 once hard-coded the operator's real `DESK_OWNER_ID`; the tip uses a fake id.
-The real one remains in that commit's history, which was already pushed. A
-Discord snowflake is not a credential — it authorises nothing and is visible
-to anyone sharing a server. **It stays; do not rewrite history for it.**
-
-**3.10 Verified, 2026-09-11: API and automated order placement is permitted
-on Lucid evaluation accounts**, via Rithmic or Tradovate, under Lucid's Other
-Trading Activities policy (support.lucidtrading.com article 11404728). This
-was the account-side question that gated the execution layer — whether an
-automated desk would be allowed at all — and it closes in the permissive
-direction. **Nothing else about the gate moves:** no execution code exists or
-is to be written until a strategy reaches `paper` (§5, §6), and
-`Registry.promote` still refuses without an ACCEPTED walk-forward in the log.
-
-**3.11 Slippage is now the dominant cost term, and it is an assumption.** At
-the confirmed $0.50 a side, commission is $1.00 of a round turn. One tick a
-side of slippage is $2.50 on MES — 71% of the $3.50 total — and rule 13's
-two-tick survival bar is $5.00 of $6.00, 83%. Every verdict's margin now
-rests mainly on a number nobody has measured. It can only be measured on a
-live account, fill by fill against the signal level; TradingView paper fills
-are optimistic and the journal cannot see it. Until then the two-tick bar is
-the hedge, not a measurement.
+The real one remains in that commit's history, which was pushed. A Discord
+snowflake is not a credential — it authorises nothing and is visible to anyone
+sharing a server. **It stays; do not rewrite history for it.**
 
 ---
 
-## 4. Open directions
+## 4. Open directions, in priority order
 
-None is started. In the order the operator raised them:
+None is started. The operator set the order on 2026-09-11.
 
-**A portfolio layer in the desk.** Today each runner is its own book: one
-position at a time per strategy, the daily budget checked per signal. A
-portfolio layer would hold **one position across strategies**, draw on a
-**shared daily budget**, and check **consistency at the account level** (rule
-8) rather than per stream. This is real engine work — `engine.price_trades`
-takes one scalar `contracts` per trade list (§5) — and it changes what a
-"blocked" signal means, so it needs a design before code.
+**(a) Turn-of-month institutional flows.** The only untested hypothesis in
+this project's candidate list with a *forced* counterparty: calendar-driven
+flows that must transact on a schedule regardless of price, giving roughly 350
+sessions across the seven-year window. No entry exists yet. Rule 12 applies in
+full — mechanism, who is on the other side and why they must be, kill criteria
+decided in advance, all committed before any code — and `/submit` can take it
+from Discord to a verdict in about twenty minutes once the entry is written.
+Entry 2's precedent matters here: a calendar effect is tested on pre-cost
+effect size as well as on P&L, so the mechanism test is the one that decides.
+Scored at $0.50 a side with slippage stated as the unknown it is (§3.10).
 
-**A selector diagnostic on the seven rejected OOS streams.** Seven
-out-of-sample trade streams exist in `backtests/results/`. A diagnostic that
-asks whether *any* selection rule across them — by regime, by day, by
-volatility — would have produced a positive stream is worth one run,
-**pre-registered as a diagnostic with no verdict**, because a selector fitted
-to seven known-negative streams is the textbook way to manufacture an edge.
+**(b) Entry 3's 60-trade manual gate, via `/read`.** Sixty rule-clean paper
+trades logged through `/read`'s buttons or `journal/pretrade.py`, positive
+expectancy after costs, pass probability above 50%. Zero logged so far. This
+is the only route to `paper` that does not need a passed walk-forward, and
+its kill criterion — any rule violation resets the count to zero — is the
+part that does the work.
 
-**The commission number is settled (§3.2): $0.50 a side.** What remains an
-assumption is slippage, now the larger part of every round turn and
-measurable only on a live account (§3.11). A portfolio of near-break-even
-strategies is still not worth assembling on an unmeasured slippage figure.
+**(c) YouTube ingestion for `/submit`.** Not built (§2). It would read a
+video's title, description and transcript and pre-fill the `/submit` modal;
+the pre-registration itself must stay the operator's words, so the useful
+output is a draft the operator edits, never a submission. The Chrome extension
+needs the URL pasted; it cannot see the operator's other tabs.
+
+**(d) Verify the CME 2026-11-26 and 2026-11-27 half-day dates against
+cmegroup.com before the desk reaches them** (§3.1). A phone-sized task with a
+dangerous failure mode; do it before November.
+
+**(e) The portfolio layer and the selector diagnostic — deferred until a
+second strategy exists.** The portfolio layer would hold one position across
+strategies with a shared daily budget and account-level consistency; it is
+real engine work (`engine.price_trades` takes one scalar `contracts`, §5) and
+needs a design before code. The selector diagnostic would ask whether any
+selection rule across the rejected out-of-sample streams produces a positive
+one, pre-registered as a diagnostic with no verdict, because a selector fitted
+to known-negative streams is the textbook way to manufacture an edge. Neither
+is worth starting with nothing at `paper`.
 
 **The desk bot's gate (§6) is unchanged** — no strategy is at `paper`, and
 nothing above relaxes that.
@@ -572,16 +617,17 @@ That commit moved the daily loss limit $300 → $400 and the position cap 2 → 
 
 ### Every breakout entry is rejected — do not "improve" them
 
-Entries 1, 4, 5, 6, 7 and 8 have tested breakout continuation across two
-sessions, two instruments, three signal definitions, four holding periods, two
-benchmarks and now two implementations. **All rejected.** Each entry's `Next`
-section forbids the obvious follow-up, and entry 7 closes the London family.
+Entries 1, 4, 5, 6, 7, 8, 9 and 10 have tested breakout continuation across two
+sessions, two instruments, three signal definitions, five holding periods, two
+benchmarks and two implementations. **All rejected.** Each entry's `Next`
+section forbids the obvious follow-up.
 
-**Entry 10 reopens the London family by operator direction, on the exit rather
-than the entry**, and records the override and the upward bias of its prior in
-its own text. That is the one sanctioned exception, and it earned it by raising
-its bar above the effect that motivated it. It does not license anything else
-in this family.
+**Entry 10 was the one sanctioned exception** — it reopened the London family
+by operator direction on the exit rather than the entry, recorded the override
+and the upward bias of its prior in its own text, and raised its bar above the
+effect that motivated it. It did not pay: the trades the US session resolves
+resolve at the driftless rate. **The family is now closed on entry and on exit.**
+Nothing in it licenses another variant.
 
 **Entry 1's condition has never been met and is the only route back:** establish
 the counterparty claim independently of backtest results — order-flow evidence
@@ -599,6 +645,8 @@ The failure mode is offering to wire up a broker because the scaffolding exists
 and looks ready. It is ready in the sense that the guards work; it is not ready
 in the sense that there is nothing with demonstrated positive expectancy. The
 desk bot's existence in shadow mode makes this temptation stronger, not weaker.
+Lucid permitting API order placement via Rithmic or Tradovate (§3.9) makes
+it stronger still, and changes nothing: the gate is evidence, not permission.
 
 ### Bar labelling: left-closed, labelled by opening minute
 
@@ -678,6 +726,78 @@ minute), not `time_close`; swapping them shifts every bar forward a minute.
 
 ---
 
+### A trailing halt truncates the sample a share test runs on — pre-register for it
+
+Entry 10 pre-registered its z test on the guarded stream and sized the bar from
+the sample it expected the strategy to produce: roughly 650 resolved trades on
+MES and 420 on MNQ, so z = 2.5 needed about +5 and +6 points. The $1,500
+trailing halt ended both guarded streams in their second year and left the test
+**87 and 112 resolved trades**, where z = 2.5 needed **+13 and +12 points** —
+three times any effect this log has measured. The criterion was close to
+unpassable before the run started, and nothing in the pre-registration said so.
+
+A pre-registration that combines a trailing halt with a share test must state
+**which stream the test runs on** and compute its power **on the sample the
+halt will leave**, not on the unhalted count. If the guarded sample is too small
+to test, say so in advance and pre-register the share test on the unhalted
+stream as a diagnostic, with the verdict still decided on the guarded one.
+
+### Like-for-like attribution needs unhalted streams
+
+Entry 10's criterion 5 asked how much of any result was the extended hold and
+how much the sizing change — A (15:55, stop sizing) minus B (09:25, stop sizing)
+minus C (09:25, range sizing). Computed on the guarded streams the figures were
+wrong in kind: **each stream's halt fired on its own date** (A after 117 MES
+trades, B after 185), so the three trade sets differed and A − B mixed
+truncation with the effect being attributed.
+
+The like-for-like version lives on the halt-OFF streams, where A and B take
+**identical entries at identical sizes** (assert it) and A − B is purely the
+exit: +$2,129 on MES, +$165 on MNQ, against −$508 and +$404 on the halted
+streams. When two streams are compared trade for trade, compare them before any
+guard that can end them on different days. The halted figures are the verdict
+basis; they are not the attribution.
+
+### MNQ's overshoot is four times MES's, and stop-based sizing prices it
+
+The London entry fills at the open of the candle after a close outside the
+range, so the fill sits beyond the range edge by an overshoot. On MES the
+median overshoot is 1.00 point (mean 1.50); on MNQ it is **3.88 points (mean
+4.93)**. Entry 6's range-based sizing ignored the overshoot and so priced the
+two instruments alike; the log's corrected rule — size off the realised stop,
+skip the session when one contract is over budget — prices it, and on MNQ that
+cost **$1,755** against entry 6's rule at the same costs (32 sessions skipped,
+smaller size where the overshoot is large). Most of the distance between entry
+7's +$1,085 and entry 10's −$505 on MNQ is this, not the exit.
+
+Any instrument translation must re-derive sizing from the realised stop on that
+instrument. A rule that looks identical on two contracts because it reads the
+range is not identical if the fill mechanics differ.
+
+### The commission correction moved every entry and flipped none
+
+Lucid's confirmed $0.50 a side replaced the assumed $1.25 — $1.50 per contract
+per round turn, on every trade in the log. Three things about re-scoring it:
+
+- **Re-pricing a saved stream is exact** and needs no bars: commission never
+  touches a fill, and each trade's size is recoverable from the commission it
+  carried (`backtests/reprice.py`). That is what let entry 6's per-session sizes
+  come through row by row.
+- **Re-pricing cannot re-decide a guard or a parameter choice.** Where a
+  trailing halt decides the stream (entries 5, 8, 9) the runner was re-run in
+  full; where the walk-forward selected parameters (entries 1, 2) the selection
+  was held at what $1.25 chose and the addendum says so.
+- **No verdict flipped.** The only criterion that would have resolved
+  differently was entry 2's median fold Sharpe (+0.201 → +0.523 against 0.30),
+  and entry 2's mechanism test is on pre-cost returns and did not move. The
+  closest any entry sits to a line is entry 4's pooled pass probability, 22.70%
+  against 25%. Entry 6's bracket alone turned from −$481 to +$896 while its arm
+  still lost $5,387 on flattens — a sub-finding changing sign is not a verdict
+  changing.
+
+The frozen 2-tick reports of entries 4 and 5 had printed the 1-tick break-even
+constant; the runners now compute break-even from the cost model they are given.
+
 ## 6. The gate — desk bot and multi-account fan-out
 
 **The desk exists in shadow mode (§2). The gate is unchanged and not met.**
@@ -685,9 +805,11 @@ minute), not `time_close`; swapping them shifts every bar forward a minute.
 Both the desk trading a strategy and multi-account fan-out **wait on a strategy
 reaching `paper` status in the registry. None has.** `Registry.promote` will
 not put one there without an ACCEPTED walk-forward in `hypotheses.md`, and
-`/walkforward`'s ACCEPTED path stops at `testing` on purpose.
+`/walkforward`'s ACCEPTED path stops at `testing` on purpose. Lucid permitting
+API order placement (§3.9) opens the account side and moves nothing here: the
+gate is about evidence, and there is none with positive expectancy.
 
-**On multi-account fan-out, recorded in four entries and repeated here:**
+**On multi-account fan-out, recorded in five entries and repeated here:**
 copying identical trades across N funded accounts multiplies outcomes in both
 directions. It is not diversification. The same losing day draws down every
 account simultaneously, and a trailing-drawdown breach terminates all of them
@@ -702,10 +824,9 @@ size, with N times the fees.** The only thing it diversifies is the
    logging one click; it does not make the trades any better.
 2. **A new pre-registered hypothesis that passes walk-forward** — a majority of
    yearly folds, positive total after commission and slippage, at 2 ticks.
-   `/submit` now takes one from Discord to a verdict in about twenty minutes.
-   Seven have tried; none has passed. The commission is now Lucid's confirmed
-   $0.50 a side (§3.2); the cost term still resting on an assumption is
-   slippage (§3.11).
+   `/submit` takes one from Discord to a verdict in about twenty minutes.
+   Nine have tried; none has passed. The commission is settled (§3.2); the
+   cost term still resting on an assumption is slippage (§3.10).
 
 ---
 
@@ -715,7 +836,7 @@ size, with N times the fees.** The only thing it diversifies is the
 console window; both read `.env`:
 
 ```powershell
-.\start_bot.bat        # research bot: /backtest /walkforward /evalsim /hypotheses /status /read /submit
+.\start_bot.bat        # research bot: /status /hypotheses /walkforward /evalsim /read /submit /backtest
 .\start_desk.bat       # desk bot (shadow) + Cloudflare tunnel in a second window
 ```
 
@@ -727,27 +848,38 @@ Alert: condition **Bar feed → Any alert() function call**, **Once Per Bar
 Close**, message empty. A named tunnel (stable hostname) needs a domain on
 Cloudflare and is not set up.
 
-`DESK_OWNER_ID` and `ANTHROPIC_API_KEY` are set in `.env`; only that Discord
-user can press any button, and `/submit` reaches the API.
+**Secrets and ids.** `DESK_OWNER_ID`, `ANTHROPIC_API_KEY` and
+`DESK_WEBHOOK_TOKEN` are set in `.env`: only that Discord user can press any
+button, `/submit` reaches the API, and the tunnel refuses to start without the
+token. The Discord user id in commit `9dc95c2`'s history is a non-secret that
+stays (§3.11).
 
 ```powershell
-venv\Scripts\python.exe -m pytest tests\ --ignore=tests\generated tests\generated\test_orborb_flat_1030.py -q   # 963, ~65s
-venv\Scripts\python.exe strategies\registry.py                 # where everything stands
-venv\Scripts\python.exe journal\review.py                      # entry 3 gate + desk decisions
+venv\Scripts\python.exe -m pytest tests\ -q                     # 1,111 pass, 2 skipped, ~2 min
+venv\Scripts\python.exe strategies\registry.py                  # where everything stands
+venv\Scripts\python.exe journal\review.py                       # entry 3 gate + desk decisions
 
 venv\Scripts\python.exe bots\desk.py --replay --start 2026-08-10 --end 2026-08-14 --speed 0   # replay, no Discord, no tunnel
-venv\Scripts\python.exe bots\desk.py --no-discord              # live webhook, console only
-venv\Scripts\python.exe bots\tunnel.py                         # tunnel alone, prints the URL
+venv\Scripts\python.exe bots\desk.py --no-discord               # live webhook, console only
+venv\Scripts\python.exe bots\tunnel.py                          # tunnel alone, prints the URL
 
-venv\Scripts\python.exe backtests\walkforward.py               # ORB, ~55 min
-venv\Scripts\python.exe backtests\run_london.py --folds-only   # rebuild fold CSVs in seconds
-venv\Scripts\python.exe backtests\run_entry7.py --folds-only
-venv\Scripts\python.exe backtests\run_generated.py <name> --class-path <module:Class>   # what /walkforward runs
-venv\Scripts\python.exe backtests\run_orb2.py                  # entry 4, --from-cache to re-report
-venv\Scripts\python.exe backtests\run_orb_flat.py              # entry 5
+venv\Scripts\python.exe backtests\walkforward.py                # entry 1, ~55 min
+venv\Scripts\python.exe backtests\run_orb2.py --from-cache      # entry 4, re-report from saved CSVs
+venv\Scripts\python.exe backtests\run_orb_flat.py               # entry 5, both guards, ~3 min
+venv\Scripts\python.exe backtests\run_london.py --folds-only    # entry 6 fold CSVs in seconds
+venv\Scripts\python.exe backtests\run_entry7.py --folds-only    # entry 7
+venv\Scripts\python.exe backtests\run_generated.py <name> --class-path <module:Class>   # entries 8, 9; what /walkforward runs
+venv\Scripts\python.exe backtests\run_entry10.py --reproduce    # entry 10's reproduction check
+venv\Scripts\python.exe backtests\run_entry10.py --run          # entry 10's 15:55 test, ~1 h, verdict to results/
+venv\Scripts\python.exe backtests\reprice.py backtests\results\<stream>.csv [--old 1.25 --new 0.50] [--halt]
+venv\Scripts\python.exe backtests\eval_sim.py backtests\results\<stream>.csv
 
 venv\Scripts\python.exe data\fetch.py --estimate --symbol MNQ.v.0 --start 2019-05-01 --end 2026-09-01
 ```
+
+Every runner takes `--commission` (default `rules.COMMISSION_PER_SIDE`,
+$0.50); pass `1.25` to reproduce a pre-2026-09-11 verdict. Long runs go in the
+background.
 
 Journal, in the order they are used:
 
