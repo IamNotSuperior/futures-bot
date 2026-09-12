@@ -4458,6 +4458,50 @@ both directions and is not diversification: the same losing day draws down
 every account at once and a trailing-drawdown breach terminates all of them on
 the same date. It is one bet at N times the size with N times the fees.
 
+### Power check result and reproduction, 2026-09-11 — run before the verdict
+
+`research/power_check_tom.py`, on the calendar only. 1,890 sessions carry a
+09:30 bar; 64 are early closes, of which 15 are cash half-days kept in the
+calendar and 49 are cash-closed holiday sessions removed from it; 29 roll
+days, none of which falls on a window day.
+
+| Year | Window | Eligible | Control | T-1 | T+1 | T+2 | T+3 | Skipped |
+|---|---|---|---|---|---|---|---|---|
+| 2020 | 48 | 48 | 202 | 12 | 12 | 12 | 12 | 0 |
+| 2021 | 48 | 48 | 203 | 12 | 12 | 12 | 12 | 0 |
+| 2022 | 48 | 48 | 200 | 12 | 12 | 12 | 12 | 0 |
+| 2023 | 48 | 47 | 197 | 12 | 11 | 12 | 12 | 1 early close |
+| 2024 | 48 | 46 | 200 | 11 | 12 | 12 | 11 | 2 early closes |
+| 2025 | 48 | 46 | 197 | 11 | 12 | 12 | 11 | 2 early closes |
+| 2026 | 31 | 31 | 133 | 7 | 8 | 8 | 8 | 0 |
+| **Pooled** | **319** | **314** | **1,332** | 77 | 79 | 80 | 78 | 5 |
+
+The five skipped window days are all cash half-days: 2023-07-03 (T+1),
+2024-07-03 (T+3), 2024-11-29 (T-1), 2025-07-03 (T+3), 2025-11-28 (T-1).
+**Every fold year clears the 20-session floor; the smallest is 2026 at 31.
+The power check passed.** The pooled counts are within the power arithmetic
+above (about 300 against about 1,350), so the t criterion remains the binding
+one.
+
+**On the ordering.** The calendar functions and the strategy class live in
+one module, `strategies/tom.py`, and were written in one pass, test-first,
+before the power check ran. The check reads `tom.session_calendar`, which
+touches the bar index and never a price; no return had been computed when
+the table above was produced. That is the letter of "before any strategy
+code" bent and its purpose kept, and it is recorded rather than implied.
+
+**Reproduction (pre-registered test 1): passed on the second run.** The first
+run diverged by three sessions: the signal arm took 314 trades against 311
+labelled window sessions, the extras being 2, 3 and 6 January 2020. The
+strategy was right and the comparison population was wrong: it had been built
+on bars sliced to the scored span, which cannot see the December 2019
+boundary, while the signals are generated over the whole file and sliced. The
+population is now built the same way (`run_entry11.scored_returns`, with a
+test pinning the case), and the second run reproduced all 314 window sessions
+session for session, the 4-contract stream at exactly four times the
+1-contract stream, and the stop arm's entries identical to the signal arm's.
+The strategy's trade set did not change between the two runs.
+
 ### Verdict
 
 Not yet run. To be filled in after the run, with the commit hash recorded in a
