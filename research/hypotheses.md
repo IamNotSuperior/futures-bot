@@ -3660,8 +3660,8 @@ bases. REJECTED stands. The results CSVs now hold the $0.50 streams;
 
 ## 10. London 1×/ON held through the US session — REJECTED
 **Date:** 2026-09-11
-**Spec frozen at:** the commit adding this entry
-**Code:** not yet written
+**Spec frozen at:** `a6d9af1`
+**Code:** `strategies/tom.py`, `backtests/run_entry11.py`, `research/power_check_tom.py`
 **Note:** an entry cannot contain its own commit hash. The verdict commit is
 recorded in a one-line follow-up commit, never by amending.
 **Instrument:** MES **and** MNQ, 5-minute bars resampled from 1-minute, 19:00 ET
@@ -4160,11 +4160,11 @@ the entry.** No further flatten time, no further instrument. Entry 1's condition
 — order-flow evidence about who takes the other side of a range break — remains
 the only route back for any breakout idea.
 
-## 11. Turn-of-month institutional flows, intraday — PROPOSED
+## 11. Turn-of-month institutional flows, intraday — REJECTED
 
 **Date:** 2026-09-11
-**Spec frozen at:** the commit adding this entry
-**Code:** not yet written
+**Spec frozen at:** `a6d9af1`
+**Code:** `strategies/tom.py`, `backtests/run_entry11.py`, `research/power_check_tom.py`
 **Note:** an entry cannot contain its own commit hash. The verdict commit is
 recorded in a one-line follow-up commit, never by amending.
 **Instrument:** MES, 1-minute bars, RTH only (09:30 to 15:55 ET)
@@ -4508,6 +4508,262 @@ Not yet run. To be filled in after the run, with the commit hash recorded in a
 follow-up commit. If ACCEPTED, the verdict must carry on its first line that
 the effect was measured on the intraday slice only and that its cost basis
 rests on a slippage assumption no backtest can measure.
+
+### Verdict: REJECTED
+
+**Rejected on the pre-registered criteria.** The intraday slice of the turn-of-month effect, on MES over 2020–2026, did not clear the lines the operator set before the run.
+
+**Date:** 2026-09-11
+**Code:** `strategies/tom.py`, `backtests/run_entry11.py`, `research/power_check_tom.py`
+**Reports:** `backtests/results/entry11_report.txt`; `entry11_returns.csv` (every eligible session with its label and open-to-15:55 points); per arm `entry11_<signal|stop>_slip<1|2>.csv` (standard) and `_nohalt.csv` (comparable); `entry11_folds.csv` (stop arm, 1 tick, standard)
+
+Long MES at the 09:30 open on T-1, T+1, T+2, T+3 by the cash trading calendar, flat at the 15:55 open, 4 contracts, $0.50 a side, **1 tick a side as the base case** (0.70 points a round turn), 2020-01-01 .. 2026-08-31, nothing selected. Guards: `engine.apply_internal_guards` at 4 contracts, the daily loss limit then the trailing halt; halt OFF alongside.
+
+#### Kill criteria — any one failure kills the entry
+
+| # | Criterion | Result | Line | |
+|---|---|---|---|---|
+| 1 | Pooled window excess over control, pre-cost, and its t | +4.95 pts, t = +1.94 | > 0.70 pts and t >= 2.0 | **FAIL** |
+| 2 | Years in which the window mean beats the control mean | 5 of 7 | >= 4 of 7 | **PASS** |
+| 3 | Stop arm, standard stream, 1 tick: eval_sim pass probability | 4.75% (11 trading days) | >= 25% | **FAIL** |
+| 4 | Stop arm, comparable stream, 1 tick: evaluations blown | 10 | <= 1 | **FAIL** |
+| 5 | Rule 13 on the stop arm, standard stream: >= 4 of 7 folds profitable and P&L > 0 at 1 and 2 ticks | 1 tick 0 of 7, $-474; 2 ticks 0 of 7, $-584 | >= 4 of 7 and > 0, both | **FAIL** |
+
+**REJECTED.** Failed on: Pooled window excess over control, pre-cost, and its t; Stop arm, standard stream, 1 tick: eval_sim pass probability; Stop arm, comparable stream, 1 tick: evaluations blown; Rule 13 on the stop arm, standard stream: >= 4 of 7 folds profitable and P&L > 0 at 1 and 2 ticks.
+
+#### The mechanism test, pre-cost, in MES points
+
+**Pooled:** window n = 314, mean +5.20, sd 40.48, median +7.00; control n = 1,332, mean +0.26, sd 40.99, median +2.00. **Difference +4.95 points, Welch t = +1.94** (df 476), one-sided p = 0.026. One round turn at the base case is 0.70 points.
+
+| Year | Window n | Window mean | Control n | Control mean | Difference | t | Window beats control |
+|---|---|---|---|---|---|---|---|
+| 2020 | 48 | +8.06 | 202 | -0.68 | +8.74 | +1.52 | yes |
+| 2021 | 48 | -2.92 | 203 | +3.59 | -6.51 | -1.26 | no |
+| 2022 | 48 | +3.24 | 200 | -2.40 | +5.64 | +0.68 | yes |
+| 2023 | 47 | +5.65 | 197 | +1.35 | +4.30 | +0.98 | yes |
+| 2024 | 46 | -3.23 | 200 | +0.61 | -3.84 | -0.68 | no |
+| 2025 | 46 | +8.43 | 197 | +0.38 | +8.05 | +0.97 | yes |
+| 2026 | 31 | +23.44 | 133 | -1.75 | +25.19 | +2.79 | yes |
+
+Window beats control in **5 of 7** years.
+
+**Per window day, reported and not selected on:**
+
+| Day | n | Mean | sd | Difference vs control | t |
+|---|---|---|---|---|---|
+| T-1 | 77 | +3.59 | 43.17 | +3.33 | +0.66 |
+| T+1 | 79 | +2.24 | 42.08 | +1.98 | +0.41 |
+| T+2 | 80 | +12.02 | 39.34 | +11.76 | +2.59 |
+| T+3 | 78 | +2.81 | 37.05 | +2.55 | +0.59 |
+
+#### Stop arm (15-point stop), the Lucid-safe form — 1 tick (base case)
+
+| 2020–2026, 4 contracts, 1 tick, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 11 | 314 |
+| Trading days | 11 | 314 |
+| Net P&L | $-474.00 | $14,369.00 |
+| Mean per trade | $-43.09 | $45.76 |
+| Folds profitable | 0 of 7 | 5 of 7 |
+| Sharpe | -2.04 | 1.38 |
+| Profit factor | 0.748 | 1.247 |
+| Max drawdown | $-1,577.00 | $-7,161.00 |
+| Max daily loss (worst day) | $-314.00 | $-314.00 |
+| Worst day as % of total profit | n/a | -2.2% |
+| Best day as % of total profit (rule 8) | n/a | 15.5% |
+| Pass probability | 4.75% | 43.73% |
+| Payout probability ($52,100) | 11.39% | 54.05% |
+| Evaluations blown (read on the comparable basis) | 10 | 10 |
+| Sessions blocked by the trailing halt | 303 | — |
+| Daily-loss flattens | 0 | 0 |
+| Avg trade duration | 186.8 min | 199.3 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 5 trades, mean $282.00, total $1,410.00; stop: 6 trades, mean $-314.00, total $-1,884.00. Daily-loss halts: 0.
+Per fold, standard: 2020 $-474.00; 2021 $0.00; 2022 $0.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Stop arm (15-point stop), the Lucid-safe form — 2 ticks (sensitivity)
+
+| 2020–2026, 4 contracts, 2 ticks, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 11 | 314 |
+| Trading days | 11 | 314 |
+| Net P&L | $-584.00 | $11,229.00 |
+| Mean per trade | $-53.09 | $35.76 |
+| Folds profitable | 0 of 7 | 5 of 7 |
+| Sharpe | -2.52 | 1.08 |
+| Profit factor | 0.700 | 1.187 |
+| Max drawdown | $-1,657.00 | $-8,601.00 |
+| Max daily loss (worst day) | $-324.00 | $-324.00 |
+| Worst day as % of total profit | n/a | -2.9% |
+| Best day as % of total profit (rule 8) | n/a | 19.7% |
+| Pass probability | 3.06% | 39.52% |
+| Payout probability ($52,100) | 8.12% | 50.02% |
+| Evaluations blown (read on the comparable basis) | 10 | 10 |
+| Sessions blocked by the trailing halt | 303 | — |
+| Daily-loss flattens | 0 | 0 |
+| Avg trade duration | 186.8 min | 199.3 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 5 trades, mean $272.00, total $1,360.00; stop: 6 trades, mean $-324.00, total $-1,944.00. Daily-loss halts: 0.
+Per fold, standard: 2020 $-584.00; 2021 $0.00; 2022 $0.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Signal arm (no stop), the mechanism's trade stream — 1 tick (base case)
+
+| 2020–2026, 4 contracts, 1 tick, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 10 | 314 |
+| Trading days | 10 | 314 |
+| Net P&L | $-415.00 | $10,854.00 |
+| Mean per trade | $-41.50 | $34.57 |
+| Folds profitable | 0 of 7 | 4 of 7 |
+| Sharpe | -1.67 | 0.93 |
+| Profit factor | 0.776 | 1.154 |
+| Max drawdown | $-1,518.00 | $-8,247.00 |
+| Max daily loss (worst day) | $-534.00 | $-674.00 |
+| Worst day as % of total profit | n/a | -6.2% |
+| Best day as % of total profit (rule 8) | n/a | 20.6% |
+| Pass probability | 8.53% | 36.84% |
+| Payout probability ($52,100) | 16.87% | 47.38% |
+| Evaluations blown (read on the comparable basis) | 11 | 11 |
+| Sessions blocked by the trailing halt | 304 | — |
+| Daily-loss flattens | 4 | 152 |
+| Avg trade duration | 240.1 min | 238.9 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 6 trades, mean $239.33, total $1,436.00; loss_limit_flatten: 4 trades, mean $-462.75, total $-1,851.00. Daily-loss halts: 152.
+Per fold, standard: 2020 $-415.00; 2021 $0.00; 2022 $0.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Signal arm (no stop), the mechanism's trade stream — 2 ticks (sensitivity)
+
+| 2020–2026, 4 contracts, 2 ticks, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 10 | 314 |
+| Trading days | 10 | 314 |
+| Net P&L | $-515.00 | $3,939.00 |
+| Mean per trade | $-51.50 | $12.54 |
+| Folds profitable | 0 of 7 | 3 of 7 |
+| Sharpe | -2.07 | 0.35 |
+| Profit factor | 0.728 | 1.054 |
+| Max drawdown | $-1,588.00 | $-13,372.00 |
+| Max daily loss (worst day) | $-544.00 | $-684.00 |
+| Worst day as % of total profit | n/a | -17.4% |
+| Best day as % of total profit (rule 8) | n/a | 56.1% |
+| Pass probability | 5.96% | 30.26% |
+| Payout probability ($52,100) | 13.20% | 40.90% |
+| Evaluations blown (read on the comparable basis) | 13 | 13 |
+| Sessions blocked by the trailing halt | 304 | — |
+| Daily-loss flattens | 4 | 155 |
+| Avg trade duration | 240.1 min | 236.8 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 6 trades, mean $229.33, total $1,376.00; loss_limit_flatten: 4 trades, mean $-472.75, total $-1,891.00. Daily-loss halts: 155.
+Per fold, standard: 2020 $-515.00; 2021 $0.00; 2022 $0.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Diagnostics
+
+Window sessions skipped in the scored span: 5 (2023-07-03 T+1 early_close, 2024-07-03 T+3 early_close, 2024-11-29 T-1 early_close, 2025-07-03 T+3 early_close, 2025-11-28 T-1 early_close). Entry-bar stop breaches on the stop arm: 1.
+
+In-sample results are never evidence, and this is the out-of-sample answer on seven yearly folds with nothing selected.
+
+### What was learned
+
+**The intraday slice is not nothing, and it is not enough.** The pooled window
+excess over the control is +4.95 points a day before costs, seven times one
+round turn, with a one-sided p of 0.026 — and a Welch t of 1.94 against a
+pre-registered line of 2.0. Criterion 1 failed on significance alone, by
+six-hundredths of a t. That is the pre-registration working as intended: the
+line was set before the run, the entry said in advance that the t criterion
+would be the binding one, and a result that lands just under it is rejected
+exactly as one that lands far under it. Moving the line now is what this log
+exists to prevent.
+
+**The prior was wrong in the direction it least expected.** Prediction 1 said
+the excess would be under one round turn; it was seven. Prediction 3 said
+criterion 2 would land at 3 or 4 of 7; it landed at 5. Prediction 2 said any
+effect would sit on T-1 and T+1; it sits on **T+2** (+11.76 points, t 2.59),
+with T-1, T+1 and T+3 all inside two to three points of the control. That
+is reported and not selected on, as pre-registered, and it is precisely the
+table the kill criteria were written to be immune to: dropping T+2 leaves the
+window excess at +2.62 points with t 0.91, so a post-hoc entry on T+2 alone
+would be built on the one label out of four that happened to carry the pooled
+number.
+
+**A partial year carries much of the pooled excess.** 2026 contributes 31
+window sessions at a mean of +23.44 points (t 2.79 on its own). Without 2026
+the pooled excess is +2.73 points with t 1.04 and p 0.15. Both figures are
+post-hoc diagnostics computed after the verdict and decide nothing; they are
+recorded because the next reader should know that the near-miss on criterion
+1 rests substantially on eight months of one year.
+
+**The Lucid-safe form is not Lucid-safe at 4 contracts, and that failure is
+sizing, not signal.** On the comparable stream the stop arm nets +$14,369
+over 314 trades, 5 of 7 folds profitable, profit factor 1.25, Sharpe 1.38,
+pass probability 43.7% — the best comparable-basis figures in this log by a
+wide margin. It also blows ten evaluations, because a day at 4 contracts has a
+standard deviation of about $526 and the firm's $2,000 trail is under four of
+those; the same stream passes seven evaluations, which is what a 43.7% pass
+probability looks like as a sequence. Under the internal guards the $1,500
+halt fires on 2020-04-01 after eleven trades and never releases, leaving the
+standard stream with 11 trading days, 0 of 7 folds, and a pass probability of
+4.75% measured on nothing. Criteria 3, 4 and 5 all failed on that geometry.
+The entry fixed 4 contracts by operator specification and did not pre-register
+a size sensitivity, so whether one contract survives the trail is a question
+this entry cannot answer and does not.
+
+**The trailing halt lesson from entry 10 applied on the day it was written
+down.** Entry 10's addendum said a pre-registration combining a trailing halt
+with a pooled test must state what sample the halt will leave. This entry
+named the stream and reported the day count beside the figure (11 days), which
+made the truncation visible rather than misleading — the figure reads as
+meaningless on its face, which is the correct reading. It did not change the
+outcome and was not meant to.
+
+**The calendar decision mattered on two days a year and was the right call.**
+Removing the cash-closed holiday sessions from the count kept T+1 on the first
+day the cash market was open. The five half-days lost to the no-15:55 rule
+were all T-1 or T+3 in July and November; none was a T+2.
+
+**Rule 7 read 0.00% on every stream and rule 6 was never near**, as an
+entry holding six hours must. The consistency check (rule 8) on the
+comparable stop arm at 1 tick reads 15.5%, inside the 30% line; at 2 ticks on
+the comparable signal arm it reads 56.1% because that stream's total profit is
+small, which is the metric behaving correctly on a near-zero denominator.
+
+### Next
+
+**Do not re-run this entry at a different size, a different stop, a T+2-only
+window, or without 2026.** Each of those is a change chosen after seeing the
+table above, and each is the route by which a rejected entry gets re-tested
+until it passes. Sizing was fixed by the operator before the run; the T+2
+concentration is a post-hoc reading of a four-label table; and 2026 is data,
+not an outlier to be argued away.
+
+**What would justify a new entry, written before any code:** the mechanism
+test here came within 0.06 of its t line on 314 sessions, and the honest way
+to resolve a near-miss is more out-of-sample data, not a reworked test. Two
+routes exist. The first is time: each further month adds four window sessions,
+and a pre-registered replication on data after 2026-08-31 — same calendar,
+same horizon, same control, t line fixed in advance, with a sample size stated
+before the run — would be entry 7's replication logic applied here. The
+second is a second instrument: MNQ has been in the file since entry 7, and a
+replication of the pooled test on it, pre-registered with its own line and
+its own prediction, would ask the same question of a series this entry never
+looked at. Either must name in advance which days are in the window, and
+neither may be T+2 alone.
+
+**Any tradeable form must be sized to the trail before it is written, not
+after.** A strategy whose daily standard deviation is a quarter of the firm's
+trailing drawdown blows evaluations at a rate no signal can outrun. A future
+entry on this mechanism should state its contract count from the daily
+standard deviation of the control population, which is now known, and
+pre-register the evaluation-blown criterion on that size.
+
+**The counterparty claim held up better than any breakout entry's and the
+entry still died.** That is worth recording: a well-named, well-constrained
+counterparty is necessary for an entry to be worth writing and is not
+sufficient for it to pass. The mechanism is real in the literature, visible
+here at the noise floor, and not capturable at this size under these rules.
 
 ---
 
