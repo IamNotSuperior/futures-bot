@@ -3660,8 +3660,8 @@ bases. REJECTED stands. The results CSVs now hold the $0.50 streams;
 
 ## 10. London 1×/ON held through the US session — REJECTED
 **Date:** 2026-09-11
-**Spec frozen at:** `a6d9af1`
-**Code:** `strategies/tom.py`, `backtests/run_entry11.py`, `research/power_check_tom.py`
+**Spec frozen at:** the commit adding this entry
+**Code:** not yet written
 **Note:** an entry cannot contain its own commit hash. The verdict commit is
 recorded in a one-line follow-up commit, never by amending.
 **Instrument:** MES **and** MNQ, 5-minute bars resampled from 1-minute, 19:00 ET
@@ -4164,6 +4164,7 @@ the only route back for any breakout idea.
 
 **Date:** 2026-09-11
 **Spec frozen at:** `a6d9af1`
+**Verdict commit:** `2bf4fc4`
 **Code:** `strategies/tom.py`, `backtests/run_entry11.py`, `research/power_check_tom.py`
 **Note:** an entry cannot contain its own commit hash. The verdict commit is
 recorded in a one-line follow-up commit, never by amending.

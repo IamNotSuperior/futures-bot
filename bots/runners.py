@@ -104,6 +104,13 @@ def _orb_flat(bars, roll_dates, early_closes):
                 early_close_dates=early_closes)
 
 
+def _tom(bars, roll_dates, early_closes):
+    from run_entry11 import ARMS
+    from tom import TurnOfMonth
+    return TurnOfMonth(ARMS["stop"], roll_dates=roll_dates,
+                       early_close_dates=early_closes)
+
+
 RUNNERS: dict[str, Runner] = {
     "orb": Runner(5, 1, _orb, "orb_walkforward_slip1.csv",
                   "orb_oos_stream_slip1.csv"),
@@ -144,6 +151,14 @@ RUNNERS: dict[str, Runner] = {
                               note="entry 10, entry 6's 1x/ON held to 15:55, "
                                    "MES base case (2 ticks/side, $0.50, "
                                    "trailing halt ON); MNQ in entry10_mnq_*"),
+    # Entry 11. Scalar 4 contracts, so build works. The saved files are the
+    # verdict's stop arm at the base case - 1 tick, $0.50, the guarded stream,
+    # which the halt ends after 11 trades; the halt-OFF stream and the signal
+    # arm sit beside them as entry11_*_nohalt and entry11_signal_*.
+    "tom_intraday": Runner(1, 4, _tom, "entry11_folds.csv", "entry11_stop_slip1.csv",
+                           note="entry 11, turn-of-month long 09:30-15:55, "
+                                "15-point stop arm, 4 contracts, 1 tick/side "
+                                "(base case), trailing halt ON"),
 }
 
 

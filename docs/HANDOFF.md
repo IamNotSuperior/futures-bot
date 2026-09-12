@@ -27,7 +27,7 @@ own generated test (§5). **Working tree is clean.**
 
 ### The research
 
-**Ten hypothesis entries. Nine rejected. Entry 3 is open with zero trades
+**Eleven hypothesis entries. Ten rejected. Entry 3 is open with zero trades
 logged.** No strategy has ever reached `paper`.
 
 | # | Idea | Status |
@@ -42,6 +42,7 @@ logged.** No strategy has ever reached `paper`.
 | 8 | `orborb_flat_1030` — entry 5 re-submitted through `/submit` | REJECTED (pipeline validation) |
 | 9 | `orb_full_day_test` — entry 4's OFF arm re-submitted through `/submit` | REJECTED (pipeline validation) |
 | 10 | `london_full_day` — entry 6's 1×/ON held to 15:55, MES and MNQ | REJECTED, both instruments (verdict `82006bf`) |
+| 11 | `tom_intraday` — turn-of-month flows, long 09:30–15:55 on T-1..T+3 | REJECTED (verdict `2bf4fc4`) — the near-miss in this log |
 
 **The breakout family — entries 1, 4, 5, 6, 7, 8, 9 and 10 — is closed on entry
 and on exit.** Eight entries tested breakout continuation across two sessions,
@@ -358,7 +359,15 @@ sharing a server. **It stays; do not rewrite history for it.**
 
 None is started. The operator set the order on 2026-09-11.
 
-**(a) Turn-of-month institutional flows.** The only untested hypothesis in
+**(a) Closed as entry 11, 2026-09-11 — REJECTED.** The turn-of-month idea
+below was written, frozen, built, run and rejected in one session; its entry
+holds what would justify a successor (a pre-registered replication on
+post-2026-08 data or on MNQ, sized to the trail from the control population's
+daily standard deviation, never T+2 alone). What the entry found: a pooled
+intraday excess of +4.95 points with t 1.94 against a 2.0 line, 5 of 7 years
+window over control, T+2 carrying the effect post hoc, and a 4-contract stop
+arm that blows ten evaluations on a +$14,369 halt-OFF stream. The original
+text of this direction follows for the record. The only untested hypothesis in
 this project's candidate list with a *forced* counterparty: calendar-driven
 flows that must transact on a schedule regardless of price, giving roughly 350
 sessions across the seven-year window. No entry exists yet. Rule 12 applies in

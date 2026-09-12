@@ -94,5 +94,16 @@ strategies:
     points; MNQ: Rule 13: >= 4 of 7 folds profitable and P&L > 0; MNQ: z against the 15:55-horizon
     benchmark, one-sided. Any one failure on either instrument kills the entry as a whole,
     as pre-registered.'
+- name: tom_intraday
+  class_path: tom:TurnOfMonth
+  hypothesis_entry: 11
+  status: rejected
+  verdict_commit: 2bf4fc4
+  walkforward_verdict: REJECTED on four of five pre-registered criteria. Pooled window excess
+    over control +4.95 points pre-cost with Welch t 1.94 against a 2.0 line (p 0.026); window
+    beats control in 5 of 7 years. The stop arm at 4 contracts nets +$14,369 over 314 trades
+    on the halt-OFF stream and blows 10 evaluations; under the guards the $1,500 halt ends
+    it after 11 trades in 2020, 0 of 7 folds, pass probability 4.75%. The intraday slice sits
+    at the noise floor and is not capturable at this size under these rules.
 shadow:
 - orb2

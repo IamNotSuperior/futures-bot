@@ -22,6 +22,7 @@ futures-bot/
 │   ├── base.py        #   Strategy interface
 │   └── orb.py         #   opening-range breakout
 │   ├── london.py      #   London breakout of the overnight range (entry 6)
+│   ├── tom.py         #   turn-of-month calendar and intraday long (entry 11)
 │   ├── trend.py        #   daily and intraday EMAs, no-lookahead by construction
 │   ├── registry.py    #   strategy registry + gated promotion
 │   └── registry.yaml  #   where every strategy stands
