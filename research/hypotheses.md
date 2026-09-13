@@ -4772,6 +4772,7 @@ here at the noise floor, and not capturable at this size under these rules.
 
 **Date:** 2026-09-12
 **Spec frozen at:** `b632028`
+**Verdict commit:** `1b304bb`
 **Code:** `strategies/tom.py` (unchanged), `backtests/run_entry12.py`, `research/power_check_tom.py --parquet`
 **Note:** an entry cannot contain its own commit hash. The verdict commit is
 recorded in a one-line follow-up commit, never by amending.

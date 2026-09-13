@@ -27,7 +27,7 @@ own generated test (§5). **Working tree is clean.**
 
 ### The research
 
-**Eleven hypothesis entries. Ten rejected. Entry 3 is open with zero trades
+**Twelve hypothesis entries. Eleven rejected. Entry 3 is open with zero trades
 logged.** No strategy has ever reached `paper`.
 
 | # | Idea | Status |
@@ -43,6 +43,7 @@ logged.** No strategy has ever reached `paper`.
 | 9 | `orb_full_day_test` — entry 4's OFF arm re-submitted through `/submit` | REJECTED (pipeline validation) |
 | 10 | `london_full_day` — entry 6's 1×/ON held to 15:55, MES and MNQ | REJECTED, both instruments (verdict `82006bf`) |
 | 11 | `tom_intraday` — turn-of-month flows, long 09:30–15:55 on T-1..T+3 | REJECTED (verdict `2bf4fc4`) — the near-miss in this log |
+| 12 | `tom_intraday_mnq` — entry 11 replicated on MNQ at one contract | REJECTED at Part A (verdict `1b304bb`); Part B (forward MES) never run |
 
 **The breakout family — entries 1, 4, 5, 6, 7, 8, 9 and 10 — is closed on entry
 and on exit.** Eight entries tested breakout continuation across two sessions,
@@ -53,6 +54,19 @@ driftless rate, and the departure shrinks. **Entry 1's order-flow condition is
 the only route back** — evidence about who takes the other side of a range
 break and under what constraint. That is a data purchase, not a backtest, and
 it is priced before it is started or not started.
+
+**Entries 11 and 12 are one marginal result measured twice, not two.** The
+intraday turn-of-month excess is about 0.11–0.12 control standard deviations a
+day, one-sided p 0.03–0.04, concentrated on T+2, on MES and again on MNQ over
+the same 314 sessions. MES and MNQ same-day returns correlate 0.927 and MNQ's
+window effect conditioned on MES is zero, so entry 12 added no independent
+evidence; its entry records that as a pre-registration design error. **For a
+calendar effect the sample is days, not instruments.** The only route left is
+a new entry on forward MES data, with the power stated (96 forward window
+sessions ≈ 20–25% power against the observed effect; ~330 ≈ 50%). At one
+contract the stop arm's comparable stream was 7 of 7 folds and pass 79.7%,
+with a $2,406 worst drawdown the $1,500 internal halt cannot carry; that
+geometry is the starting point for any account criteria on this mechanism.
 
 **Entry 2 died on its mechanism test, and still does.** At the corrected
 commission it passes two of its three criteria (4 of 7 folds profitable; median
@@ -740,6 +754,19 @@ as `.5` — both unparseable, and a zero-volume overnight bar is routine. Use
 minute), not `time_close`; swapping them shifts every bar forward a minute.
 
 ---
+
+### A second index future on the same days is not a replication of a calendar effect
+
+Entry 12 replicated entry 11's turn-of-month test on MNQ and reproduced its
+shape almost exactly. It proved nothing: MES and MNQ open-to-15:55 returns on
+the same sessions correlate 0.927, and MNQ's window effect after conditioning
+on MES's same-day return is −0.005 sd, t −0.21. The series was untouched; the
+*days* were the same, and a calendar effect lives in the days. Entry 7's
+instrument replication was valid because its claim was about barrier
+mechanics on the instrument. **Before pre-registering a replication, name
+the independent sample**: instruments for instrument-level claims, days for
+calendar-level claims. Two correlated near-misses would have read as a
+replication had Part A passed.
 
 ### A trailing halt truncates the sample a share test runs on — pre-register for it
 

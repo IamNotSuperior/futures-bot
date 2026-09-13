@@ -105,5 +105,18 @@ strategies:
     on the halt-OFF stream and blows 10 evaluations; under the guards the $1,500 halt ends
     it after 11 trades in 2020, 0 of 7 folds, pass probability 4.75%. The intraday slice sits
     at the noise floor and is not capturable at this size under these rules.
+- name: tom_intraday_mnq
+  class_path: tom:TurnOfMonth
+  hypothesis_entry: 12
+  status: rejected
+  verdict_commit: 1b304bb
+  walkforward_verdict: 'REJECTED at Part A (MNQ) on the pre-registered criteria; Part B not
+    run. Pooled window excess +21.21 points (+0.112 control sd, against MES''s +0.121), Welch
+    t 1.75 against 2.0; 6 of 7 years window over control. One-contract stop arm: comparable
+    stream +$11,650, 7 of 7 folds, pass 79.7%, one evaluation blown; the $1,500 halt ended
+    the guarded stream after 103 trades, 2 of 7 folds. Post hoc: MES and MNQ same-day returns
+    correlate 0.927 and MNQ''s window effect conditioned on MES is zero - a second index future
+    on the same days is not a replication of a calendar effect. Recorded as a design error
+    in the pre-registration.'
 shadow:
 - orb2

@@ -159,6 +159,14 @@ RUNNERS: dict[str, Runner] = {
                            note="entry 11, turn-of-month long 09:30-15:55, "
                                 "15-point stop arm, 4 contracts, 1 tick/side "
                                 "(base case), trailing halt ON"),
+    # Entry 12, Part A. Read-only: build is None because this runs on MNQ
+    # bars with the MNQ spec and a stop derived from MNQ's control sd, and
+    # /backtest replays on the MES parquet at the MES spec. The saved files
+    # are the verdict's stop arm at the base case, guarded stream.
+    "tom_intraday_mnq": Runner(1, 1, None, "entry12_a_folds.csv", "entry12_a_stop_slip1.csv",
+                               note="entry 12 Part A, entry 11's test on MNQ, one "
+                                    "contract, 69.5-point stop (0.366 x control sd), "
+                                    "1 tick/side, trailing halt ON; Part B never run"),
 }
 
 
