@@ -4768,6 +4768,239 @@ here at the noise floor, and not capturable at this size under these rules.
 
 ---
 
+## 12. Turn-of-month intraday — replication on MNQ, and a forward test on MES — PROPOSED
+
+**Date:** 2026-09-12
+**Spec frozen at:** the commit adding this entry
+**Code:** not yet written. `strategies/tom.py` is reused unchanged; the runner
+and the power check's instrument flag are new.
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** Part A — MNQ, 1-minute bars, 09:30 to 15:55 ET, 2020-01-01 to
+2026-08-31. Part B — MES, the same, on sessions after 2026-08-31 only.
+**Predecessor:** entry 11, REJECTED at `2bf4fc4`, whose Next section names
+exactly these two routes and forbids every other.
+
+**Operator decisions, 2026-09-12, before this entry was frozen:** both parts,
+and **each must pass** for the entry to be ACCEPTED; the significance line
+stays at Welch t ≥ 2.0 as in entry 11; the stop arm is **one contract**; the
+stop is entry 11's 15 MES points expressed as a fraction of MES's control
+standard deviation and applied to each instrument's own.
+
+### This is a replication, not a new strategy
+
+**No new mechanism is claimed and entry 11 stays rejected.** Entry 11 measured
+the intraday slice of the turn-of-month effect on MES and found a pooled
+excess of +4.95 points a day over the control, seven times one round turn,
+with Welch t = 1.94 against a line of 2.0 and a one-sided p of 0.026. It
+failed criterion 1 by six-hundredths of a t. Its account criteria failed on
+sizing: four contracts against a $2,000 trail blew ten evaluations on a
+stream that netted +$14,369.
+
+That leaves one number worth one more look, and entry 11 said how: on data
+the question has never touched, with the line fixed in advance, never on T+2
+alone, sized to the trail. This entry is that look, twice.
+
+**Mechanism, restated and unchanged.** Pension, mutual-fund and
+retirement-plan cash flows cluster at month boundaries and are deployed in
+the last one to two and first one to three trading days regardless of price
+(Etula, Rinne, Suominen & Vaittinen 2020). **The counterparty** is the
+institution meeting a dated obligation: constrained by the calendar, not the
+price, and paying for liquidity in impact. The liquidity provider absorbs that
+flow and is compensated; the claimed edge is to stand where the provider
+stands on the days the schedule makes the flow predictable. Entry 11 recorded,
+and this entry repeats, that most of the published effect is close to close
+and multi-day, so the intraday slice may carry none of it.
+
+### Part A — MNQ, 2020–2026
+
+**What is unchanged from entry 11, line for line.** The cash trading calendar
+(`tom.trading_days`: sessions with a 09:30 bar less the cash-closed holiday
+sessions, half-days kept in the count and skipped as trade days). The window
+(T-1, T+1, T+2, T+3 at every observed month boundary). Long at the 09:30 open,
+flat at the 15:55 open, one trade per session, roll days and early closes
+skipped. The control: the open-to-15:55 return of every eligible non-window
+session. The scored span from `walkforward.build_folds()`. The costs:
+`rules.COMMISSION_PER_SIDE`, 1 tick a side as the base case, 2 ticks as the
+sensitivity. The guards: `engine.apply_internal_guards`, standard basis with
+the halt-OFF stream alongside, evaluations blown read on the comparable stream.
+The reproduction check, the per-day table reported and never selected on, and
+every rule 11 figure.
+
+**What follows from the contract.** MNQ is $2.00 a point with a $0.50 tick.
+One round turn at the base case is $1.00 commission plus $1.00 slippage, which
+is **1.00 MNQ point** (computed from the cost model, not written down). The MNQ
+commission is assumed equal to MES's confirmed $0.50 a side; only MES was
+confirmed (handoff §3.3), and the assumption is stated here so a later
+correction can re-price the stream exactly.
+
+**Sizing: one contract, fixed.** Entry 11's lesson was that a tradeable form
+must be sized to the trail before it is written. The control population's
+daily standard deviation on MES is 40.99 points, $205 a day per contract, so
+the firm's $2,000 trail is about ten daily standard deviations at one contract
+and 2.4 at four. MNQ's control standard deviation in dollars is expected to be
+larger (the Nasdaq-100 moves more than the S&P 500 in percentage terms and the
+contract is $2 a point on a higher index), putting the trail nearer five to
+seven daily standard deviations at one contract. One contract is the minimum
+the instrument allows and the only size this entry tests.
+
+**The stop, instrument-aware.** Entry 11's 15-point stop was **0.366 of MES's
+control standard deviation** (15 / 40.99). The stop arm here uses
+`stop_points = round_to_tick(0.366 × sd_control)` where `sd_control` is the
+standard deviation of the **control** population's open-to-15:55 return on the
+instrument under test, computed at run time and reported. The control
+population is every eligible non-window session, so computing its spread does
+not look at a window outcome. Entry 7's MNQ overshoot lesson is why the stop is
+not carried over in points: the same number of points is a different rule on a
+different contract.
+
+**Power check, run before any runner code.** `research/power_check_tom.py`
+with the MNQ parquet, calendar only: eligible window sessions per fold year.
+**Floor: 20 in every fold year**, as in entry 11, or the entry stops. MNQ's
+file spans the same dates as MES's and its early-close and roll sets are
+detected from its own bars, so the counts are expected to match entry 11's 314
+and 1,332 closely but need not be identical.
+
+**Power arithmetic.** Welch's t is scale-free, so the line sits at the same
+place in standard-deviation units as entry 11's: with about 314 window and
+1,332 control sessions, t = 2.0 needs a pooled excess of roughly **0.125
+control standard deviations**. Entry 11's MES excess was 4.95 / 40.99 =
+**0.121**. **The test is set at almost exactly the effect MES showed.** If the
+MNQ effect is the same size, criterion 1 is a coin flip; if it is smaller, it
+fails; only a larger effect passes comfortably. That is what replicating a
+near-miss at the same line means, and it is intended.
+
+### Part B — MES, forward data only
+
+**The same test on MES sessions after 2026-08-31**, which no entry has seen.
+Same calendar, window, horizon, control, costs, guards, one contract, the stop
+at 0.366 of the forward control population's standard deviation.
+
+**Trigger, fixed now:** Part B runs once the forward MES file holds **at least
+96 eligible window sessions** — about two calendar years — and not before. The
+data is pulled with `data/extend.py`, cost estimated and shown before any pull.
+
+**Power, stated honestly.** At 96 window and roughly 400 control sessions with
+a standard deviation near 41 points, the standard error of the difference is
+about 4.6 points, so t = 2.0 needs an excess of roughly **9 points a day**,
+almost twice entry 11's +4.95. Against an effect of entry 11's size Part B has
+on the order of **20–25% power**. A larger trigger would fix that only by
+waiting: 50% power against +4.95 points needs about 330 window sessions, seven
+years. The operator chose both parts with each required to pass, so **this
+entry cannot be ACCEPTED before Part B runs, and Part B as specified is more
+likely than not to fail even if the effect is real.** Recorded so the verdict,
+whatever it is, is read with that in view. Part B's terms are fixed here and
+are not revised after Part A's result is known; any change to them after that
+point would be a new entry.
+
+### Rules compatibility
+
+As entry 11: entry at 09:30 before the 16:20 cutoff, exit at 15:55 before the
+16:30 flatten, early closes never traded, the trade inside one calendar date,
+a six-and-a-half-hour hold so rules 6 and 7 are untouched and rule 7 must read
+0.00%. One contract is inside the 5-contract cap; at one contract a stop of
+about 0.37 daily standard deviations cannot reach the $400 daily loss limit on
+either instrument, so `loss_limit_flatten` is expected never to fire on the
+stop arm and its count is reported.
+
+### Pre-registered tests
+
+Part A, pooled 2020–2026 at the base case, one configuration per arm:
+
+1. **Reproduction, first, gating:** the signal arm's unguarded one-contract
+   zero-cost stream must reproduce the eligible window sessions and their
+   open-to-15:55 returns session for session; the stop arm's entries must be
+   identical to the signal arm's. A strategy that does not reproduce the
+   population it is tested on stops the entry.
+2. **Window versus control, pre-cost:** n, mean, standard deviation, median,
+   difference, Welch t, one-sided p.
+3. **Per year**, and whether the window mean exceeds the control mean.
+4. **Per window day**, T-1, T+1, T+2, T+3: n, mean, difference, t. **Reported,
+   never selected on.** Whether MNQ shows entry 11's T+2 concentration is a
+   finding for *What was learned* and decides nothing here.
+5. **Both arms, both guard bases, one contract, 1 tick:** trades, net P&L,
+   mean per trade, folds profitable, Sharpe, profit factor, max drawdown, exit
+   reasons, `eval_sim` pass and payout probability with the day count beside
+   them, evaluations blown on the comparable stream, sessions blocked by the
+   halt, daily-loss flattens, and every rule 11 figure.
+6. **Everything in 5 at 2 ticks.**
+7. **The stop in points** as derived, with the control standard deviation it
+   came from; skipped window days by year; entry-bar stop breaches.
+
+Part B, when triggered: tests 1–7 on the forward MES sessions, with "per
+year" meaning each forward calendar year that has at least one window session.
+
+### Kill criteria — decided now
+
+**Part A, any one failure kills the entry:**
+
+1. Pooled window excess over control, pre-cost, in MNQ points, **greater than
+   one round turn per contract at the base case** (1.00 point, computed) **and
+   Welch t ≥ 2.0.**
+2. Window mean beats control mean in **at least 4 of 7 years.**
+3. Stop arm, standard (guarded) stream, 1 tick: `eval_sim` pass probability
+   **≥ 25%**, with the stream's trading-day count reported beside it.
+4. Stop arm, comparable (halt-OFF) stream, 1 tick: **evaluations blown ≤ 1.**
+5. Rule 13 on the stop arm, standard stream: **≥ 4 of 7 folds profitable and
+   P&L > 0 at 1 tick and at 2 ticks.**
+
+**Part B, any one failure kills the entry:** criteria 1, 3, 4 and 5 as above
+on the forward MES data (criterion 1 at MES's 0.70-point round turn), and
+criterion 2 as the window mean beating the control in a **majority of the
+forward years.**
+
+**Verdict logic.** If Part A fails, the entry is REJECTED at Part A and Part B
+is never run. If Part A passes, the entry **stays PROPOSED** with a dated note
+recording Part A's result, and the verdict is written only when Part B has
+run; ACCEPTED requires both. No appeal, no second size, no second stop rule,
+no T+2-only window, no third instrument, no shortening of Part B's trigger.
+
+### Prediction on record
+
+Nothing below has been computed on MNQ or on any forward data.
+
+1. **Part A, criterion 1: more likely to fail than pass, about one in four.**
+   If entry 11's effect is real and the same size in standard-deviation units
+   on MNQ, the line is a coin flip; weighting that by a prior near 40% that the
+   intraday effect is real at all gives roughly 20–25%. The pooled excess is
+   predicted **positive** in any case, between 0 and 0.15 control standard
+   deviations.
+2. **The per-day table does not reproduce entry 11's T+2 concentration.** An
+   effect concentrated on one of four labels with t 2.59 is what one label out
+   of four looks like when noise picks a winner; on MNQ the four days are
+   predicted to sit within noise of each other.
+3. **Criterion 2 lands at 4 or 5 of 7**, as entry 11's did.
+4. **The one-contract stop arm fails criteria 3 and 5 and passes 4.** At one
+   contract the daily standard deviation is a few hundred dollars, the $3,000
+   target is far away relative to the day-to-day noise so pass probability is
+   low, and the $1,500 internal halt is predicted to fire at least once in the
+   2020 or 2022 drawdowns, leaving the guarded stream with a truncated fold
+   table. Evaluations blown on the comparable stream: zero or one.
+5. **Part B fails on power if it is ever reached**, for the reason stated.
+
+**Prior for survival: very low**, and for the Part A mechanism test alone,
+about one in four.
+
+### Data and cost
+
+Part A: `data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet`, on disk since entry
+7 and validated there. **No purchase.** Part B: a forward MES pull when the
+trigger is near; estimate shown before any spend.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged from every prior entry: N accounts running one strategy is one bet
+at N times the size with N times the fees, and a single trailing-drawdown
+breach ends all of them on the same day.
+
+### Verdict
+
+Not yet run. Part A's result is recorded here when it is in, with the commit
+hash in a follow-up commit; the entry's verdict is written only when both
+parts have run, or when either has failed.
+
+---
+
 ## Template for new entries
 
 ```
