@@ -1,6 +1,7 @@
 # Handoff
 
-Rewritten 2026-09-11, at the end of the session that closed entry 10. For a
+Rewritten 2026-09-13, at the end of the session that closed entries 11 and
+12, verified the CME calendar and added the hold-regression check. For a
 session starting fresh on this repository.
 
 This file holds only what is **not** already in `CLAUDE.md` (the hard rules and
@@ -14,7 +15,7 @@ why). Read those three first; this is the delta.
 
 **Branch** `master`, tracking `origin/master` at
 <https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
-**1,111 tests pass**, 2 skipped (a symlink test the OS refuses, and one that
+**1,198 tests pass**, 2 skipped (a symlink test the OS refuses, and one that
 needs an orphaned generated module on disk, of which there is none) —
 
 ```powershell
@@ -97,12 +98,12 @@ recreate** — do not delete them casually.
   2019-05-05 to 2026-08-31.
 - `data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet` — 44.6 MB, same span. Pulled
   for entry 7 at **$9.4256**.
-- `backtests/results/*` — 102 files: scan CSVs, walk-forward fold tables, trade
-  streams, reports, charts, and 26 `entry10_*` files (the verdict block, both
-  bases at three slippage levels, folds, the attribution streams, the
-  reproduction outputs). All regenerable: the ORB walk-forward takes ~55
-  minutes, entry 6 about 20, entry 10's full run about an hour (the two
-  bootstraps are most of it). The London and entry 7 fold tables rebuild in
+- `backtests/results/*` — 126 files: scan CSVs, walk-forward fold tables, trade
+  streams, reports, charts, 26 `entry10_*` files and 24 `entry11_*`/`entry12_*`
+  files (session-return populations, both arms at both cost levels on both
+  bases, folds, verdict blocks). All regenerable: the ORB walk-forward takes
+  ~55 minutes, entry 6 about 20, entry 10's full run about an hour (the two
+  bootstraps are most of it), entries 11 and 12 about a minute each. The London and entry 7 fold tables rebuild in
   seconds with `--folds-only`. **Generated and hand-built streams in this
   directory are now priced at $0.50**; `--commission 1.25` regenerates the
   $1.25 ones the frozen verdicts cite.
@@ -162,14 +163,29 @@ re-submitted entry 4's filter-OFF arm and landed within 1 trade of it (503
 against 504) and about 6% in P&L at 2 ticks. Both REJECTED, both as expected.
 The pipeline can be trusted on a new idea.
 
-**YouTube ingestion for `/submit` is NOT built.** Nothing in the repository
-reads a video, a transcript or a description; `/submit` takes the operator's
-typed mechanism, counterparty and kill criteria, and rule 12 requires that
-those be the operator's words in any case. (Tried once this session by
-opening a video in the operator's Chrome: the Claude-in-Chrome extension
-exposes only tabs in a group it creates for the session, so a URL has to be
-pasted — and what it can then read is the title, description and transcript,
-not the video.)
+**Video intake is a chat protocol, not code.** The `watch` Claude Code plugin
+(installed 2026-09-12; yt-dlp, ffmpeg and Deno via winget; transcript mode
+by default, captions only, no Whisper key) turns a pasted YouTube URL into a
+timestamped transcript in the session. The protocol, fixed with the operator
+on 2026-09-12: the operator pastes a URL; the session runs `/watch` in
+transcript mode; it reports first whether the video names a counterparty and
+whether the rule falls in a closed family, then drafts *Mechanism* and
+*Signal definition* labelled as a draft; the operator writes the counterparty
+paragraph, kill criteria and prediction in their own words (rule 12); sizing
+comes from the control standard deviation before the entry is frozen; then
+`/submit` or a hand-built runner. **Wiring `/watch` output into the `/submit`
+modal is deliberately not built**; the chat protocol keeps the operator's
+words as the pre-registration by construction. The filter for what to send:
+forced or constrained counterparties only — options expiry and dealer
+hedging, index rebalances, fund month-end marks, economic-release
+positioning, auction mechanics. No breakout, opening-range, London or
+indicator-crossover content; that family is closed and those rules have no
+counterparty. First video through the protocol (2026-09-13, a TradingLab
+supply-and-demand retest rule): no counterparty, breakout-continuation
+family, discretionary rules a machine cannot apply — no entry, by design.
+Nothing in the repository reads a video; the plugin's `~/.config/watch/.env`
+and the session's shell PATH are the only state, and a fresh desktop-app
+launch is needed for its shells to see the winget PATH entries.
 
 **The execution adapter is NOT built and is gated in code.** `PaperAdapter` is
 the only adapter — a test asserts `BrokerAdapter.__subclasses__()` has exactly
@@ -271,6 +287,43 @@ group; halt-OFF alongside; 1 and 3 ticks as sensitivities; the bootstrap at the
 `backtests/results/entry10_verdict.md`). The bot's `london_full_day` runner
 reads the MES base case.
 
+### Entries 11 and 12 — turn-of-month, REJECTED twice, one sample (verdicts `2bf4fc4`, `1b304bb`)
+
+**Entry 11** (frozen `a6d9af1`): long MES at the 09:30 open on T-1, T+1, T+2,
+T+3 by the cash trading calendar, flat at the 15:55 open, against a control
+of every eligible non-window session; 4 contracts; a signal arm with no stop
+and a stop arm at 15 points; $0.50, 1 tick base, 2 ticks sensitivity; kill
+criteria pre-registered by the operator plus rule 13. **Result:** pooled
+excess +4.95 points pre-cost, Welch t 1.94 against 2.0 — failed by
+six-hundredths; window over control in 5 of 7 years; T+2 carried the effect
+post hoc; the 4-contract stop arm blew ten evaluations on a +$14,369
+halt-OFF stream and the $1,500 halt ended the guarded stream after eleven
+trades. Two code lessons in §5 (the population must be built over the whole
+file and sliced; the halt leaves a pooled test little sample).
+
+**Entry 12** (frozen `b632028`): entry 11's test on MNQ at one contract, the
+stop derived at run time as 0.366 of the instrument's control standard
+deviation (entry 11's 15 / 40.99), plus a pre-registered forward-MES Part B
+at a 96-session trigger with its low power stated. **Result:** MNQ
+reproduced entry 11's shape — +0.112 control sd against +0.121, t 1.75, 6 of
+7 years, T+2 largest — and failed the same line; the one-contract stop arm's
+halt-OFF stream was 7 of 7 folds, +$11,650, pass 79.7%, worst drawdown
+$2,406, and the guarded stream died to the halt in 2022. **Post hoc, labelled
+as such:** MES and MNQ same-day returns correlate 0.927 and MNQ's window
+effect conditioned on MES is −0.005 sd. The replication replicated nothing;
+the entry records that as a design error in its own pre-registration (§5).
+Part B was never run.
+
+**Code.** `strategies/tom.py` holds the cash trading calendar
+(`trading_days`, `label_window_days`, `cash_half_days` — CME sessions less
+the cash-closed holiday sessions, half-days kept in the count and skipped as
+trade days), `session_calendar`/`session_returns`, and `TurnOfMonth` with
+`TOMParams(stop_points)`. `backtests/run_entry11.py` and `run_entry12.py`
+are the runners (`--reproduce` before `--run`; entry 12 takes `--part A|B`
+and `--parquet`); `research/power_check_tom.py --parquet` is the calendar-
+only power check. The bot's `tom_intraday` and `tom_intraday_mnq` runners
+read the saved stop-arm base-case files.
+
 ### The rule 6 / rule 7 regression check, 2026-09-13
 
 Rule 6's 30-second floor means rule 7's share must read 0.00% in any correct
@@ -296,8 +349,8 @@ registry against the log and is how a real drift bug was caught once.
 
 **The evidence pipeline** is unchanged and is the product: entry with
 mechanism, counterparty and kill criteria → committed → build → walk-forward →
-verdict frozen before anyone sees numbers → hash recorded in a follow-up. Nine
-of ten entries died in it. `backtests/reprice.py` re-prices any saved stream
+verdict frozen before anyone sees numbers → hash recorded in a follow-up.
+Eleven of twelve entries died in it. `backtests/reprice.py` re-prices any saved stream
 between two commissions exactly, recovering each trade's size from the
 commission it carried; `backtests/eval_sim.py` reports the $52,100 payout
 probability alongside the pass probability.
@@ -384,6 +437,21 @@ pre-registered that its 03:00 fills are the thinnest this project trades and
 that no backtest could settle them. Until a live fill exists, the two-tick bar
 is the hedge, not a measurement.
 
+**3.12 The trailing halt, not the daily limit, is the binding account
+constraint for anything with a real drawdown.** Entry 12's one-contract stop
+arm had a worst comparable-stream drawdown of $2,406 against the firm's
+$2,000 and the internal $1,500; entry 11's at four contracts, $7,161. Any
+future account criterion should be designed against the $1,500 line first,
+and the sizing rule (contracts from the control population's daily standard
+deviation) written into the entry before it is frozen.
+
+**3.13 `~/.mcp.json` carries a Composio `connect-apps` MCP server** that the
+operator set up in a separate Claude Code session on 2026-09-12, with an API
+key in it. Nothing in this project uses it and nothing should route through
+it; it is noted so a fresh session is not surprised to find an external
+connector loaded. The key was also visible in that session's terminal
+scrollback.
+
 **3.11 The Discord user id in commit `9dc95c2`.** `tests/test_submissions.py`
 once hard-coded the operator's real `DESK_OWNER_ID`; the tip uses a fake id.
 The real one remains in that commit's history, which was pushed. A Discord
@@ -394,26 +462,19 @@ sharing a server. **It stays; do not rewrite history for it.**
 
 ## 4. Open directions, in priority order
 
-None is started. The operator set the order on 2026-09-11.
+None is started. The operator set the order on 2026-09-12.
 
-**(a) Closed as entry 11, 2026-09-11 — REJECTED.** The turn-of-month idea
-below was written, frozen, built, run and rejected in one session; its entry
-holds what would justify a successor (a pre-registered replication on
-post-2026-08 data or on MNQ, sized to the trail from the control population's
-daily standard deviation, never T+2 alone). What the entry found: a pooled
-intraday excess of +4.95 points with t 1.94 against a 2.0 line, 5 of 7 years
-window over control, T+2 carrying the effect post hoc, and a 4-contract stop
-arm that blows ten evaluations on a +$14,369 halt-OFF stream. The original
-text of this direction follows for the record. The only untested hypothesis in
-this project's candidate list with a *forced* counterparty: calendar-driven
-flows that must transact on a schedule regardless of price, giving roughly 350
-sessions across the seven-year window. No entry exists yet. Rule 12 applies in
-full — mechanism, who is on the other side and why they must be, kill criteria
-decided in advance, all committed before any code — and `/submit` can take it
-from Discord to a verdict in about twenty minutes once the entry is written.
-Entry 2's precedent matters here: a calendar effect is tested on pre-cost
-effect size as well as on P&L, so the mechanism test is the one that decides.
-Scored at $0.50 a side with slippage stated as the unknown it is (§3.10).
+**(a) A forward-data test of the turn-of-month mechanism — a new entry, when
+the data exists.** Entries 11 and 12 leave one marginal result on one sample
+of 314 sessions. The only data that can resolve it is days nobody has looked
+at: MES sessions after 2026-08-31, pulled with `data/extend.py` (estimate
+shown before any spend). The entry must state its independent sample is days,
+fix the t line and the trigger before any run, state the power honestly (96
+forward window sessions is about two years and 20–25% power against the
+observed +0.12 sd; about 330 is 50%), size from the control population's
+standard deviation, never test T+2 alone, and design its account criteria
+against the $1,500 halt (§3.12). Entry 12's Part B terms are moot and are
+not to be reused as if they were fresh.
 
 **(b) Entry 3's 60-trade manual gate, via `/read`.** Sixty rule-clean paper
 trades logged through `/read`'s buttons or `journal/pretrade.py`, positive
@@ -422,14 +483,17 @@ is the only route to `paper` that does not need a passed walk-forward, and
 its kill criterion — any rule violation resets the count to zero — is the
 part that does the work.
 
-**(c) YouTube ingestion for `/submit`.** Not built (§2). It would read a
-video's title, description and transcript and pre-fill the `/submit` modal;
-the pre-registration itself must stay the operator's words, so the useful
-output is a draft the operator edits, never a submission. The Chrome extension
-needs the URL pasted; it cannot see the operator's other tabs.
+**(c) Video intake, running as a protocol (§2).** Waits on the operator
+sending URLs under the filter. The `/submit` modal pre-fill is deferred until
+two or three videos have gone through the protocol and its shape is known.
 
-**(d) Closed, 2026-09-12 — verified** (§3.1). Both dates were right; the
-model's 13:00 close is at or before the published 13:00 and 13:15.
+**(d) Plugins worth adding, from the official marketplace on disk:**
+`pyright-lsp` (type checking across a flat-module codebase; the unit-mismatch
+class of bug) and `hookify` (turn standing rules into harness hooks: refuse
+`/submit` while `hypotheses.md` is dirty, block `verify=False`, block a
+restated threshold). Community trading plugins were reviewed and declined:
+they are strategy generators and optimisers, the process rule 12 exists to
+prevent.
 
 **(e) The portfolio layer and the selector diagnostic — deferred until a
 second strategy exists.** The portfolio layer would hold one position across
@@ -929,6 +993,10 @@ venv\Scripts\python.exe backtests\run_entry7.py --folds-only    # entry 7
 venv\Scripts\python.exe backtests\run_generated.py <name> --class-path <module:Class>   # entries 8, 9; what /walkforward runs
 venv\Scripts\python.exe backtests\run_entry10.py --reproduce    # entry 10's reproduction check
 venv\Scripts\python.exe backtests\run_entry10.py --run          # entry 10's 15:55 test, ~1 h, verdict to results/
+venv\Scripts\python.exe research\power_check_tom.py [--parquet data\mnq_...parquet]   # entries 11/12 calendar-only power check
+venv\Scripts\python.exe backtests\run_entry11.py --reproduce    # entry 11 (MES, 4 contracts); then --run, ~1 min
+venv\Scripts\python.exe backtests\run_entry12.py --part A --reproduce   # entry 12 Part A (MNQ, 1 contract); then --run
+venv\Scripts\python.exe backtests\run_entry12.py --part B --parquet <forward MES file> --run   # refuses below 96 forward window sessions
 venv\Scripts\python.exe backtests\reprice.py backtests\results\<stream>.csv [--old 1.25 --new 0.50] [--halt]
 venv\Scripts\python.exe backtests\eval_sim.py backtests\results\<stream>.csv
 
