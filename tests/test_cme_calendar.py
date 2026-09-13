@@ -44,7 +44,7 @@ class TestCalendarContents:
             date(2027, 2, 15),   # Presidents
             date(2027, 5, 31),   # Memorial
             date(2027, 6, 18),   # Juneteenth observed
-            date(2027, 7, 2),    # day before July 4 observed
+            date(2027, 7, 5),    # July 4 observed: a 13:00 ET halt, not a closure
             date(2027, 9, 6),    # Labor Day
             date(2027, 11, 25),  # Thanksgiving
             date(2027, 11, 26),  # Black Friday
@@ -60,7 +60,7 @@ class TestCalendarContents:
             date(2026, 12, 25),  # Christmas
             date(2027, 1, 1),    # New Year's Day
             date(2027, 3, 26),   # Good Friday
-            date(2027, 7, 5),    # July 4 observed
+            date(2027, 12, 24),  # Christmas observed (Dec 25 is a Saturday)
         ],
     )
     def test_full_closures(self, day):
@@ -71,10 +71,47 @@ class TestCalendarContents:
         assert cal.early_close_dates() & cal.closed_dates() == set()
 
     @pytest.mark.parametrize(
-        "day", [date(2026, 9, 8), date(2026, 11, 25), date(2027, 3, 25)]
+        "day", [
+            date(2026, 9, 8), date(2026, 11, 25), date(2027, 3, 25),
+            date(2026, 12, 31),  # New Year's Eve 2026: regular 16:00 CT close
+            date(2027, 7, 2),    # Friday before the observed July 4: regular close
+            date(2027, 12, 23),  # Thursday before the observed Christmas: regular close
+            date(2027, 12, 31),  # New Year's Eve 2027: regular close
+        ],
     )
     def test_normal_sessions(self, day):
+        """Each of these was once modelled as, or flagged as possibly, an
+        early close. CME's Globex schedule for ES shows a regular 16:00 CT
+        close on every one (verified 2026-09-12)."""
         assert cal.describe(day) is None
+
+
+class TestVerification:
+    """The calendar was built from holiday rules and verified against CME's
+    own schedule service. The record of that check lives in the module so the
+    next reader knows which dates were confirmed and when."""
+
+    def test_the_verification_record_names_its_source_and_date(self):
+        assert cal.VERIFIED_ON == date(2026, 9, 12)
+        assert "cmegroup.com" in cal.VERIFIED_SOURCE
+
+    def test_every_2026_date_the_desk_reaches_first_is_verified(self):
+        for day in (date(2026, 9, 7), date(2026, 11, 26), date(2026, 11, 27),
+                    date(2026, 12, 24), date(2026, 12, 25)):
+            assert day in cal.VERIFIED_DATES
+
+    def test_nothing_remains_flagged_for_verification(self):
+        assert cal.NEEDS_VERIFICATION == {}
+
+    def test_half_day_close_times_are_never_modelled_later_than_published(self):
+        """Rule 2 fails in the dangerous direction if the model closes later
+        than the exchange. CME publishes 12:00 CT (13:00 ET) halts on holiday
+        Globex sessions and 12:15 CT (13:15 ET) closes on the day after
+        Thanksgiving and Christmas Eve. The model's single 13:00 ET close is
+        equal to or earlier than every one of them."""
+        for day, published_et in cal.PUBLISHED_CLOSE_ET.items():
+            assert cal.is_early_close(day), day
+            assert rules.EARLY_SESSION_CLOSE <= published_et, day
 
     def test_good_friday_2027_is_march_26(self):
         """Easter 2027 falls on March 28, so Good Friday is the 26th."""

@@ -5,12 +5,16 @@ reach. Historical early closes are detected from the bars themselves by
 :func:`data.loader.detect_early_close_dates`; this module exists only for dates
 in the future, where no data can tell us.
 
-**Verify these dates against CME's published calendar before trading them.**
-They are constructed from the standard US market holiday rules, not read from
-an exchange feed, and a wrong date here fails in the dangerous direction: a
-half-day treated as a full day allows an entry that should be blocked. The
-dates in :data:`NEEDS_VERIFICATION` are the ones whose observance rules are
-genuinely ambiguous and should be checked first.
+**Verified against CME's own schedule service on 2026-09-12** (see
+:data:`VERIFIED_SOURCE`): every date below was checked against the E-mini S&P
+500 Globex schedule, which MES follows, for each holiday range through
+2028-01-02. The check corrected three 2027 dates the holiday rules had
+guessed wrong, all in the safe (over-blocking) direction: 2027-07-02 and
+2027-12-23 are regular sessions, and 2027-07-05 is a 13:00 ET halt rather
+than a closure. CME finalises holiday hours about two weeks before each
+holiday and says they can change; re-check a date in the fortnight before
+trading it. A wrong date here fails in the dangerous direction: a half-day
+treated as a full day allows an entry that should be blocked.
 
 On the close time
 -----------------
@@ -25,7 +29,7 @@ under-blocking is not.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 
 COVERAGE_START = date(2026, 9, 1)
 COVERAGE_END = date(2027, 12, 31)
@@ -42,11 +46,10 @@ EARLY_CLOSES: dict[date, str] = {
     date(2027, 2, 15): "Presidents Day",
     date(2027, 5, 31): "Memorial Day",
     date(2027, 6, 18): "Juneteenth (observed; June 19 is a Saturday)",
-    date(2027, 7, 2): "Day before Independence Day (observed)",
+    date(2027, 7, 5): "Independence Day (observed; July 4 is a Sunday) - Globex halt 13:00 ET",
     date(2027, 9, 6): "Labor Day",
     date(2027, 11, 25): "Thanksgiving Day",
     date(2027, 11, 26): "Day after Thanksgiving",
-    date(2027, 12, 23): "Christmas Eve (observed; Dec 25 is a Saturday)",
 }
 
 #: Full closures. No RTH session at all, so no entry is ever legal.
@@ -56,19 +59,52 @@ CLOSED: dict[date, str] = {
     # --- 2027 ---
     date(2027, 1, 1): "New Year's Day",
     date(2027, 3, 26): "Good Friday",
-    date(2027, 7, 5): "Independence Day (observed; July 4 is a Sunday)",
     date(2027, 12, 24): "Christmas Day (observed; Dec 25 is a Saturday)",
 }
 
-#: Dates whose observance rule is ambiguous and should be checked first.
-NEEDS_VERIFICATION: dict[date, str] = {
-    date(2027, 12, 23): "Christmas Eve treatment when Dec 25 falls on a Saturday",
-    date(2027, 12, 24): "whether the exchange closes Friday for a Saturday Christmas",
-    date(2027, 12, 31): (
-        "New Year's Day 2028 falls on a Saturday; US equity markets do not "
-        "usually close the preceding Friday for it, so 2027-12-31 is modelled "
-        "as a normal session - confirm before trading it"
-    ),
+#: Dates whose observance rule is ambiguous and still need checking. Empty
+#: since the 2026-09-12 verification; a date added to the calendar without
+#: a source belongs here until it has one.
+NEEDS_VERIFICATION: dict[date, str] = {}
+
+# ---------------------------------------------------------------------------
+# The verification record
+# ---------------------------------------------------------------------------
+
+VERIFIED_ON = date(2026, 9, 12)
+VERIFIED_SOURCE = (
+    "https://www.cmegroup.com/trading-hours.html - the Globex holiday "
+    "schedule service (services/trading-hours-by-product, product id 133, "
+    "E-mini S&P 500), queried per holiday range 2026-09-06 .. 2028-01-02"
+)
+
+#: Every date the verification confirmed, early closes and closures alike,
+#: plus the regular sessions the rules had been unsure of.
+VERIFIED_DATES: frozenset[date] = frozenset(EARLY_CLOSES) | frozenset(CLOSED) | frozenset({
+    date(2026, 12, 31), date(2027, 7, 2), date(2027, 12, 23), date(2027, 12, 31),
+})
+
+#: What CME actually publishes for each early close, in ET. Holiday Globex
+#: sessions (the cash market shut) halt at 12:00 CT; the day after
+#: Thanksgiving and Christmas Eve (the cash market open) close at 12:15 CT.
+#: The rules module models all of them as ``EARLY_SESSION_CLOSE`` (13:00 ET),
+#: which is equal to or earlier than every published time - the safe side.
+#: ``tests/test_cme_calendar.py`` holds that inequality.
+_HALT_1300 = time(13, 0)
+_CLOSE_1315 = time(13, 15)
+PUBLISHED_CLOSE_ET: dict[date, time] = {
+    date(2026, 9, 7): _HALT_1300,
+    date(2026, 11, 26): _HALT_1300,
+    date(2026, 11, 27): _CLOSE_1315,
+    date(2026, 12, 24): _CLOSE_1315,
+    date(2027, 1, 18): _HALT_1300,
+    date(2027, 2, 15): _HALT_1300,
+    date(2027, 5, 31): _HALT_1300,
+    date(2027, 6, 18): _HALT_1300,
+    date(2027, 7, 5): _HALT_1300,
+    date(2027, 9, 6): _HALT_1300,
+    date(2027, 11, 25): _HALT_1300,
+    date(2027, 11, 26): _CLOSE_1315,
 }
 
 

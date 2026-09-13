@@ -276,13 +276,16 @@ probability alongside the pass probability.
 
 ## 3. Open items
 
-**3.1 Verify the CME holiday dates before trading them — still the highest
-priority.** `data/cme_calendar.py` was constructed from standard US holiday
-rules, not an exchange feed. Check every date against
-<https://www.cmegroup.com/tools-information/holiday-calendar.html>. A wrong
-date fails in the dangerous direction: a half-day recorded as normal permits a
-late entry that should be blocked. **2026-11-26 and 2026-11-27** are the first
-dates a live paper run reaches (§4d).
+**3.1 Closed, 2026-09-12: the CME holiday dates are verified.** Every date
+in `data/cme_calendar.py` was checked against CME's Globex schedule service
+for E-mini S&P 500 (`services/trading-hours-by-product`, product 133), per
+holiday range through 2028-01-02. All 2026 dates were right. Three 2027 dates
+were wrong in the safe direction and are corrected: 2027-07-02 and 2027-12-23
+are regular sessions, 2027-07-05 is a 13:00 ET halt rather than a closure.
+The module carries the record (`VERIFIED_ON`, `VERIFIED_SOURCE`,
+`VERIFIED_DATES`, `PUBLISHED_CLOSE_ET`) and a test holds the model's 13:00
+close at or before every published time. CME finalises hours about two weeks
+before each holiday; re-check a date in that fortnight.
 
 **3.2 Closed, 2026-09-11: MES commission is $0.50 a side, $1.00 a round
 turn** (Lucid support, article 11508978). `rules.COMMISSION_PER_SIDE` carries
@@ -304,13 +307,17 @@ Entry 7's MNQ stream and entry 10's MNQ arm are priced at $0.50 on that
 assumption; if MNQ differs, entry 7's MNQ figure moves by $2 × 438 per $1 of
 difference a side, and nothing in any verdict rests on it.
 
-**3.4 The 13:00 versus 13:15 early-close approximation.**
-`rules.EARLY_SESSION_CLOSE` models a single 13:00 close where CME equity index
-closes 13:15 on some half-days. Over-blocking is the safe error; fixing it
-loosens a limit and must be stated as such.
+**3.4 The 13:00 versus 13:15 early-close approximation — now measured.**
+`rules.EARLY_SESSION_CLOSE` models a single 13:00 close. CME publishes a
+12:00 CT (13:00 ET) halt on holiday Globex sessions and a 12:15 CT (13:15 ET)
+close on the day after Thanksgiving and Christmas Eve; the per-date figures
+are in `cme_calendar.PUBLISHED_CLOSE_ET`. Over-blocking by 15 minutes on
+those two days a year is the safe error; fixing it loosens a limit and must
+be stated as such.
 
-**3.5 The `NEEDS_VERIFICATION` dates in late 2027.** Extend the calendar
-before 2028.
+**3.5 Closed, 2026-09-12: the late-2027 dates are verified** (2027-12-23
+regular, 2027-12-24 closed, 2027-12-31 regular). `NEEDS_VERIFICATION` is
+empty. The calendar still ends 2027-12-31; extend it before 2028.
 
 **3.6 Closed, 2026-09-11: the trailing halt lives in the engine.**
 `enforce_trailing_drawdown_halt` sits in `backtests/engine.py` behind
@@ -391,9 +398,8 @@ the pre-registration itself must stay the operator's words, so the useful
 output is a draft the operator edits, never a submission. The Chrome extension
 needs the URL pasted; it cannot see the operator's other tabs.
 
-**(d) Verify the CME 2026-11-26 and 2026-11-27 half-day dates against
-cmegroup.com before the desk reaches them** (§3.1). A phone-sized task with a
-dangerous failure mode; do it before November.
+**(d) Closed, 2026-09-12 — verified** (§3.1). Both dates were right; the
+model's 13:00 close is at or before the published 13:00 and 13:15.
 
 **(e) The portfolio layer and the selector diagnostic — deferred until a
 second strategy exists.** The portfolio layer would hold one position across
