@@ -281,15 +281,9 @@ def run(name: str, class_path: str, symbol: str = "MES",
     blow = count_evaluation_blowups(trades)
     metrics = compute_metrics(trades)
 
-    # Rule 13, evaluated here rather than by the caller so the acceptance
+    # Rule 13 and the regression check, in `decide` so the acceptance
     # decision has exactly one implementation. Decided on the guarded stream.
-    reasons = []
-    if profitable < MIN_PROFITABLE_FOLDS:
-        reasons.append(f"profitable in {profitable} of {TOTAL_FOLDS} folds, "
-                       f"needs {MIN_PROFITABLE_FOLDS}")
-    if float(trades["net_pnl"].sum()) <= 0:
-        reasons.append(f"total walk-forward P&L "
-                       f"${float(trades['net_pnl'].sum()):,.2f} is not positive")
+    accepted, reasons = decide(profitable, float(trades["net_pnl"].sum()), metrics)
 
     say(f"scoring the comparable basis, halt OFF: "
         f"{len(comparable_trades):,} trades ...")
@@ -305,13 +299,55 @@ def run(name: str, class_path: str, symbol: str = "MES",
     return WalkforwardResult(
         name=name, folds=folds, trades=trades, metrics=metrics,
         pass_probability=sim.pass_probability, blowups=int(blow["blowups"]),
-        profitable_folds=profitable, accepted=not reasons, reasons=reasons,
+        profitable_folds=profitable, accepted=accepted, reasons=reasons,
         contracts=contracts, size_note=size_note,
         span=(SCORE_START, data_end),
         payout_probability=sim.payout_probability,
         dd_halts=len(dd_halts), comparable=comparable,
         commission_per_side=commission,
     )
+
+
+def hold_regression_line(metrics: dict) -> str:
+    """One line every surface prints: the rule 6 / rule 7 regression check.
+
+    Reads the counts ``compute_metrics`` produces and never recomputes a
+    threshold. Missing keys read as clean so an older result renders.
+    """
+    under = int(metrics.get("min_hold_violation_count", 0) or 0)
+    scalps = int(metrics.get("microscalp_trade_count", 0) or 0)
+    if not under and not scalps:
+        return (f"Rule 6/7 regression check: intact - no trade under the "
+                f"{rules.MIN_HOLD_SECONDS}s floor, {scalps} held <= "
+                f"{rules.MICROSCALP_SECONDS}s.")
+    pct = float(metrics.get("microscalp_profit_pct") or 0.0)
+    return (f"**REGRESSION - rule 6 enforcement is not working:** {under} trade(s) "
+            f"held under {rules.MIN_HOLD_SECONDS}s, {scalps} held <= "
+            f"{rules.MICROSCALP_SECONDS}s carrying {pct:.2f}% of profit. "
+            f"Investigate the exit guard before reading any other figure.")
+
+
+def decide(profitable_folds: int, net_pnl: float, metrics: dict) -> tuple[bool, list[str]]:
+    """Rule 13 on the guarded stream, plus the regression check.
+
+    One implementation of the acceptance decision. A stream with a hold
+    under the floor is rejected whatever its P&L: it was produced by an exit
+    path the rules did not govern, so it is evidence of nothing.
+    """
+    reasons: list[str] = []
+    if profitable_folds < MIN_PROFITABLE_FOLDS:
+        reasons.append(f"profitable in {profitable_folds} of {TOTAL_FOLDS} folds, "
+                       f"needs {MIN_PROFITABLE_FOLDS}")
+    if net_pnl <= 0:
+        reasons.append(f"total walk-forward P&L ${net_pnl:,.2f} is not positive")
+    under = int(metrics.get("min_hold_violation_count", 0) or 0)
+    scalps = int(metrics.get("microscalp_trade_count", 0) or 0)
+    if under or scalps:
+        reasons.append(f"hold regression: {under} trade(s) under the "
+                       f"{rules.MIN_HOLD_SECONDS}s floor, {scalps} held <= "
+                       f"{rules.MICROSCALP_SECONDS}s - the stream was not produced "
+                       f"under rule 6 and cannot be evidence")
+    return not reasons, reasons
 
 
 def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
@@ -355,6 +391,8 @@ def verdict_block(result: WalkforwardResult, entry_number: int) -> str:
         f"| Payout probability | {result.payout_probability:.2%} |",
         f"| Evaluations blown | {result.blowups} |",
         f"| Sessions blocked by the trailing halt | {halted} |",
+        "",
+        hold_regression_line(result.metrics),
         "",
     ]
     if result.accepted:

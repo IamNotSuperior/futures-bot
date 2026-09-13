@@ -145,6 +145,11 @@ def compute_metrics(trades: pd.DataFrame) -> dict:
     m["median_duration_seconds"] = float(dur.median())
     m["min_duration_seconds"] = float(dur.min())
     m["shortest_hold_violates_rule"] = bool(dur.min() < rules.MIN_HOLD_SECONDS)
+    # Rule 6 is enforced upstream, so a single hold under the floor in a
+    # priced stream means the enforcement failed, whatever share of profit
+    # it carried. Counted here so every surface can name it as a regression
+    # rather than wait for the 30% warning line.
+    m["min_hold_violation_count"] = int((dur < rules.MIN_HOLD_SECONDS).sum())
 
     # Rule 7: share of winning profit earned by trades held 5 seconds or less.
     scalps = trades[dur <= rules.MICROSCALP_SECONDS]
@@ -159,6 +164,9 @@ def compute_metrics(trades: pd.DataFrame) -> dict:
     else:
         m["microscalp_profit_pct"] = None
         m["microscalp_breach"] = None
+    m["hold_regression"] = bool(
+        m["min_hold_violation_count"] > 0 or m["microscalp_trade_count"] > 0
+    )
 
     by_reason = trades.groupby("exit_reason").agg(
         trades=("net_pnl", "size"),
@@ -259,6 +267,18 @@ def format_report(m: dict, title: str = "BACKTEST REPORT") -> str:
         f"{_fmt_duration(m['min_duration_seconds'])} "
         f"(floor {rules.MIN_HOLD_SECONDS}s)"
     )
+    if m["hold_regression"]:
+        out.append(
+            f"  [REGRESSION] Hold regression: {m['min_hold_violation_count']} trade(s) "
+            f"held under {rules.MIN_HOLD_SECONDS}s, {m['microscalp_trade_count']} held "
+            f"<= {rules.MICROSCALP_SECONDS}s. Rule 6 enforcement is not working; "
+            f"investigate before reading any other figure."
+        )
+    else:
+        out.append(
+            f"  [ ok ] Hold regression: none - no trade under the "
+            f"{rules.MIN_HOLD_SECONDS}s floor"
+        )
 
     breaches = m["daily_loss_breaches"]
     if len(breaches) == 0:

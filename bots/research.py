@@ -256,6 +256,8 @@ async def _run_generated_walkforward(interaction, name: str) -> None:
                 "Payout probability": f"{result.payout_probability:.2%}",
                 "Evaluations blown": f"{result.blowups}",
                 "Sessions blocked by the trailing halt": f"{result.dd_halts}",
+                "Rule 6/7 regression check":
+                    run_generated.hold_regression_line(result.metrics),
                 "Halt OFF (comparable)": comparable,
                 "Costs": f"{run_generated.BASE_SLIPPAGE_TICKS:g} ticks/side "
                          f"slippage, ${result.commission_per_side:.2f}/side "

@@ -271,6 +271,22 @@ group; halt-OFF alongside; 1 and 3 ticks as sensitivities; the bootstrap at the
 `backtests/results/entry10_verdict.md`). The bot's `london_full_day` runner
 reads the MES base case.
 
+### The rule 6 / rule 7 regression check, 2026-09-13
+
+Rule 6's 30-second floor means rule 7's share must read 0.00% in any correct
+run, so a non-zero figure is a bug signal, not a risk warning — but the only
+flag used to be the 30% warning line, and one three-second trade would have
+passed under it. `metrics.compute_metrics` now carries
+`min_hold_violation_count` (holds under the floor) and `hold_regression`
+(any such hold, or any hold at or under five seconds); `format_report` prints
+a `[REGRESSION]` line; `run_generated.hold_regression_line` puts the same
+sentence in every generated verdict block and in the `/walkforward` embed;
+and `run_generated.decide` **rejects** a stream that carries one, whatever
+its P&L, because it was not produced under rule 6. The journal
+(`review.hold_violations`, which resets entry 3's count) and the desk's
+end-of-day summary already reported theirs. `tests/test_hold_regression.py`
+holds all of it.
+
 ### The registry and the log
 
 `Registry.promote` takes two arguments and no override; `rejected` is
