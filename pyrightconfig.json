@@ -1,0 +1,13 @@
+{
+  "include": ["strategies", "backtests", "journal", "bots", "data", "research", "tests"],
+  "exclude": ["venv", "**/__pycache__", "backtests/results"],
+  "extraPaths": ["strategies", "backtests", "journal", "bots", "data", "strategies/generated", "research"],
+  "venvPath": ".",
+  "venv": "venv",
+  "pythonVersion": "3.14",
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportArgumentType": "none",
+  "reportCallIssue": "none"
+}
