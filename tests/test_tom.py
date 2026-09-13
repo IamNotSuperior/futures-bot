@@ -310,6 +310,27 @@ class TestStopArm:
         assert exits["exit_reason"].iloc[0] == EXIT_FLATTEN
 
 
+class TestPowerCheckScript:
+    """Entry 12 runs the calendar-only power check on MNQ. The script must
+    take the parquet as an argument rather than hard-coding MES's."""
+
+    def test_parquet_flag_selects_the_file(self, tmp_path, capsys):
+        import sys
+        sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "research"))
+        import power_check_tom
+
+        bars = fixture_bars()
+        bars.index.name = "ts_event_et"
+        path = tmp_path / "synthetic.parquet"
+        bars.to_parquet(path)
+        rc = power_check_tom.main(["--parquet", str(path)])
+        out = capsys.readouterr().out
+        assert "synthetic.parquet" in out
+        assert "2025" in out
+        assert "POWER CHECK" in out
+        assert rc in (0, 1)
+
+
 class TestRulesCompatibility:
     def test_every_entry_and_exit_is_inside_the_rules_window(self):
         bars = fixture_bars()

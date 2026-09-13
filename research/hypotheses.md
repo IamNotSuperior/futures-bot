@@ -4993,6 +4993,28 @@ Unchanged from every prior entry: N accounts running one strategy is one bet
 at N times the size with N times the fees, and a single trailing-drawdown
 breach ends all of them on the same day.
 
+### Power check and reproduction, Part A, 2026-09-12 — run before the result
+
+`research/power_check_tom.py --parquet data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet`,
+calendar only. MNQ's file has the same 1,890 sessions with a 09:30 bar, the
+same 64 early closes (15 cash half-days kept, 49 cash-closed holiday sessions
+removed) and the same 29 roll days as MES's. Eligible window sessions per fold
+year: 48, 48, 48, 47, 46, 46, 31 for 2020 to 2026, **314 pooled against 1,327
+control** (MES had 1,332; five MNQ sessions lack a 15:55 bar). The same five
+half-days are skipped. **Every fold year clears the floor; the power check
+passed.** The power arithmetic above stands: t = 2.0 needs about 0.125 control
+standard deviations.
+
+**Reproduction (pre-registered test 1): passed on the first run.** The signal
+arm reproduced all 314 MNQ window sessions session for session at one contract
+and zero cost, and the stop arm's entries were identical to the signal arm's.
+The population is built over the whole file and sliced, as entry 11's
+correction requires. No strategy code changed for this entry;
+`strategies/tom.py` is entry 11's module unchanged, and the runner
+(`backtests/run_entry12.py`) derives the stop from the control population at
+run time and recomputes entry 11's MES control standard deviation from the
+bars before every run, refusing if it has moved from the recorded 40.99.
+
 ### Verdict
 
 Not yet run. Part A's result is recorded here when it is in, with the commit

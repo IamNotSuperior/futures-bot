@@ -7,11 +7,13 @@ never touches a price - so this is a power check and not a peek.
 The entry's floor: any fold year with fewer than 20 eligible window sessions
 stops the entry before any strategy code runs.
 
-    python research/power_check_tom.py
+    python research/power_check_tom.py                       # MES, entry 11
+    python research/power_check_tom.py --parquet data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet   # entry 12
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -33,14 +35,22 @@ PARQUET = PROJECT_ROOT / "data" / "mes_v_0_ohlcv_1m_2019-05_2026-08.parquet"
 MIN_WINDOW_SESSIONS = 20
 
 
-def main() -> int:
-    bars = loader.load_bars(PARQUET)
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--parquet", default=str(PARQUET),
+                    help="bar file to count sessions on (default: MES)")
+    args = ap.parse_args(argv)
+    parquet = Path(args.parquet)
+
+    bars = loader.load_bars(parquet)
     rolls = loader.detect_roll_dates(bars)
     early = loader.detect_early_close_dates(bars)
     half = cash_half_days(early)
     cal = session_calendar(bars, rolls, early)
     years = [f.test_year for f in build_folds()]
 
+    print(f"Bar file                              : {parquet.name}")
     print(f"Sessions with a 09:30 bar             : {len(cal):,}")
     print(f"Early-close sessions in the data      : {len(early)}  "
           f"({len(half)} cash half-days kept in the calendar, "
