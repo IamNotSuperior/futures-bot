@@ -4768,12 +4768,11 @@ here at the noise floor, and not capturable at this size under these rules.
 
 ---
 
-## 12. Turn-of-month intraday — replication on MNQ, and a forward test on MES — PROPOSED
+## 12. Turn-of-month intraday — replication on MNQ, and a forward test on MES — REJECTED
 
 **Date:** 2026-09-12
-**Spec frozen at:** the commit adding this entry
-**Code:** not yet written. `strategies/tom.py` is reused unchanged; the runner
-and the power check's instrument flag are new.
+**Spec frozen at:** `b632028`
+**Code:** `strategies/tom.py` (unchanged), `backtests/run_entry12.py`, `research/power_check_tom.py --parquet`
 **Note:** an entry cannot contain its own commit hash. The verdict commit is
 recorded in a one-line follow-up commit, never by amending.
 **Instrument:** Part A — MNQ, 1-minute bars, 09:30 to 15:55 ET, 2020-01-01 to
@@ -5015,11 +5014,250 @@ correction requires. No strategy code changed for this entry;
 run time and recomputes entry 11's MES control standard deviation from the
 bars before every run, refusing if it has moved from the recorded 40.99.
 
-### Verdict
+### Verdict: REJECTED
 
-Not yet run. Part A's result is recorded here when it is in, with the commit
-hash in a follow-up commit; the entry's verdict is written only when both
-parts have run, or when either has failed.
+**Rejected at Part A on the pre-registered criteria; Part B is not run.** MNQ
+reproduced entry 11's result almost exactly, in sign, in size relative to the
+noise, in the yearly pattern and in the per-day shape, and landed under the
+same line for the same reason. The post-hoc diagnostic below then showed why
+that agreement was worth less than it looked.
+
+### Part A result: REJECTED
+
+**Date:** 2026-09-12
+**Code:** `strategies/tom.py` (unchanged), `backtests/run_entry12.py`
+**Reports:** `backtests/results/entry12_a_report.txt`, `entry12_a_returns.csv`, per arm `entry12_a_<signal|stop>_slip<1|2>.csv` and `_nohalt.csv`, `entry12_a_folds.csv`
+
+MNQ, one contract, $0.50 a side, 1 tick a side base case (1.00 points a round turn). **Stop derived as 0.366 × the control standard deviation of 190.17 points = 69.50 points.** Guards: `engine.apply_internal_guards`, halt OFF alongside.
+
+#### Kill criteria — any one failure kills the entry
+
+| # | Criterion | Result | Line | |
+|---|---|---|---|---|
+| 1 | Pooled window excess over control, pre-cost, and its t | +21.21 pts, t = +1.75 | > 1.00 pts and t >= 2.0 | **FAIL** |
+| 2 | Years in which the window mean beats the control mean | 6 of 7 | >= 4 of 7 | **PASS** |
+| 3 | Stop arm, standard stream, 1 tick: eval_sim pass probability | 30.12% (103 trading days) | >= 25% | **PASS** |
+| 4 | Stop arm, comparable stream, 1 tick: evaluations blown | 1 | <= 1 | **PASS** |
+| 5 | Rule 13 on the stop arm, standard stream: >= 4 of 7 folds profitable and P&L > 0 at 1 and 2 ticks | 1 tick 2 of 7, $367; 2 ticks 2 of 7, $264 | >= 4 of 7 and > 0, both | **FAIL** |
+
+**REJECTED.** Failed on: Pooled window excess over control, pre-cost, and its t; Rule 13 on the stop arm, standard stream: >= 4 of 7 folds profitable and P&L > 0 at 1 and 2 ticks. Part B is not run: the entry is REJECTED at Part A.
+
+#### The mechanism test, pre-cost, in points
+
+**Pooled:** window n = 314, mean +20.31, sd 193.39, median +40.00; control n = 1,327, mean -0.89, sd 190.17, median +11.75. **Difference +21.21 points (+0.112 control sd), Welch t = +1.75** (df 467), one-sided p = 0.040.
+
+| Year | Window n | Window mean | Control n | Control mean | Difference | t | Window beats control |
+|---|---|---|---|---|---|---|---|
+| 2020 | 48 | +29.14 | 200 | +3.36 | +25.78 | +1.16 | yes |
+| 2021 | 48 | -22.45 | 202 | +12.27 | -34.72 | -1.45 | no |
+| 2022 | 48 | +6.19 | 198 | -16.93 | +23.11 | +0.64 | yes |
+| 2023 | 47 | +27.36 | 197 | +12.54 | +14.82 | +0.76 | yes |
+| 2024 | 46 | -2.41 | 200 | -4.62 | +2.21 | +0.07 | yes |
+| 2025 | 46 | +40.55 | 197 | -6.04 | +46.59 | +1.25 | yes |
+| 2026 | 31 | +87.73 | 133 | -10.08 | +97.81 | +1.68 | yes |
+
+Window beats control in **6 of 7** years.
+
+**Per window day, reported and not selected on:**
+
+| Day | n | Mean | sd | Difference vs control | t |
+|---|---|---|---|---|---|
+| T-1 | 77 | +11.69 | 191.22 | +12.58 | +0.56 |
+| T+1 | 79 | +16.42 | 201.87 | +17.32 | +0.74 |
+| T+2 | 80 | +41.60 | 197.32 | +42.50 | +1.87 |
+| T+3 | 78 | +10.93 | 184.57 | +11.82 | +0.55 |
+
+#### Stop arm (69.5-point stop) — 1 tick
+
+| one contract, 1 tick, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 103 | 314 |
+| Trading days | 103 | 314 |
+| Net P&L | $367.00 | $11,650.00 |
+| Mean per trade | $3.56 | $37.10 |
+| Folds profitable | 2 of 7 | 7 of 7 |
+| Sharpe | 0.31 | 2.28 |
+| Profit factor | 1.046 | 1.450 |
+| Max drawdown | $-1,538.50 | $-2,406.00 |
+| Max daily loss (worst day) | $-141.00 | $-141.00 |
+| Worst day as % of total profit | -38.4% | -1.2% |
+| Best day as % of total profit (rule 8) | 117.0% | 10.9% |
+| Pass probability | 30.12% | 79.70% |
+| Payout probability ($52,100) | 43.56% | 84.68% |
+| Evaluations blown (read on the comparable basis) | 1 | 1 |
+| Sessions blocked by the trailing halt | 211 | — |
+| Daily-loss flattens | 0 | 0 |
+| Avg trade duration | 212.5 min | 195.3 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 48 trades, mean $169.21, total $8,122.00; stop: 55 trades, mean $-141.00, total $-7,755.00. Daily-loss halts: 0.
+Per fold, standard: 2020 $1,248.00; 2021 $106.00; 2022 $-987.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Stop arm (69.5-point stop) — 2 ticks
+
+| one contract, 2 ticks, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 103 | 314 |
+| Trading days | 103 | 314 |
+| Net P&L | $264.00 | $11,336.00 |
+| Mean per trade | $2.56 | $36.10 |
+| Folds profitable | 2 of 7 | 7 of 7 |
+| Sharpe | 0.22 | 2.22 |
+| Profit factor | 1.033 | 1.434 |
+| Max drawdown | $-1,579.50 | $-2,461.00 |
+| Max daily loss (worst day) | $-142.00 | $-142.00 |
+| Worst day as % of total profit | -53.8% | -1.3% |
+| Best day as % of total profit (rule 8) | 162.3% | 11.2% |
+| Pass probability | 27.80% | 78.37% |
+| Payout probability ($52,100) | 41.01% | 83.80% |
+| Evaluations blown (read on the comparable basis) | 1 | 1 |
+| Sessions blocked by the trailing halt | 211 | — |
+| Daily-loss flattens | 0 | 0 |
+| Avg trade duration | 212.5 min | 195.3 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 48 trades, mean $168.21, total $8,074.00; stop: 55 trades, mean $-142.00, total $-7,810.00. Daily-loss halts: 0.
+Per fold, standard: 2020 $1,200.00; 2021 $58.00; 2022 $-994.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Signal arm (no stop) — 1 tick
+
+| one contract, 1 tick, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 98 | 314 |
+| Trading days | 98 | 314 |
+| Net P&L | $1,401.00 | $14,020.00 |
+| Mean per trade | $14.30 | $44.65 |
+| Folds profitable | 1 of 7 | 5 of 7 |
+| Sharpe | 0.87 | 2.05 |
+| Profit factor | 1.142 | 1.369 |
+| Max drawdown | $-1,581.00 | $-3,649.00 |
+| Max daily loss (worst day) | $-428.00 | $-465.50 |
+| Worst day as % of total profit | -30.5% | -3.3% |
+| Best day as % of total profit (rule 8) | 40.9% | 9.1% |
+| Pass probability | 44.37% | 62.06% |
+| Payout probability ($52,100) | 55.85% | 70.53% |
+| Evaluations blown (read on the comparable basis) | 2 | 2 |
+| Sessions blocked by the trailing halt | 216 | — |
+| Daily-loss flattens | 16 | 68 |
+| Avg trade duration | 348.1 min | 331.6 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 82 trades, mean $97.62, total $8,004.50; loss_limit_flatten: 16 trades, mean $-412.72, total $-6,603.50. Daily-loss halts: 68.
+Per fold, standard: 2020 $2,697.00; 2021 $-1,095.00; 2022 $-201.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Signal arm (no stop) — 2 ticks
+
+| one contract, 2 ticks, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 86 | 314 |
+| Trading days | 86 | 314 |
+| Net P&L | $1,414.50 | $13,715.00 |
+| Mean per trade | $16.45 | $43.68 |
+| Folds profitable | 1 of 7 | 5 of 7 |
+| Sharpe | 1.05 | 2.00 |
+| Profit factor | 1.175 | 1.360 |
+| Max drawdown | $-1,510.50 | $-3,709.00 |
+| Max daily loss (worst day) | $-429.00 | $-466.50 |
+| Worst day as % of total profit | -30.3% | -3.4% |
+| Best day as % of total profit (rule 8) | 40.5% | 9.3% |
+| Pass probability | 49.28% | 61.27% |
+| Payout probability ($52,100) | 60.47% | 69.81% |
+| Evaluations blown (read on the comparable basis) | 2 | 2 |
+| Sessions blocked by the trailing halt | 228 | — |
+| Daily-loss flattens | 12 | 68 |
+| Avg trade duration | 355.4 min | 331.6 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 74 trades, mean $86.03, total $6,366.50; loss_limit_flatten: 12 trades, mean $-412.67, total $-4,952.00. Daily-loss halts: 68.
+Per fold, standard: 2020 $2,649.00; 2021 $-1,234.50; 2022 $0.00; 2023 $0.00; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Diagnostics
+
+Window sessions skipped: 5 (2023-07-03 T+1 early_close, 2024-07-03 T+3 early_close, 2024-11-29 T-1 early_close, 2025-07-03 T+3 early_close, 2025-11-28 T-1 early_close). Entry-bar stop breaches on the stop arm: 1.
+
+### What was learned
+
+**MNQ reproduced entry 11's shape and failed on the same line.** Pooled
+excess +21.21 MNQ points, which is **+0.112 control standard deviations**
+against MES's +0.121; Welch t 1.75 against MES's 1.94; one-sided p 0.040
+against 0.026; window over control in 6 of 7 years against 5 of 7; T+2 the
+largest day in both (+42.5 points, t 1.87, against MES's +11.8, t 2.59).
+Prediction 1 was right about the sign and the size, and the coin landed on
+fail. Prediction 2, that the T+2 concentration would not reproduce, was wrong.
+
+**At one contract the stop arm passed the account criteria entry 11 failed
+at four, and still died on rule 13 through the halt.** On the comparable
+stream: +$11,650 over 314 trades, **7 of 7 folds profitable**, profit factor
+1.45, Sharpe 2.28, one evaluation blown, pass probability 79.7%. Those are the
+best comparable-basis figures in this log. On the guarded stream the $1,500
+internal halt fired after 103 trades in the 2022 drawdown and never released,
+leaving 2 of 7 folds and $367. Criterion 5 failed on the guarded stream as
+pre-registered. The internal halt is $500 inside the firm's $2,000, and the
+comparable stream's maximum drawdown of $2,406 says the firm's line would have
+been crossed once too; criterion 4 counted exactly that one. A strategy whose
+worst drawdown at the minimum size is $2,400 cannot live under a $1,500 halt,
+and this entry does not argue otherwise.
+
+**The replication did not replicate anything, and the pre-registration should
+have said so.** Computed after the verdict and deciding nothing: MES and MNQ
+open-to-15:55 returns on the same sessions are correlated **0.927**, 0.916 on
+window days. Regressing MNQ's standardised return on MES's same-day return and
+a window indicator, **the window effect in MNQ after conditioning on MES is
+-0.005 standard deviations, t -0.21.** Every point of MNQ's window excess is
+MES's window excess seen through a second contract on the same days. Entry 12
+called MNQ "data the question never touched", and of the series that is true;
+of the *days* it is false, and a calendar effect lives in the days. Entry 7's
+instrument replication was valid because its question was about the
+*instrument's* barrier mechanics; this entry's question was about the
+*calendar*, and a second US equity index future on the same calendar is the
+same sample. **This is recorded as a design error in this entry's
+pre-registration, not as a finding about the mechanism.** The error was
+harmless to the verdict, because Part A failed on its own terms, and would
+have been dangerous had Part A passed, because two correlated near-misses
+would have read as a replication.
+
+**What the two entries together actually establish.** One sample of 314
+sessions over 2020-2026, measured twice, shows an intraday turn-of-month
+excess of about 0.11-0.12 control standard deviations a day, one-sided p
+between 0.03 and 0.04, concentrated on T+2, with a 2026 partial year carrying
+a large share. That is a single marginal result, not two. The question entry
+11 asked is unresolved, and the only data that can resolve it is data from
+other days.
+
+**The ordering discipline held.** Criteria, lines, sizing rule and stop rule
+were frozen at `b632028`; the reproduction ran before the result; the verdict
+block was written by the runner before anyone read a number; the conditioning
+diagnostic was computed after the verdict and is labelled as such.
+
+### Next
+
+**Do not run Part B as written, and do not write a third same-period entry.**
+Part B's trigger and terms were fixed before Part A ran and are not revised
+here; they are moot because the entry is rejected. A future forward test on
+MES is the one route left (entry 11's Next section, first route), and it is a
+**new entry**, because this one is closed and because it must be written with
+what is now known: that the sample is days, not instruments; that 96 forward
+window sessions has 20-25% power against the observed effect and a trigger
+near 330 has 50%; and that the tradeable form at the minimum size draws down
+about $2,400 on the comparable stream, which the internal halt cannot carry.
+
+**Any future calendar-effect entry must state what its independent sample
+is.** For a day-level effect the sample is the set of calendar days, and a
+second instrument on the same days adds almost nothing. Replication across
+instruments is for instrument-level claims (entry 7); replication across days
+is for calendar-level claims. This log did not have that rule before today and
+has it now.
+
+**The account question has a partial answer worth keeping.** At one contract
+on MNQ, with a stop at 0.37 control standard deviations, the comparable
+stream's pass probability was 79.7% and its worst drawdown $2,406. If a forward
+test ever passes the mechanism criteria, the sizing and stop geometry measured
+here are the starting point for the account criteria, and the trailing halt's
+$1,500 line is the binding constraint to design around, not the daily limit.
+
+**The mechanism entry 11 named remains the best-constrained counterparty in
+this log**, and two looks at one sample have not shown it to be capturable
+intraday under these rules. That sentence is the whole state of the question.
 
 ---
 
