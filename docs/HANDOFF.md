@@ -1,8 +1,9 @@
 # Handoff
 
-Rewritten 2026-09-13, at the end of the session that closed entries 11 and
-12, verified the CME calendar and added the hold-regression check. For a
-session starting fresh on this repository.
+Rewritten 2026-09-13 and finalised 2026-09-14, at the end of the session
+that closed entries 11 and 12, verified the CME calendar, added the
+hold-regression check and set up the tooling (§2, *Tooling*). For a session
+starting fresh on this repository.
 
 This file holds only what is **not** already in `CLAUDE.md` (the hard rules and
 the firm/internal limit table), `README.md` (structure, how to run things, the
@@ -324,6 +325,58 @@ and `--parquet`); `research/power_check_tom.py --parquet` is the calendar-
 only power check. The bot's `tom_intraday` and `tom_intraday_mnq` runners
 read the saved stop-arm base-case files.
 
+### Tooling, 2026-09-12 to 2026-09-14
+
+**Claude Code plugins installed at user scope:** `superpowers`,
+`security-guidance`, `frontend-design`, `context7`, `commit-commands`,
+`watch` (video intake, §2 above), `pyright-lsp` and `hookify`. Community
+trading plugins were reviewed and declined — they are strategy generators and
+optimisers, the process rule 12 exists to prevent. A Composio `connect-apps`
+MCP server exists in `~/.mcp.json` from a separate session (§3.13); nothing
+here uses it.
+
+**Pyright.** `pyrightconfig.json` at the project root gives the language
+server the flat-module `extraPaths`, the venv, basic mode, and silences the
+pandas-driven categories (argument, attribute, call) that its stubs make into
+noise. Baseline: 169 errors across 93 files, down from 927 without the
+config; every one sampled was a false positive (a `None` check Pyright does
+not carry through a comprehension, a Discord channel guarded at startup,
+FastAPI parameters typed optional by the framework). Nothing gates on it. Run
+`pyright` from the root to see the list.
+
+**Hookify rules**, in `.claude/hookify.*.local.md`, tracked in git and read
+live on every tool call — no restart:
+
+- `block-tls-weakening` **blocks** a `.py` edit outside `tests/` that adds
+  `verify=False`, `check_hostname=False` or `CERT_NONE`. It fired on its
+  first day against a scratchpad script that quoted those literals in prose,
+  which is the intended behaviour: write such a script under a non-`.py`
+  name, or keep the literals out of it.
+- `warn-restated-threshold` **warns** on a numeric assignment to a name
+  `rules.py` owns, a literal non-zero `commission_per_side`, or a three-digit
+  `limit=`, outside `rules.py` and `tests/`. Aliases to `rules.*` and the
+  zero-cost reproduction model do not trip it.
+- `warn-commit-needs-approval` **warns** on every `git commit` / `git push`
+  that the operator approves each one in conversation.
+
+Two things about the engine worth knowing before writing a fourth: it
+compiles every pattern case-insensitively, so an uppercase constant name
+needs a scoped `(?-i:...)` group or it matches lowercase keyword arguments;
+and Edit puts text in `new_string` while Write puts it in `content`, so a
+rule must use the `content` field to cover both. Rules match on any file
+path under the current directory's rules, including scratch files outside
+the repo. The "refuse `/submit` while the log is dirty" rule is deliberately
+not a hook: hookify cannot see git state and `/submit` is a Discord command;
+`submissions.require_clean_log()` enforces it in code. `python3` on this
+machine resolves to the real 3.14.7, which is what lets the hooks run at
+all; the `watch` skill's note that it is the Store stub is wrong here.
+
+**The operator's session protocol.** At the end of each completed step, put
+up a clickable "Should I do the next step?" question naming the step, rather
+than a prose offer; the operator drives one step at a time and answers yes,
+no or free text. Ask before commits, pushes and new dependencies; fold that
+into the same question when it is what the step needs.
+
 ### The rule 6 / rule 7 regression check, 2026-09-13
 
 Rule 6's 30-second floor means rule 7's share must read 0.00% in any correct
@@ -465,7 +518,9 @@ sharing a server. **It stays; do not rewrite history for it.**
 None is started. The operator set the order on 2026-09-12.
 
 **(a) A forward-data test of the turn-of-month mechanism — a new entry, when
-the data exists.** Entries 11 and 12 leave one marginal result on one sample
+the data exists.** The Databento cost estimate for MES bars from 2026-09-01
+was offered on 2026-09-14 and declined for now; it spends nothing and is the
+first move when the operator wants this started. Entries 11 and 12 leave one marginal result on one sample
 of 314 sessions. The only data that can resolve it is days nobody has looked
 at: MES sessions after 2026-08-31, pulled with `data/extend.py` (estimate
 shown before any spend). The entry must state its independent sample is days,
@@ -487,13 +542,9 @@ part that does the work.
 sending URLs under the filter. The `/submit` modal pre-fill is deferred until
 two or three videos have gone through the protocol and its shape is known.
 
-**(d) Plugins worth adding, from the official marketplace on disk:**
-`pyright-lsp` (type checking across a flat-module codebase; the unit-mismatch
-class of bug) and `hookify` (turn standing rules into harness hooks: refuse
-`/submit` while `hypotheses.md` is dirty, block `verify=False`, block a
-restated threshold). Community trading plugins were reviewed and declined:
-they are strategy generators and optimisers, the process rule 12 exists to
-prevent.
+**(d) Closed, 2026-09-14: `pyright-lsp` and `hookify` are installed and
+configured** (§2, *Tooling*). Nothing further to add from the marketplaces
+reviewed.
 
 **(e) The portfolio layer and the selector diagnostic — deferred until a
 second strategy exists.** The portfolio layer would hold one position across
@@ -997,6 +1048,8 @@ venv\Scripts\python.exe research\power_check_tom.py [--parquet data\mnq_...parqu
 venv\Scripts\python.exe backtests\run_entry11.py --reproduce    # entry 11 (MES, 4 contracts); then --run, ~1 min
 venv\Scripts\python.exe backtests\run_entry12.py --part A --reproduce   # entry 12 Part A (MNQ, 1 contract); then --run
 venv\Scripts\python.exe backtests\run_entry12.py --part B --parquet <forward MES file> --run   # refuses below 96 forward window sessions
+pyright                                                          # type diagnostics, baseline 169 (all sampled false positives)
+claude plugin list                                               # the eight plugins; /hookify:list shows the three live rules
 venv\Scripts\python.exe backtests\reprice.py backtests\results\<stream>.csv [--old 1.25 --new 0.50] [--halt]
 venv\Scripts\python.exe backtests\eval_sim.py backtests\results\<stream>.csv
 
