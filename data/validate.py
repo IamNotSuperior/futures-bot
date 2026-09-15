@@ -35,6 +35,25 @@ ALLOWED_INSTRUMENTS = {"MES", "MNQ"}
 
 OHLC = ["open", "high", "low", "close"]
 
+# Where a file's volume column came from. Parquet does not carry `.attrs`,
+# so provenance rides on the filename - which is also why a gateway pull is
+# never written under a Databento name. See
+# docs/superpowers/specs/2026-09-15-projectx-bar-source-design.md §6.
+EXCHANGE_VOLUME = "cme_exchange"
+PLATFORM_VOLUME = "projectx_platform"
+
+
+def volume_source(path) -> str:
+    """Whether a file's volume is CME's tape or a broker's own fills.
+
+    A ProjectX-sourced file counts only trades filled on that platform, so a
+    volume-based signal scored on it is measuring the broker's flow rather
+    than the market's. The report says which it is holding rather than
+    leaving the reader to infer it from the filename.
+    """
+    return PLATFORM_VOLUME if "_projectx_" in str(path) else EXCHANGE_VOLUME
+
+
 
 def load_bars(path: str | Path) -> pd.DataFrame:
     """Load a bar parquet file and return it indexed by ET-localised timestamps.

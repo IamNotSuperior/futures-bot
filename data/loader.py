@@ -44,6 +44,30 @@ def get_databento_api_key() -> str:
     return key
 
 
+def get_topstepx_credentials() -> tuple[str, str]:
+    """Return ``(username, api_key)`` for the ProjectX Gateway.
+
+    Two values rather than one, because the gateway authenticates a key
+    against the account that owns it. The upstream script this was ported
+    from keeps these in a ``config.json``; they live in ``.env`` here so the
+    project has exactly one gitignored place a secret can be.
+
+    Raises:
+        MissingCredentialError: if either is unset or blank. The message
+            names the variable and never any part of either value.
+    """
+    values = {}
+    for name in ("TOPSTEPX_USERNAME", "TOPSTEPX_API_KEY"):
+        value = os.environ.get(name, "").strip()
+        if not value:
+            raise MissingCredentialError(
+                f"{name} is not set. Add it to {ENV_PATH} (see .env.example) "
+                "or export it in your environment."
+            )
+        values[name] = value
+    return values["TOPSTEPX_USERNAME"], values["TOPSTEPX_API_KEY"]
+
+
 def load_bars(path: str | Path) -> pd.DataFrame:
     """Load a cached bar parquet, indexed by ET-localised timestamps.
 

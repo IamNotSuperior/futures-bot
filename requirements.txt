@@ -28,3 +28,7 @@ pytest
 # which plotly 6+ renamed to `scattermap`. Unpinned, pip installs plotly 7.x and
 # `import vectorbt` fails at import time.
 plotly<6
+
+# ProjectX Gateway (TopstepX) bar client. Already present transitively via
+# databento; declared here because data/topstepx.py imports it directly.
+requests
