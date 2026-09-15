@@ -3,8 +3,10 @@
 Rewritten 2026-09-13 and finalised 2026-09-14, at the end of the session
 that closed entries 11 and 12, verified the CME calendar, added the
 hold-regression check and set up the tooling (§2, *Tooling*). Updated later
-on 2026-09-14 for the forward MES file and entry 13. For a session starting
-fresh on this repository.
+on 2026-09-14 for the forward MES file and entry 13, and **on 2026-09-15 at
+the end of the session that built the live backtest view, closed entries
+14, 15 and 16, and reconciled the two-session data-source decision
+(§3.14, §5).** For a session starting fresh on this repository.
 
 This file holds only what is **not** already in `CLAUDE.md` (the hard rules and
 the firm/internal limit table), `README.md` (structure, how to run things, the
@@ -16,8 +18,9 @@ why). Read those three first; this is the delta.
 ## 1. Current state
 
 **Branch** `master`, tracking `origin/master` at
-<https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
-**1,222 tests pass**, 2 skipped (a symlink test the OS refuses, and one that
+<https://github.com/IamNotSuperior/futures-bot> (private), **at `2d0eba3`,
+in step with origin, nothing unpushed.**
+**1,463 tests pass**, 2 skipped (a symlink test the OS refuses, and one that
 needs an orphaned generated module on disk, of which there is none) —
 
 ```powershell
@@ -177,7 +180,11 @@ recreate** — do not delete them casually.
   2019–2026-08 cache is never written. `mes_v_0_ohlcv_1m_2026-09_2026-09.parquet`
   is that first pull as `fetch.py` wrote it, already merged, kept only as the
   raw copy.
-- `backtests/results/*` — 126 files: scan CSVs, walk-forward fold tables, trade
+- `backtests/results/*` — 153 files, plus 16 under `results/live/` (the live
+  view's event streams and stream copies, §2) and `data_check_mes.json` /
+  `data_check_mnq.json` (§3.14); entries 14, 15 and 16 added their
+  `entry14_*`, `entry15_*`, `entry16_*` events, streams, folds and verdict
+  files, all regenerable in minutes. Before that: scan CSVs, walk-forward fold tables, trade
   streams, reports, charts, 26 `entry10_*` files and 24 `entry11_*`/`entry12_*`
   files (session-return populations, both arms at both cost levels on both
   bases, folds, verdict blocks). All regenerable: the ORB walk-forward takes
@@ -672,7 +679,11 @@ sharing a server. **It stays; do not rewrite history for it.**
 
 ## 4. Open directions, in priority order
 
-None is started. The operator set the order on 2026-09-12.
+The operator set the order on 2026-09-12. As of 2026-09-15: (a) is done
+until data accrues, (b) has never been started, (c) has seen two videos
+and no entry, (d) is closed, (e) is deferred, and (f) is the one route the
+log itself now names. Entries 14, 15 and 16 (§1) were run in between and
+are closed; none of them reopens.
 
 **(a) Entry 13 — the forward-data test of the turn-of-month mechanism — is
 frozen and waiting on data.** Pre-registered 2026-09-14: skeleton at
@@ -714,12 +725,25 @@ its kill criterion — any rule violation resets the count to zero — is the
 part that does the work.
 
 **(c) Video intake, running as a protocol (§2).** Waits on the operator
-sending URLs under the filter. The `/submit` modal pre-fill is deferred until
-two or three videos have gone through the protocol and its shape is known.
+sending URLs under the filter. Two videos have gone through (2026-09-13 and
+2026-09-14, §2), both rejected at the counterparty question. The `/submit`
+modal pre-fill is deferred until a video has produced an entry and the
+protocol's shape past that point is known.
 
 **(d) Closed, 2026-09-14: `pyright-lsp` and `hookify` are installed and
 configured** (§2, *Tooling*). Nothing further to add from the marketplaces
 reviewed.
+
+**(f) The order-book purchase, which entries 1 and 16 both name as the
+only stronger test.** Every calendar and level mechanism the log has tried
+was tested as far as bars allow; entry 16's placebo design is the ceiling
+of what one-minute OHLCV can say about who takes the other side of a level
+break, and it said nothing does. The next step on that question is data
+that shows where stops rest and when they execute — Databento's order-book
+schemas (`mbp-1` or `mbp-10`) for MES — priced with `data/fetch.py
+--estimate` before anything else, and bought only on the operator's yes.
+Not started; not cheap; and the entry that would use it has to be written
+first.
 
 **(e) The portfolio layer and the selector diagnostic — deferred until a
 second strategy exists.** The portfolio layer would hold one position across
