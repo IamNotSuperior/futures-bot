@@ -6487,6 +6487,255 @@ edges, at these sizes and under these rules, were not.
 
 ---
 
+## 16. Liquidity sweep of the prior session's high or low — resting stops as the counterparty, MES — PROPOSED
+
+**Operator decisions, 2026-09-15, before this entry was frozen:** written
+after the operator asked about "liquidity" and "fair value gaps" and chose
+to have the first written up; the fair value gap was declined under rule 12
+(no counterparty) and is not in this entry. Stop **4 ticks beyond the sweep
+extreme**, target mirroring the stop distance; **one contract**; the five
+kill criteria confirmed as drafted; the placebo offset of a quarter of the
+prior range taken as the session's default without objection. **The
+prediction and prior were delegated:** asked to choose among three stated
+alternatives, the operator answered "do what you think is best", so the
+prediction below is the session's, recorded as such rather than as the
+operator's. **Provenance, as for entries 13 to 15:** the session drafted the
+mechanics and put each decision to the operator as a clickable question
+with the arithmetic beside it; the operator chose from stated options, or
+delegated, and the entry says which.
+
+**Date:** 2026-09-15
+**Spec frozen at:** the commit adding this entry with the decisions above
+**Verdict commit:** not yet
+**Code:** not yet written. Expected: `strategies/sweep.py`,
+`research/power_check_sweep.py`, `backtests/run_entry16.py`.
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES, 1-minute bars, RTH 09:30 to 15:55 ET, 2020-01-01 to
+2026-08-31.
+
+### Relationship to the closed breakout family
+
+Entries 1, 4, 5, 6, 7, 8, 9 and 10 tested breakout **continuation** and the
+family is closed on entry and on exit. The handoff names one route back:
+evidence about who takes the other side of a range break and under what
+constraint. This entry is that route, in the only form the bars allow. It
+does not bet on continuation; it bets on the **reversal** after a level is
+taken, and it names the counterparty the continuation entries never could:
+the stop orders resting beyond the level. Entry 1's condition asked for
+order-flow evidence, and one-minute bars do not carry order flow; this
+entry says so and substitutes the strongest test bars permit, a placebo
+level with the same geometry and no reason for stops to rest there.
+
+### Mechanism claimed
+
+Traders who are short with a stop above the prior session's high, or long
+with a stop below its low, have placed **stop orders at a visible level**:
+buy stops above the high, sell stops below the low. Osler (2003) documented
+that stop-loss orders cluster at exactly such reference prices in currency
+markets and that price accelerates through them. A stop order is the
+purest forced trade in the market: it becomes a market order when its
+price is touched, whatever the market looks like at that moment. When
+price trades through the prior high, the buy stops execute into a
+thinning book, the move overshoots, and once that forced buying is spent
+there is no further bid behind it; the liquidity providers who sold into
+it are then flat or short against a market with nothing left to lift it,
+and price tends back inside the level. The mirror holds below the low.
+
+**Who is on the other side:** the holder of the resting stop. The
+constraint is the order type: the stop executes at the touch, at market,
+with no discretion and no regard to price. The provider who fills it is
+paid in the overshoot and the reversion. The claimed edge is to stand where
+the provider stands: after the level has been taken and price has closed
+back inside, fade the sweep.
+
+**What this entry does not claim.** The "smart money concepts" school
+attaches to this a story in which institutions engineer the sweep on
+purpose. Nothing here depends on that and nothing here can test it. The
+mechanism claimed is the mechanical one: stop execution, overshoot,
+reversion. Nor can bars tell a stop-driven cross from an informed one; the
+placebo comparison below is the proxy, and it is stated as a proxy.
+
+### Signal definition
+
+**Levels.** For each RTH session D, **PDH** and **PDL** are the high and
+low of the previous RTH session, as `bots/chart_read.rth_sessions` defines
+them (09:30 to 15:59 ET bars of the prior session date in the cache). Only
+sessions whose 09:30 open lies **inside** [PDL, PDH] are eligible: a session
+that opens beyond a level did not sweep it during RTH, and the stops, if
+any, were run overnight where this project does not trade.
+
+**A sweep, high side.** The first RTH bar of D, from 09:30 through 14:59,
+whose high exceeds PDH (the **cross bar**), followed by the first later bar
+whose close is below PDH (the **rejection bar**), the rejection occurring
+at or before 14:59. The **sweep extreme** is the highest high from the cross
+bar to the rejection bar inclusive. Mirror for the low side. A session may
+sweep both sides; the **first rejection of either side** is the session's
+event, and there is at most one event per session. A cross with no
+rejection by 14:59 is a breakout, not a sweep, and is counted as a
+diagnostic (the continuation population the closed family already
+measured).
+
+**The decision bar** is the bar after the rejection bar; its open is the
+decision price and the entry fill.
+
+**The measured quantity.** The sign-adjusted post-rejection move
+`m = ±(open(decision + 30 bars) − open(decision))`, positive when price moved
+back toward the inside of the range (down after a high sweep, up after a
+low sweep), in points; `open(15:55)` is used when 30 bars would pass it.
+Reported alongside: the move to 15:55, and the sweep depth (extreme minus
+level) in points.
+
+**The placebo control.** The same event definition, on the same sessions,
+against a **placebo level** with the same geometry and no reason for
+stops to rest there: `PDH − 0.25 × (PDH − PDL)` on the high side and
+`PDL + 0.25 × (PDH − PDL)` on the low side, with the session's open
+required to be inside the placebo band the same way. Every session
+contributes a real event, a placebo event, both or neither. If stop
+clustering is the mechanism, the reversion after a real-level sweep
+exceeds the reversion after a placebo-level sweep; if reversion after any
+cross-and-reject is a property of the cross-and-reject itself, the two
+match. The offset of a quarter of the prior range is fixed here and is
+not a parameter.
+
+**The fade arm.** At the decision bar's open on a real event: **short**
+after a high sweep, **long** after a low sweep. **Stop:** the sweep extreme
+plus **4 ticks (one point)** beyond it. **Target:** the entry price minus
+(for a short) the stop distance, a **1:1 bracket**, so the flatten
+population's band midpoint is zero by construction (entry 14's lesson).
+Stop-first inside a bar. **Flat at 15:55.** One trade per session.
+**Size: one contract, fixed.** Inside the cap; rule 4's cap is the
+engine's and nothing here restates it. The bracket's shape is fixed by
+the sweep depth and is not a parameter.
+
+**Costs, guards, scored span:** as entries 11 to 15. `rules.COMMISSION_PER_SIDE`,
+1 tick a side base case, 2 ticks sensitivity; `engine.apply_internal_guards`
+at the chosen size, halt-OFF stream alongside; span from
+`walkforward.build_folds()`; signals generated over the whole file and
+sliced; roll days and early closes skipped.
+
+### Rules compatibility
+
+Every entry is at or before the 15:00 bar, so at least 55 minutes precede
+the 15:55 flatten and the 16:20 cutoff is never approached; the shortest
+possible hold is one minute, so rules 6 and 7 are untouched and
+`hold_regression` rejects any stream that says otherwise. The stop distance
+is the sweep depth plus the buffer; at one contract a $400 daily loss would
+need a sweep 80 points deep, and any trade whose stop would breach the
+daily limit is reported, not resized. A trade already open is not added to
+by a second event.
+
+### Power — and this time there is some
+
+Sweeps of the prior session's extremes are common. Roughly a third to a
+half of sessions cross PDH or PDL during RTH and a large share of those
+close back inside, so the real-event population is expected in the
+hundreds over seven years, against a placebo population of similar size.
+With a 30-minute move standard deviation on the order of 10 to 15 points
+and populations of about 400 each, the standard error of a difference of
+means is about 1 point, so a Welch t of 2.0 needs the real-level reversion
+to exceed the placebo's by roughly **2 points a trade**, about three round
+turns. That is a small effect and a reasonable bar; unlike entries 13 to 15
+this entry can detect the size of effect its mechanism plausibly makes.
+**Sample-size floor, fixed now:** at least **40 real events in every fold
+year 2020–2025 and 20 in 2026**, and at least 40 placebo events a year, else
+the entry stops.
+
+### Pre-registered tests
+
+1. **Reproduction, first, gating:** the strategy's diagnostics list exactly
+   the real events the population builder produces, with the same cross
+   bar, rejection bar, extreme and decision bar, and trades only on them.
+2. **Real against placebo, 30-bar reversion:** n, mean, sd, median of `m`
+   for both populations; the difference; Welch t and one-sided p (real
+   larger).
+3. **Real against zero:** one-sample t of the real population's `m`.
+4. **Per year**, both tests.
+5. **Reversion to 15:55**, real against placebo, reported.
+6. **By side** (high sweeps against low sweeps) and **by depth tercile**,
+   reported and never selected on.
+7. **Continuations:** crosses with no rejection by 14:59, counted by year
+   and side, with their 15:55 move, reported.
+8. **Fade arm, both guard bases, at the chosen size, 1 tick and 2 ticks:**
+   every figure entries 11 to 15 report, the `hold_regression` line, the
+   distribution of stop distances in points, and the count of trades whose
+   stop would have breached the daily limit.
+9. **Diagnostics:** sessions skipped by reason; sessions opening outside
+   the band; sessions with both a real and a placebo event.
+
+### Kill criteria — decided now
+
+Confirmed by the operator on 2026-09-15 as drafted. Any one failure kills
+the entry. 1 and 2 are the mechanism test; 3 and 4 the account test; 5
+rule 13.
+
+1. **Real above placebo:** mean 30-bar reversion after a real-level sweep
+   exceeds the placebo's with **Welch t ≥ 2.0** (one-sided).
+2. **Real above zero:** the real population's mean reversion is positive
+   with one-sample **t ≥ 2.0**, and positive in **at least 4 of 7 years**.
+3. Fade arm, standard (guarded) stream, 1 tick: `eval_sim` pass probability
+   **≥ 25%**, day count reported beside it.
+4. Fade arm, comparable (halt-OFF) stream, 1 tick: **evaluations blown ≤ 1.**
+5. Rule 13 on the fade arm, standard stream: **profitable in at least 4 of 7
+   folds and P&L > 0 at 1 tick and at 2 ticks.**
+
+No appeal, no second level (the overnight high and low, the opening range,
+round numbers are each a different entry), no second placebo offset, no
+depth filter, no different horizon, no different bracket, no second
+decision rule. If the depth terciles show the effect living only in deep
+sweeps, that is a finding for *What was learned* and a new entry.
+
+### Prediction on record
+
+Nothing below has been computed. No sweep has been identified on the
+cache. **The session's prediction, at the operator's delegation** ("do what
+you think is best"), from the three alternatives the session had put to
+the operator (level-specific reversion over 2 points with both mechanism
+criteria passing, prior one in three; no reversion at all, prior under one
+in ten).
+
+1. **Real against placebo: the real-level reversion exceeds the placebo's
+   by 0 to 2 points, and criterion 1 fails narrowly.** Reversion after a
+   cross-and-reject is expected to be mostly a property of the
+   cross-and-reject — a move that has just failed tends to give some back
+   — and the stop cluster at the real level is expected to add something
+   small on top, under the two-point line.
+2. **Real against zero: positive, t above 2.0, in 5 of 7 years; criterion
+   2 passes.** This is the prediction that does the work: if it fails, the
+   whole "sweep and reverse" reading is wrong on MES at this horizon, not
+   merely small.
+3. **Fade arm: a few hundred trades, near break-even after costs at 1 tick
+   and negative at 2 ticks; criterion 5 fails at 2 ticks.** The 1:1
+   bracket on a stop set by the sweep depth means the average winner and
+   loser are the same size, so the arm's edge is its hit rate against a
+   round turn of 0.70 points on a bracket of a few points; two ticks of
+   slippage is expected to consume it.
+4. **Depth terciles:** the deepest tercile is expected to show the most
+   reversion, reported and not acted on.
+
+**Prior for survival: low, about one in six** — the session's number. The
+counterparty is the best-defined in this log after the pension flows, and
+the sample is the first large enough to see a small effect; the doubt is
+whether the effect survives costs at one point of stop buffer.
+
+### Data and cost
+
+The MES cache. **No purchase.** A single pass over about 1,650 sessions
+plus `eval_sim`; minutes.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged from every prior entry: N accounts running one strategy is one bet
+at N times the size with N times the fees, and a single trailing-drawdown
+breach ends all of them on the same day.
+
+### Verdict
+
+Not yet run. To be written by the runner before anyone reads a number,
+with the commit hash recorded in a follow-up commit.
+
+---
+
 ## Template for new entries
 
 ```
