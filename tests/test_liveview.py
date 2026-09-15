@@ -267,3 +267,43 @@ class TestSaved:
     def test_everything_is_still_get_only(self, saved):
         for path in ("/saved", "/saved/tom_x/trades", "/saved/tom_x/folds"):
             assert saved.post(path).status_code == 405
+
+
+# --- data sources ------------------------------------------------------------------
+
+
+class TestDataSources:
+    @pytest.fixture
+    def with_reports(self, tmp_path):
+        import json
+
+        from fastapi.testclient import TestClient
+
+        import liveview
+
+        results = tmp_path / "results"
+        results.mkdir()
+        (results / "data_check_mes.json").write_text(json.dumps({
+            "symbol": "MES", "topstep_rows": 84075, "common_rows": 84075,
+            "columns": {"close": {"identical_pct": 96.1, "within_tick_pct": 96.5, "max_abs_diff": 52.25}},
+            "differing_days": [{"date": "2026-03-16", "mean_diff": 50.09}],
+        }), encoding="utf-8")
+        (results / "data_check_bad.json").write_text("{not json", encoding="utf-8")
+        (results / "other.json").write_text("{}", encoding="utf-8")
+        return TestClient(liveview.build_app(tmp_path / "live", results=results, table={},
+                                            registry_loader=lambda: FakeRegistry({})))
+
+    def test_data_lists_the_check_reports_and_skips_broken_ones(self, with_reports):
+        reports = with_reports.get("/data").json()
+        assert [r["symbol"] for r in reports] == ["MES"]
+        assert reports[0]["columns"]["close"]["identical_pct"] == 96.1
+        assert reports[0]["file"] == "data_check_mes.json"
+
+    def test_no_reports_is_an_empty_list(self, saved):
+        assert saved.get("/data").json() == []
+
+    def test_page_has_a_data_sources_panel(self, saved):
+        assert "data sources" in saved.get("/").text.lower()
+
+    def test_data_is_get_only(self, with_reports):
+        assert with_reports.post("/data").status_code == 405

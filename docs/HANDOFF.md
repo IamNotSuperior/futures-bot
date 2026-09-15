@@ -131,6 +131,14 @@ recreate** — do not delete them casually.
 trade has ever been logged, by CLI or by `/read`. `journal/decisions.jsonl`
 (desk ticket button presses) does not exist either. Both appear on first use.
 
+- `C:\Users\shekh\cme-futures-ohlc` — **outside the repository**, a sparse
+  clone (MES and MNQ only, 69 MB) of `axb0306/cme-futures-ohlc`: TopstepX
+  bars via the ProjectX gateway, one contract per symbol hardcoded and rolled
+  by hand, one-minute bars 2026-01-20 → 2026-04-15, ticks from 2026-03-09,
+  last updated 2026-04-15, no license. **A cross-check, not a source** (§3.14);
+  `data/topstep.py` reads it and `--compare` writes
+  `backtests/results/data_check_<symbol>.json` for the viewer's data panel.
+
 **Databento spend is about $21.47.** `data/fetch.py` estimates first and refuses
 above `--max-cost`, default $10; `data/extend.py` does the same for the forward
 file, default $15, and a forward month costs about $0.11.
@@ -553,6 +561,19 @@ key in it. Nothing in this project uses it and nothing should route through
 it; it is noted so a fresh session is not surprised to find an external
 connector loaded. The key was also visible in that session's terminal
 scrollback.
+
+**3.14 Closed, 2026-09-15: the Databento cache matches a prop-firm feed to
+the tick.** The operator pointed at `axb0306/cme-futures-ohlc` (TopstepX
+bars via ProjectX) and asked for it to replace Databento; it cannot — its
+one-minute span is about three months, so rule 13 has no folds to count —
+and the request to "make the strat better after backtesting" was declined as
+the optimiser loop rules 12 and 13 exist to prevent. What it *is* good for
+was done: over its 84,075 MES bars every timestamp and every RTH bar count
+matches the cache, close is identical on 96.1% of bars and the rest is three
+days, 2026-03-15 to 03-17, offset by about 50 points — the March→June roll,
+taken by hand in the repository and by volume in Databento's `.v.0`. Both
+feeds label bars by opening minute. `data/topstep.py --compare` recomputes
+this and the viewer shows it. **Databento stays the only backtest source.**
 
 **3.11 The Discord user id in commit `9dc95c2`.** `tests/test_submissions.py`
 once hard-coded the operator's real `DESK_OWNER_ID`; the tip uses a fake id.
@@ -1129,6 +1150,7 @@ venv\Scripts\python.exe data\extend.py --pull [--max-cost 1]      # append it to
 venv\Scripts\python.exe data\extend.py --merge-file <parquet>     # fold a fetch.py pull into the forward file, no API call
 venv\Scripts\python.exe bots\liveview.py                          # live backtest view at http://127.0.0.1:8790, read-only
 venv\Scripts\python.exe backtests\run_entry12.py --part A --reproduce --live   # any runner with --live writes the stream the page follows
+venv\Scripts\python.exe data\topstep.py --compare --symbol MES              # TopstepX-vs-Databento agreement report for the viewer's data panel (§3.14)
 ```
 
 Every runner takes `--commission` (default `rules.COMMISSION_PER_SIDE`,

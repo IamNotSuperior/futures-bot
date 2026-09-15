@@ -27,6 +27,7 @@ for _folder in ("backtests",):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import json  # noqa: E402
 from datetime import datetime  # noqa: E402
 
 import pandas as pd  # noqa: E402
@@ -137,6 +138,21 @@ def build_app(directory: Path | None = None, results: Path | None = None,
         entry = _saved(name)
         frame = _read_results_csv(app.state.results, entry["folds_file"])
         return JSONResponse([] if frame is None else live.frame_rows(frame))
+
+    @app.get("/data")
+    def data_sources() -> list[dict]:
+        """The data-check reports ``data/topstep.py --compare`` writes."""
+        results: Path = app.state.results
+        out: list[dict] = []
+        for path in sorted(results.glob("data_check_*.json")) if results.exists() else []:
+            try:
+                report = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(report, dict):
+                report["file"] = path.name
+                out.append(report)
+        return out
 
     @app.get("/", response_class=HTMLResponse)
     def page() -> str:
@@ -268,6 +284,10 @@ PAGE = r"""<!doctype html>
   <section style="grid-column: 1 / -1">
     <h2>Folds</h2>
     <div class="scroll"><table id="folds"><tbody><tr><td class="empty">No fold table yet.</td></tr></tbody></table></div>
+  </section>
+  <section style="grid-column: 1 / -1">
+    <h2>Data sources</h2>
+    <div id="data" class="empty">Databento is the backtest source. Run <code>data\topstep.py --compare</code> to check a second feed against it; reports appear here.</div>
   </section>
 </main>
 <script>
@@ -495,7 +515,48 @@ PAGE = r"""<!doctype html>
     table.innerHTML = thead + "<tbody>" + body + "</tbody>";
   }
 
+  async function loadData() {
+    let reports;
+    try { reports = await getJSON("/data"); } catch (e) { return; }
+    if (!reports.length) return;
+    const el = $("data");
+    el.className = "";
+    el.innerHTML = "";
+    for (const r of reports) {
+      const c = (r.columns || {}).close || {};
+      const days = (r.differing_days || []);
+      const box = document.createElement("div");
+      box.style.marginBottom = "12px";
+      const head = document.createElement("div");
+      head.innerHTML = "<strong></strong> <span class='note'></span>";
+      head.querySelector("strong").textContent = (r.symbol || "?") + " · " + (r.source || "second feed");
+      head.querySelector(".note").textContent = " · " + (r.topstep_file || "") + " vs " + (r.cache_file || "") +
+        (r.computed ? " · checked " + r.computed : "");
+      box.appendChild(head);
+      const t = document.createElement("table");
+      t.innerHTML = "<thead><tr><th>bars in common</th><th>close identical</th><th>within a tick</th><th>max diff</th><th>volume identical</th><th>RTH sessions</th><th>count mismatches</th><th>days differing</th></tr></thead>";
+      const tb = document.createElement("tbody");
+      const cells = [
+        (r.common_rows || 0).toLocaleString(), (c.identical_pct ?? "–") + "%", (c.within_tick_pct ?? "–") + "%",
+        c.max_abs_diff ?? "–", (r.volume_identical_pct ?? "–") + "%", r.rth_sessions_compared ?? "–",
+        (r.rth_count_mismatches || []).length, days.length];
+      tb.innerHTML = "<tr>" + cells.map(v => "<td>" + v + "</td>").join("") + "</tr>";
+      t.appendChild(tb);
+      box.appendChild(t);
+      if (days.length) {
+        const note = document.createElement("div");
+        note.className = "note";
+        note.style.marginTop = "6px";
+        note.textContent = "Days differing by more than a tick (a hand-rolled contract against a volume roll shows the calendar spread): " +
+          days.map(d => d.date + " (" + (d.mean_diff >= 0 ? "+" : "") + d.mean_diff + ")").join(", ");
+        box.appendChild(note);
+      }
+      el.appendChild(box);
+    }
+  }
+
   $("runs").addEventListener("change", (e) => selectRun(e.target.value));
+  loadData();
   for (const b of ["standard", "comparable"]) {
     $("b-" + b).addEventListener("click", () => {
       state.basis = b;
