@@ -6641,6 +6641,34 @@ this entry can detect the size of effect its mechanism plausibly makes.
 year 2020–2025 and 20 in 2026**, and at least 40 placebo events a year, else
 the entry stops.
 
+### Power check result, 2026-09-15 — run before the result
+
+`research/power_check_sweep.py`, which counts crosses and rejections and
+drops the reversion columns before printing anything. Real events per fold
+year **87, 105, 115, 102, 112, 114, 80 — 715 pooled** (393 high-side, 322
+low-side); placebo events **53, 75, 80, 67, 75, 62, 53 — 465 pooled**;
+continuations (crossed, never rejected by 14:59) 69 in all; sessions with
+both a real and a placebo event 311. **Every fold year clears its floor by
+a wide margin; the power check passed.** With about 715 against 465 and a
+30-bar move spread near 10 to 15 points, the standard error of the
+difference of means is about 0.7 to 0.9 points, so a two-point difference
+would read at t of roughly 2.5 and a one-point difference at about 1.2:
+this entry can see a small effect, as no calendar entry could. As for
+entries 11, 14 and 15, the population builder and the strategy class were
+written test-first in one pass before the check ran; the check reads
+prices for the crosses and never the reversion, and no `m30` was computed
+or printed before this section was written.
+
+### Reproduction, 2026-09-15 — run before the result
+
+`backtests/run_entry16.py --reproduce`, watched in the live view. **Passed
+on the first run:** the strategy's diagnostics list the 715 real events day
+for day with matching sweep depths, and all 715 carry an entry at the
+decision bar — no event was refused by the rules, since every decision bar
+is at or before 15:00 on an eligible session by construction. The strategy
+and runner are committed before the run below, so the verdict's code is
+fixed. No reversion has been computed or printed.
+
 ### Pre-registered tests
 
 1. **Reproduction, first, gating:** the strategy's diagnostics list exactly
