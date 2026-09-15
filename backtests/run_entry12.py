@@ -39,6 +39,7 @@ from engine import (  # noqa: E402
     MES, MNQ, ContractSpec, CostModel, apply_internal_guards, build_trades,
     price_trades,
 )
+from live import LiveRun, NullLive  # noqa: E402
 import run_entry11 as e11  # noqa: E402
 from run_entry11 import (  # noqa: E402
     BASE_SLIPPAGE_TICKS, LINE, SENSITIVITY_TICKS, STOP_POINTS, TOTAL_FOLDS, YEARS,
@@ -201,22 +202,28 @@ def reproduction_differences(loaded: Loaded, part: Part) -> list[str]:
     return problems
 
 
-def reproduce(part: Part, parquet: Path | None = None) -> bool:
-    print(LINE)
-    print(f"ENTRY 12 - part {part.key} ({part.label}) reproduction check (pre-registered test 1)")
-    print(LINE, flush=True)
-    loaded = load(part, parquet)
-    problems = reproduction_differences(loaded, part)
-    for p in problems:
-        print(f"  DIVERGES - {p}")
-    if not problems:
-        n = int(scored_returns(loaded, part)["window"].sum())
-        print(f"  IDENTICAL: {n} window sessions reproduced session for session; "
-              f"stop-arm entries identical")
-    print(LINE)
-    print("REPRODUCTION " + ("PASSED" if not problems else "FAILED"))
-    print(LINE)
-    return not problems
+def reproduce(part: Part, parquet: Path | None = None,
+              live: NullLive | None = None) -> bool:
+    live = NullLive() if live is None else live
+    with live:
+        say = live.progress(lambda m: print(m, flush=True))
+        print(LINE)
+        say(f"ENTRY 12 - part {part.key} ({part.label}) reproduction check (pre-registered test 1)")
+        print(LINE, flush=True)
+        say("[progress] loading bars and rebuilding the population")
+        loaded = load(part, parquet)
+        problems = reproduction_differences(loaded, part)
+        for p in problems:
+            say(f"  DIVERGES - {p}")
+        if not problems:
+            n = int(scored_returns(loaded, part)["window"].sum())
+            say(f"  IDENTICAL: {n} window sessions reproduced session for session; "
+                f"stop-arm entries identical")
+        print(LINE)
+        print("REPRODUCTION " + ("PASSED" if not problems else "FAILED"))
+        print(LINE)
+        live.finish("REPRODUCED" if not problems else "DIVERGED")
+        return not problems
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +326,20 @@ def verdict_block(results: dict, date_text: str) -> str:
 
 
 def run(part: Part, parquet: Path | None = None, paths: int = 20_000,
-        commission: float | None = None, progress=print):
+        commission: float | None = None, progress=print,
+        live: NullLive | None = None):
+    """One part's mechanism test, both arms, the verdict.
+
+    ``live`` is the optional event stream for ``bots/liveview.py``; the
+    default writes nothing and changes nothing.
+    """
+    live = NullLive() if live is None else live
+    with live:
+        return _run(part, parquet, paths, commission, live.progress(progress), live)
+
+
+def _run(part: Part, parquet: Path | None, paths: int, commission: float | None,
+         progress, live: NullLive):
     RESULTS.mkdir(parents=True, exist_ok=True)
     commission = rules.COMMISSION_PER_SIDE if commission is None else commission
     tag = f"entry12_{part.key.lower()}"
@@ -367,7 +387,11 @@ def run(part: Part, parquet: Path | None = None, paths: int = 20_000,
                 "comparable": stream_stats(comparable, paths, None, 0, loss_halts),
             }
             if arm == "stop" and ticks == BASE_SLIPPAGE_TICKS:
-                fold_frame(standard, paths).to_csv(RESULTS / f"{tag}_folds.csv", index=False)
+                live.trades(standard, "standard")
+                live.trades(comparable, "comparable")
+                folds = fold_frame(standard, paths)
+                folds.to_csv(RESULTS / f"{tag}_folds.csv", index=False)
+                live.folds(folds)
 
     base_costs = CostModel(commission_per_side=commission, slippage_ticks=BASE_SLIPPAGE_TICKS)
     criteria = criteria_for(mechanism, arms["stop"][BASE_SLIPPAGE_TICKS]["standard"],
@@ -383,6 +407,7 @@ def run(part: Part, parquet: Path | None = None, paths: int = 20_000,
     (RESULTS / f"{tag}_report.txt").write_text("\n".join([LINE, f"ENTRY 12 - part {part.key}",
                                                           LINE, block]), encoding="utf-8")
     progress(f"[progress] result written to backtests/results/{tag}_verdict.md")
+    live.finish(results["status"])
     return results, results["status"], block
 
 
@@ -396,13 +421,20 @@ def main(argv=None) -> int:
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--paths", type=int, default=20_000)
     ap.add_argument("--commission", type=float, default=rules.COMMISSION_PER_SIDE)
+    ap.add_argument("--live", action="store_true",
+                    help="write a live event stream for bots/liveview.py")
     args = ap.parse_args(argv)
     part = PARTS[args.part]
+    name = f"entry12_{part.key.lower()}"
     if args.reproduce:
-        return 0 if reproduce(part, args.parquet) else 1
+        live_run = (LiveRun(name, runner=f"run_entry12 --part {part.key} --reproduce")
+                    if args.live else NullLive())
+        return 0 if reproduce(part, args.parquet, live=live_run) else 1
     if args.run:
+        live_run = (LiveRun(name, runner=f"run_entry12 --part {part.key} --run")
+                    if args.live else NullLive())
         _, status, _ = run(part, args.parquet, args.paths, args.commission,
-                           progress=lambda m: print(m, flush=True))
+                           progress=lambda m: print(m, flush=True), live=live_run)
         print(f"[done] part {part.key} {status}", flush=True)
         return 0
     ap.print_help()

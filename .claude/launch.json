@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "liveview",
+      "runtimeExecutable": "venv\\Scripts\\python.exe",
+      "runtimeArgs": ["bots\\liveview.py"],
+      "port": 8790
+    }
+  ]
+}

@@ -39,6 +39,7 @@ import eval_sim  # noqa: E402
 import loader  # noqa: E402
 import rules  # noqa: E402
 import walkforward  # noqa: E402
+from live import LiveRun, NullLive  # noqa: E402
 from engine import (  # noqa: E402
     MES, MNQ, CostModel, apply_internal_guards, build_trades,
     count_evaluation_blowups, price_trades,
@@ -221,17 +222,28 @@ def summarise_basis(trades: pd.DataFrame, paths: int) -> BasisSummary:
 
 def run(name: str, class_path: str, symbol: str = "MES",
         contracts: int | None = None, paths: int = 20_000,
-        progress=None, commission: float | None = None) -> WalkforwardResult:
+        progress=None, commission: float | None = None,
+        live: NullLive | None = None) -> WalkforwardResult:
     """Generate signals over the full history, then score by year.
 
     ``commission`` defaults to :data:`COMMISSION_PER_SIDE`. It is a parameter
     only so a pre-2026-09-11 verdict can be reproduced at the $1.25 it was
     scored at; the bot's call site never passes it.
-    """
-    def say(message: str) -> None:
-        if progress:
-            progress(message)
 
+    ``live`` is the optional event stream for ``bots/liveview.py``. The
+    default writes nothing; with a :class:`LiveRun` the same progress
+    messages, the two priced streams and the fold table are also written to
+    the live directory. Nothing about the computation, the ordering or the
+    files under ``RESULTS`` depends on it.
+    """
+    live = NullLive() if live is None else live
+    with live:
+        return _run(name, class_path, symbol, contracts, paths,
+                    live.progress(progress), commission, live)
+
+
+def _run(name: str, class_path: str, symbol: str, contracts: int | None,
+         paths: int, say, commission: float | None, live: NullLive) -> WalkforwardResult:
     if commission is None:
         commission = COMMISSION_PER_SIDE
 
@@ -270,9 +282,13 @@ def run(name: str, class_path: str, symbol: str = "MES",
             f"to walk forward."
         )
 
+    live.trades(trades, "standard")
+    live.trades(comparable_trades, "comparable")
+
     say(f"{len(trades):,} trades, {len(halts)} daily-loss halts, "
         f"{len(dd_halts)} sessions blocked by the trailing halt; scoring folds ...")
     folds = fold_frame(trades, paths)
+    live.folds(folds)
     profitable = int((folds["test_net_pnl"] > 0).sum())
 
     say("running the evaluation simulator ...")
@@ -284,6 +300,7 @@ def run(name: str, class_path: str, symbol: str = "MES",
     # Rule 13 and the regression check, in `decide` so the acceptance
     # decision has exactly one implementation. Decided on the guarded stream.
     accepted, reasons = decide(profitable, float(trades["net_pnl"].sum()), metrics)
+    live.finish("ACCEPTED" if accepted else "REJECTED")
 
     say(f"scoring the comparable basis, halt OFF: "
         f"{len(comparable_trades):,} trades ...")
@@ -447,11 +464,15 @@ def main(argv=None) -> int:
                     help="per side; defaults to rules.COMMISSION_PER_SIDE. "
                          "Pass 1.25 to reproduce a verdict scored before "
                          "2026-09-11.")
+    ap.add_argument("--live", action="store_true",
+                    help="write a live event stream for bots/liveview.py")
     args = ap.parse_args(argv)
 
+    live_run = (LiveRun(args.name, runner=f"run_generated {args.name}")
+                if args.live else NullLive())
     result = run(args.name, args.class_path, args.symbol, args.contracts,
                  args.paths, progress=lambda m: print(f"  {m}", flush=True),
-                 commission=args.commission)
+                 commission=args.commission, live=live_run)
     print()
     print(verdict_block(result, 0))
     return 0

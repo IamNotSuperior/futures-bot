@@ -364,6 +364,28 @@ not carry through a comprehension, a Discord channel guarded at startup,
 FastAPI parameters typed optional by the framework). Nothing gates on it. Run
 `pyright` from the root to see the list.
 
+**The live backtest view, 2026-09-15.** A read-only page that follows a
+walk-forward while it runs. `backtests/live.py` gives a runner a `LiveRun`
+that writes one JSON line per event (start, stage, trades, folds, done or
+error) to `backtests/results/live/<name>.jsonl`, gitignored output, with CSV
+copies of the priced streams and the fold table beside it; `NullLive` is the
+default and writes nothing. `run_generated.py`, `run_entry11.py` and
+`run_entry12.py` take `--live`, and the bot's `/walkforward` writes the
+stream when `FUTURES_LIVE=1` is in its environment. `bots/liveview.py`
+serves the page on **port 8790** (the desk feed has 8787): stage timeline
+with elapsed times, the equity curve drawn trade by trade *from the finished
+stream* once it exists, the fold table, the outcome pill. Every route is
+GET, the module imports no runner, and a test asserts both. `.claude/launch.json`
+opens it in the desktop app's browser pane. **A walk-forward here is not
+incremental** — signals, pricing and folds are each one call — so the stages
+are the run's real granularity and the curve is labelled a replay. Design
+note: `docs/superpowers/specs/2026-09-15-live-backtest-view-design.md`. Two
+things it caught on its first real run: Starlette's JSON response refuses
+NaN (the halted fold years carry NaN Sharpe), and a re-run under the same
+name truncates the file, so the page resets on the run's start time.
+Replaying finished runs from `backtests/results/` and entry 1's fold loop
+are named as out of scope.
+
 **Hookify rules**, in `.claude/hookify.*.local.md`, tracked in git and read
 live on every tool call — no restart:
 
@@ -1098,6 +1120,8 @@ venv\Scripts\python.exe data\fetch.py --estimate --symbol MNQ.v.0 --start 2019-0
 venv\Scripts\python.exe data\extend.py --estimate                 # forward MES: next slice's cost, free; default span = day after last bar on disk -> Databento's available end
 venv\Scripts\python.exe data\extend.py --pull [--max-cost 1]      # append it to data\mes_v_0_ohlcv_1m_forward.parquet; ask before running
 venv\Scripts\python.exe data\extend.py --merge-file <parquet>     # fold a fetch.py pull into the forward file, no API call
+venv\Scripts\python.exe bots\liveview.py                          # live backtest view at http://127.0.0.1:8790, read-only
+venv\Scripts\python.exe backtests\run_entry12.py --part A --reproduce --live   # any runner with --live writes the stream the page follows
 ```
 
 Every runner takes `--commission` (default `rules.COMMISSION_PER_SIDE`,

@@ -15,6 +15,7 @@ says when the cached run was produced.
 from __future__ import annotations
 
 import io
+import os
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, time
@@ -33,6 +34,7 @@ for _folder in ("journal", "backtests", "data", "strategies",
         sys.path.remove(_p)
     sys.path.insert(0, _p)
 
+import live  # noqa: E402
 import loader  # noqa: E402
 import rules  # noqa: E402
 import eval_sim  # noqa: E402
@@ -341,8 +343,14 @@ def run_walkforward_generated(name: str, progress=None):
     sys.path.insert(0, str(PROJECT_ROOT / "strategies" / "generated"))
     import run_generated  # noqa: PLC0415
 
+    # FUTURES_LIVE=1 in the bot's environment makes a Discord-launched run
+    # visible in bots/liveview.py. The stream is output, not evidence, and
+    # the verdict path below it is unchanged.
+    live_run = (live.LiveRun(name, runner=f"/walkforward {name}")
+                if os.environ.get("FUTURES_LIVE") == "1" else live.NullLive())
     try:
-        return run_generated.run(name, record.class_path, progress=progress)
+        return run_generated.run(name, record.class_path, progress=progress,
+                                 live=live_run)
     except (ValueError, FileNotFoundError) as exc:
         raise WorkError(str(exc)) from None
 

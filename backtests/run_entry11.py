@@ -48,6 +48,7 @@ for folder in ("data", "strategies", "backtests"):
 
 import eval_sim  # noqa: E402
 import loader  # noqa: E402
+from live import LiveRun, NullLive  # noqa: E402
 import rules  # noqa: E402
 from engine import (  # noqa: E402
     MES, CostModel, apply_internal_guards, build_trades, count_evaluation_blowups,
@@ -544,7 +545,20 @@ def verdict_block(results: dict, date_text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def run(paths: int = 20_000, commission: float | None = None, progress=print):
+def run(paths: int = 20_000, commission: float | None = None, progress=print,
+        live: NullLive | None = None):
+    """The mechanism test, both arms, the verdict.
+
+    ``live`` is the optional event stream for ``bots/liveview.py``; the
+    default writes nothing. Nothing about the computation or the files
+    written depends on it.
+    """
+    live = NullLive() if live is None else live
+    with live:
+        return _run(paths, commission, live.progress(progress), live)
+
+
+def _run(paths: int, commission: float | None, progress, live: NullLive):
     RESULTS.mkdir(parents=True, exist_ok=True)
     commission = rules.COMMISSION_PER_SIDE if commission is None else commission
     progress("[progress] loading bars")
@@ -581,7 +595,11 @@ def run(paths: int = 20_000, commission: float | None = None, progress=print):
                 "comparable": stream_stats(comparable, paths, None, 0, loss_halts),
             }
             if arm == "stop" and ticks == BASE_SLIPPAGE_TICKS:
-                fold_frame(standard, paths).to_csv(RESULTS / "entry11_folds.csv", index=False)
+                live.trades(standard, "standard")
+                live.trades(comparable, "comparable")
+                folds = fold_frame(standard, paths)
+                folds.to_csv(RESULTS / "entry11_folds.csv", index=False)
+                live.folds(folds)
 
     rt1 = round_turn_points(CostModel(commission_per_side=commission,
                                       slippage_ticks=BASE_SLIPPAGE_TICKS))
@@ -603,6 +621,7 @@ def run(paths: int = 20_000, commission: float | None = None, progress=print):
                    f"sensitivity {', '.join(f'{t:g}' for t in SENSITIVITY_TICKS)}",
                    LINE, block]), encoding="utf-8")
     progress("[progress] verdict written to backtests/results/entry11_verdict.md")
+    live.finish(results["status"])
     return results, results["status"], block
 
 
@@ -615,12 +634,15 @@ def main(argv=None) -> int:
                     help="the mechanism test, both arms, the verdict")
     ap.add_argument("--paths", type=int, default=20_000)
     ap.add_argument("--commission", type=float, default=rules.COMMISSION_PER_SIDE)
+    ap.add_argument("--live", action="store_true",
+                    help="write a live event stream for bots/liveview.py")
     args = ap.parse_args(argv)
     if args.reproduce:
         return 0 if reproduce() else 1
     if args.run:
+        live_run = LiveRun("entry11", runner="run_entry11 --run") if args.live else NullLive()
         _, status, _ = run(args.paths, args.commission,
-                           progress=lambda m: print(m, flush=True))
+                           progress=lambda m: print(m, flush=True), live=live_run)
         print(f"[done] {status}", flush=True)
         return 0
     ap.print_help()
