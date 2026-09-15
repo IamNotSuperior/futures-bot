@@ -5691,6 +5691,23 @@ that in the diagnostics and the `loss_limit_flatten` count, and the account
 criteria are read with it in view. The pre-trade check would block such a
 ticket live; the backtest reports what the guard did.
 
+### Addendum, 2026-09-15 — the expiry shift keys on the cash market, not the exchange
+
+Found by the calendar-only power check, before any price was read. The
+signal definition says expiration moves to the preceding Thursday "when the
+exchange is closed on that Friday (Good Friday)". CME is *open* on
+Juneteenth, 19 June 2026, the third Friday of that month, with a Globex-only
+session and the cash equity market shut, so the first run of the check
+labelled the 19th as the expiry and then skipped it as an early close,
+leaving the true expiration, Thursday the 18th, labelled as an ordinary day.
+The correct rule is the one entry 11 already uses: a session counts only if
+the **cash market** traded on it (`tom.trading_days`: sessions less the
+cash-closed holiday sessions, the three true half-days kept). The expiry is
+the last **cash trading day** on or before the third Friday. Good Friday
+(no session at all) and Juneteenth-on-a-Friday (Globex session, cash shut)
+then land on the same Thursday. This moves one day in the sample and no
+criterion, line, or parameter. Recorded before the strategy class exists.
+
 ### Power check — to run before any strategy code
 
 **Sample-size floor, fixed now:** at least **8 eligible expiry days in every
@@ -5710,6 +5727,40 @@ gamma-damping effects on the index are in the single digits of percent, so
 here is weak evidence of absence. The fade arm's 84 trades at most give rule
 13 seven folds of about 12 trades each — a small sample by design, and the
 entry does not pretend otherwise.
+
+### Power check result, 2026-09-15 — run before the strategy class exists
+
+`research/power_check_opex.py`, on the calendar only, after the addendum
+above. 1,890 sessions carry a 09:30 bar; 64 early closes; 29 roll days,
+none on an expiry day.
+
+| Year | Expiry | Eligible | Quarterly | Friday control | Other control | Skipped |
+|---|---|---|---|---|---|---|
+| 2020 | 12 | 12 | 4 | 36 | 202 | 0 |
+| 2021 | 12 | 12 | 4 | 37 | 202 | 0 |
+| 2022 | 12 | 12 | 4 | 39 | 197 | 0 |
+| 2023 | 12 | 12 | 4 | 38 | 194 | 0 |
+| 2024 | 12 | 12 | 4 | 38 | 196 | 0 |
+| 2025 | 12 | 12 | 4 | 38 | 193 | 0 |
+| 2026 | 8 | 8 | 2 | 25 | 131 | 0 |
+| **Pooled** | **80** | **80** | **26** | **251** | **1,315** | 0 |
+
+Three expiries fall on a Thursday: 2022-04-14 and 2025-04-17 (Good
+Friday) and 2026-06-18 (Juneteenth on the Friday, the case the addendum
+fixed; the first run had labelled the 19th and skipped it). **Every fold
+year clears its floor; the power check passed.** The counts sit inside the
+power arithmetic above (about 80 against about 250 Fridays), so the range
+test's t line needs an expiry-day range roughly 10% smaller than the Friday
+control's, and the fade arm has at most 80 trades over seven folds.
+
+**On the ordering.** As for entry 11, the calendar functions and the
+population builder (`strategies/opex.py`) were written test-first before
+the check ran, and the strategy class was not; the check reads
+`opex.session_calendar`, which touches the bar index and never a price.
+`session_ranges` exists in the module but was not called on the cache
+before the freeze of this section. The letter of "before any strategy
+code" is bent the same way and the purpose kept, and it is recorded rather
+than implied.
 
 ### Pre-registered tests
 
