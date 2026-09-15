@@ -5577,8 +5577,8 @@ draft, adopted by the operator's choice, and the entry is judged on the
 same pre-registered terms as any other.
 
 **Date:** 2026-09-15
-**Spec frozen at:** the commit adding this entry with the decisions above
-**Verdict commit:** not yet
+**Spec frozen at:** `f9f129c` (calendar addendum and power check `f79cd49`; implementation `0c4868e`)
+**Verdict commit:** `f860939`
 **Code:** not yet written. Expected: `strategies/opex.py` (calendar,
 populations, strategy), `research/power_check_opex.py` (calendar only),
 `backtests/run_entry14.py`.
@@ -5969,6 +5969,82 @@ Per fold, standard: 2020 $564.50; 2021 $-160.75; 2022 $-1,196.50; 2023 $0.00; 20
 Expiry days skipped in the scored span: 0. Expiry days with no trade (|m| inside the threshold): 35. Entry-bar stop breaches: 0. Thursday expiries: 2022-04-14, 2025-04-17, 2026-06-18.
 
 In-sample results are never evidence, and this is the out-of-sample answer on seven yearly folds with nothing selected.
+
+### What was learned
+
+**The damping is there and it is not enough.** Expiry-day session range sits
+**10.1% below** the Friday control's at the median and below it in **6 of 7
+years**, which is the shape the mechanism predicts and the size the
+prediction on record named (0 to 10%). The pre-registered line was Welch
+t ≤ −2.0 on the log range and it landed at **−1.25**, one-sided p 0.107.
+Criterion 2 passed and criterion 1 failed, exactly as the prior said it
+would, and for the reason it said: power. The verdict is the pre-registration
+working, not a surprise.
+
+**The power arithmetic understated the noise.** The entry assumed a log-range
+standard deviation of about 0.40 and a t line needing roughly 10% damping.
+The realised standard error, 0.069 in log units on 80 against 251, implies a
+standard deviation near **0.54**, so the line needed about 14% damping in
+the mean of logs. A 10% median effect could not have reached it at this
+sample. Recorded so the next calendar entry sizes its bar from a measured
+spread, not a guessed one.
+
+**Against all other sessions the damping mostly disappears** (−4.5% median,
+t −0.20). Expiry days are Fridays, and other Fridays have larger ranges than
+the average session, so the Friday control was the right one and the
+secondary confirms why: a day-of-week effect would have read as an expiry
+effect against the wrong control.
+
+**Quarterly days ran larger, as predicted.** Median range 48.38 on the 26
+quarterly expiries against 41.62 on the 54 monthly ones. Prediction 4 held.
+Reported, not selected on, and not licence for a quarterly-only entry
+without its own mechanism (the futures settlement, not the option hedge).
+
+**The fade arm lost, and its anatomy is the log's oldest lesson again.** On
+the comparable stream, 45 trades, −$2,380, 3 of 7 folds, two evaluations
+blown; the $1,500 halt ended the guarded stream after 19 trades in 2022. Of
+the 19: 7 targets earned $1,978, 6 stops cost $2,085, 6 flattens cost $543.
+With k = 0.5 and s = 1.0 the bracket is asymmetric, 11 points to the target
+and 22 to the stop, so one stop undoes two targets, and the trades that
+survive to 15:55 sit in the band between them with a negative mean — the
+flatten-sign geometry recorded at entries 4, 5, 6 and 7, now a fifth time.
+The damping was real and a 1:2 bracket on 45 trades could not turn it into
+money after costs.
+
+**Criterion 4 failed against the prediction.** Two evaluations blown at three
+contracts, where the prior said zero or one. Three contracts on a 22-point
+stop is $337 a trade; a run of stops in 2022 took the comparable stream to
+a $4,256 drawdown, twice the firm's line. The size was the operator's
+choice and the entry's own arithmetic said the stop fitted the daily limit;
+it did not say it fitted the trail, and the trail is what bound. §3.12 of
+the handoff already said the trail is the binding constraint; this is the
+third entry to confirm it.
+
+**Rule 7 read 0.00% and rule 6 was never near**, as a three-hour average
+hold must. Every expiry day was eligible; the calendar produced no skips in
+the scored span.
+
+### Next
+
+**Do not re-run this entry at a different k, a different s, a different
+entry time, a different target, a quarterly-only subset, or one contract.**
+Each is a change chosen after seeing the tables above and each is the route
+by which a rejected entry is re-tested until it passes. The bracket
+geometry is a *finding*, not an invitation to fix the bracket.
+
+**What would justify a new entry, written before any code:** the mechanism
+test came within 0.75 of its t line on 80 days with the effect at the
+predicted size, and the honest way to resolve that is not a reworked test
+but more days. Forward expiry days accrue at one a month, so the sample the
+question needs is years away, as entry 13's is. If a tradeable form is ever
+proposed on this mechanism it must name its bracket's band midpoint before
+the run, size to the $1,500 trail rather than the daily limit, and expect
+about one trade a month.
+
+**The counterparty was real and the entry still died.** As entry 11 found: a
+well-named, constrained counterparty is necessary to write an entry and not
+sufficient for it to pass. Dealer hedging shows up in the range; it does
+not, at this size and with this rule, show up in the account.
 
 ---
 

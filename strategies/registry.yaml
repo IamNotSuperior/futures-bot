@@ -118,5 +118,14 @@ strategies:
     correlate 0.927 and MNQ''s window effect conditioned on MES is zero - a second index future
     on the same days is not a replication of a calendar effect. Recorded as a design error
     in the pre-registration.'
+- name: opex_fade
+  class_path: opex:OpexFade
+  hypothesis_entry: 14
+  status: rejected
+  verdict_commit: f860939
+  walkforward_verdict: 'REJECTED on the pre-registered criteria. Expiry-day range 10.1% below
+    the Friday control at the median, 6 of 7 years below, Welch t -1.25 against -2.0. Fade
+    arm (k 0.5, s 1.0, 3 contracts): comparable stream 45 trades, -$2,380, 3 of 7 folds, two
+    evaluations blown; the $1,500 halt ended the guarded stream after 19 trades in 2022.'
 shadow:
 - orb2

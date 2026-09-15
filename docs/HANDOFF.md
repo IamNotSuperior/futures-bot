@@ -30,7 +30,7 @@ own generated test (§5). **Working tree is clean.**
 
 ### The research
 
-**Thirteen hypothesis entries. Eleven rejected. Entry 3 is open with zero
+**Fourteen hypothesis entries. Twelve rejected. Entry 3 is open with zero
 trades logged. Entry 13 is frozen and waits on forward data until about
 September 2028.** No strategy has ever reached `paper`.
 
@@ -49,6 +49,7 @@ September 2028.** No strategy has ever reached `paper`.
 | 11 | `tom_intraday` — turn-of-month flows, long 09:30–15:55 on T-1..T+3 | REJECTED (verdict `2bf4fc4`) — the near-miss in this log |
 | 12 | `tom_intraday_mnq` — entry 11 replicated on MNQ at one contract | REJECTED at Part A (verdict `1b304bb`); Part B (forward MES) never run |
 | 13 | Turn-of-month forward test on MES, mechanism-only, no registry record yet | **PROPOSED — frozen at `6c65c89`; runs once at 96 forward window sessions (~Sep 2028); no runner written** |
+| 14 | `opex_fade` — monthly option expiry, dealer gamma hedging; range damping test plus a 10:30 fade arm at 3 contracts | REJECTED (verdict `f860939`) — damping present (−10.1% median, 6 of 7 years) but t −1.25 against −2.0; fade arm −$2,380, two evaluations blown |
 
 **The breakout family — entries 1, 4, 5, 6, 7, 8, 9 and 10 — is closed on entry
 and on exit.** Eight entries tested breakout continuation across two sessions,
@@ -73,6 +74,27 @@ contract the stop arm's comparable stream was 7 of 7 folds and pass 79.7%,
 with a $2,406 worst drawdown the $1,500 internal halt cannot carry; that
 geometry is the starting point for any account criteria on this mechanism.
 **Entry 13 is that new entry**, frozen 2026-09-14 as mechanism-only (§4a).
+
+**Entry 14 went from idea to verdict in one session, 2026-09-15, and is the
+first entry whose idea the session drafted.** The operator asked for
+strategies to be backtested on MES with no idea of their own; the session
+drafted three candidates that pass the counterparty filter (monthly option
+expiry dealer hedging, quarterly-expiry arbitrage unwind, FOMC-day drift)
+and the operator chose the first; every decision (fade geometry, three
+contracts, criteria, prediction, prior) was chosen from stated options and
+the entry records that provenance. Frozen at `f9f129c`, calendar addendum
+and power check `f79cd49` (the check caught Juneteenth-on-a-Friday before
+any price was read), implementation `0c4868e`, verdict `f860939`, watched
+live in the viewer. **Result:** the damping the mechanism predicts is there
+— expiry-day range 10.1% below the Friday control at the median, 6 of 7
+years — and the t landed at −1.25 against a −2.0 line, because the log-range
+spread is about 0.54, not the 0.40 the power arithmetic assumed; the fade
+arm (k 0.5, s 1.0, an 11-point target against a 22-point stop) lost $2,380
+on 45 trades with the flatten-sign geometry the log has now seen five
+times, and blew two evaluations at three contracts because the trail, not
+the daily limit, bound. The entry's Next section forbids re-tuning any of
+it. The two candidates not chosen are still available as ideas; neither is
+pre-registered.
 
 **Entry 2 died on its mechanism test, and still does.** At the corrected
 commission it passes two of its three criteria (4 of 7 folds profitable; median
@@ -460,7 +482,7 @@ registry against the log and is how a real drift bug was caught once.
 **The evidence pipeline** is unchanged and is the product: entry with
 mechanism, counterparty and kill criteria → committed → build → walk-forward →
 verdict frozen before anyone sees numbers → hash recorded in a follow-up.
-Eleven of thirteen entries died in it; one is open and one waits on data. `backtests/reprice.py` re-prices any saved stream
+Twelve of fourteen entries died in it; one is open and one waits on data. `backtests/reprice.py` re-prices any saved stream
 between two commissions exactly, recovering each trade's size from the
 commission it carried; `backtests/eval_sim.py` reports the $52,100 payout
 probability alongside the pass probability.
@@ -575,6 +597,26 @@ taken by hand in the repository and by volume in Databento's `.v.0`. Both
 feeds label bars by opening minute. `data/topstep.py --compare` recomputes
 this and the viewer shows it. **Databento stays the only backtest source.**
 
+**3.14, continued — the contradiction and its ruling, same day.** A second
+session (`futures-bot-dc`) working in this same checkout had been directed,
+three times and after the same objections, to make the ProjectX gateway
+replace Databento, and built a client for it. Both sessions stopped, kept
+off each other's records, and put the contradiction to the operator. **The
+operator ruled, relayed by that session: keep both sources, neither
+swapped.** The gateway client (`data/projectx.py`, `data/roll.py`, additive
+changes to `data/loader.py`, `data/validate.py` and `requirements.txt`, its
+tests, and `docs/superpowers/specs/2026-09-15-projectx-bar-source-design.md`)
+lands as a **second read-only source**; `walkforward.py` and `runners.py`
+stay on the Databento cache, and the sentence above this one stands. The
+client was first named `topstepx.py`, one letter from this session's
+`data/topstep.py` (the CSV cross-check), and was renamed to the gateway's
+name to remove that hazard; the other note carries a table telling the two
+apart (CSV clone against live REST API; no credentials against a paid
+subscription; cross-check against second source). One nuance that session
+flagged and this one agrees with: the three-month depth measured here is
+the CSV repository's, and what the live API serves is a separate question
+answerable only with credentials. The two-session hazard itself is §5.
+
 **3.11 The Discord user id in commit `9dc95c2`.** `tests/test_submissions.py`
 once hard-coded the operator's real `DESK_OWNER_ID`; the tip uses a fake id.
 The real one remains in that commit's history, which was pushed. A Discord
@@ -653,6 +695,20 @@ nothing above relaxes that.
 
 Each of these has already cost time at least once. The first five are new this
 session.
+
+### Two sessions can share this checkout, and a broad `git add` sweeps the other's work
+
+On 2026-09-15 two Claude Code sessions worked in this working tree at once,
+on contradictory instructions (§3.14). The failure modes are concrete: a
+full-suite run in one session failed at collection on the other's
+half-written test file; either session's `git add -A` would have committed
+the other's uncommitted files under an unrelated message, including
+`research/hypotheses.md`, whose history is the evidence. What worked: `ListAgents`
+to see the peer, a message naming each side's files, and **adding by
+explicit path only**, never `-A` or `.`, with the log and the handoff staged
+only by the session that edited them. Before committing, `git status` and
+account for every modified file; a file you did not touch belongs to
+someone else.
 
 ### `truststore` recurses forever on Python 3.14 / Windows — and the fix must never become `verify=False`
 
@@ -1151,6 +1207,8 @@ venv\Scripts\python.exe data\extend.py --merge-file <parquet>     # fold a fetch
 venv\Scripts\python.exe bots\liveview.py                          # live backtest view at http://127.0.0.1:8790, read-only
 venv\Scripts\python.exe backtests\run_entry12.py --part A --reproduce --live   # any runner with --live writes the stream the page follows
 venv\Scripts\python.exe data\topstep.py --compare --symbol MES              # TopstepX-vs-Databento agreement report for the viewer's data panel (§3.14)
+venv\Scripts\python.exe research\power_check_opex.py                      # entry 14 calendar-only power check
+venv\Scripts\python.exe backtests\run_entry14.py --reproduce [--live]      # entry 14 reproduction; then --run, about a minute
 ```
 
 Every runner takes `--commission` (default `rules.COMMISSION_PER_SIDE`,

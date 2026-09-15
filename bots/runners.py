@@ -169,6 +169,15 @@ RUNNERS: dict[str, Runner] = {
                                note="entry 12 Part A, entry 11's test on MNQ, one "
                                     "contract, 69.5-point stop (0.366 x control sd), "
                                     "1 tick/side, trailing halt ON; Part B never run"),
+    # Entry 14. Read-only: the fade arm's threshold and stop are derived at
+    # run time from the Friday control's morning-move sd (22.47 points at the
+    # verdict), which `run_entry14.py` computes and `/backtest`'s plain
+    # rebuild does not. The saved files are the verdict's fade arm at the
+    # base case, guarded stream, which the halt ended after 19 trades.
+    "opex_fade": Runner(1, 3, None, "entry14_folds.csv", "entry14_fade_slip1.csv",
+                        note="entry 14, monthly option expiry fade at 10:30, k 0.5 / s 1.0 "
+                             "of the control sd, 3 contracts, 1 tick/side (base case), "
+                             "trailing halt ON"),
 }
 
 
