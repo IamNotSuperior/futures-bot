@@ -2,8 +2,9 @@
 
 Rewritten 2026-09-13 and finalised 2026-09-14, at the end of the session
 that closed entries 11 and 12, verified the CME calendar, added the
-hold-regression check and set up the tooling (§2, *Tooling*). For a session
-starting fresh on this repository.
+hold-regression check and set up the tooling (§2, *Tooling*). Updated later
+on 2026-09-14 for the forward MES file and entry 13. For a session starting
+fresh on this repository.
 
 This file holds only what is **not** already in `CLAUDE.md` (the hard rules and
 the firm/internal limit table), `README.md` (structure, how to run things, the
@@ -29,8 +30,9 @@ own generated test (§5). **Working tree is clean.**
 
 ### The research
 
-**Twelve hypothesis entries. Eleven rejected. Entry 3 is open with zero trades
-logged.** No strategy has ever reached `paper`.
+**Thirteen hypothesis entries. Eleven rejected. Entry 3 is open with zero
+trades logged. Entry 13 is frozen and waits on forward data until about
+September 2028.** No strategy has ever reached `paper`.
 
 | # | Idea | Status |
 |---|---|---|
@@ -46,6 +48,7 @@ logged.** No strategy has ever reached `paper`.
 | 10 | `london_full_day` — entry 6's 1×/ON held to 15:55, MES and MNQ | REJECTED, both instruments (verdict `82006bf`) |
 | 11 | `tom_intraday` — turn-of-month flows, long 09:30–15:55 on T-1..T+3 | REJECTED (verdict `2bf4fc4`) — the near-miss in this log |
 | 12 | `tom_intraday_mnq` — entry 11 replicated on MNQ at one contract | REJECTED at Part A (verdict `1b304bb`); Part B (forward MES) never run |
+| 13 | Turn-of-month forward test on MES, mechanism-only, no registry record yet | **PROPOSED — frozen at `6c65c89`; runs once at 96 forward window sessions (~Sep 2028); no runner written** |
 
 **The breakout family — entries 1, 4, 5, 6, 7, 8, 9 and 10 — is closed on entry
 and on exit.** Eight entries tested breakout continuation across two sessions,
@@ -69,6 +72,7 @@ sessions ≈ 20–25% power against the observed effect; ~330 ≈ 50%). At one
 contract the stop arm's comparable stream was 7 of 7 folds and pass 79.7%,
 with a $2,406 worst drawdown the $1,500 internal halt cannot carry; that
 geometry is the starting point for any account criteria on this mechanism.
+**Entry 13 is that new entry**, frozen 2026-09-14 as mechanism-only (§4a).
 
 **Entry 2 died on its mechanism test, and still does.** At the corrected
 commission it passes two of its three criteria (4 of 7 folds profitable; median
@@ -412,7 +416,7 @@ registry against the log and is how a real drift bug was caught once.
 **The evidence pipeline** is unchanged and is the product: entry with
 mechanism, counterparty and kill criteria → committed → build → walk-forward →
 verdict frozen before anyone sees numbers → hash recorded in a follow-up.
-Eleven of twelve entries died in it. `backtests/reprice.py` re-prices any saved stream
+Eleven of thirteen entries died in it; one is open and one waits on data. `backtests/reprice.py` re-prices any saved stream
 between two commissions exactly, recovering each trade's size from the
 commission it carried; `backtests/eval_sim.py` reports the $52,100 payout
 probability alongside the pass probability.
@@ -526,23 +530,37 @@ sharing a server. **It stays; do not rewrite history for it.**
 
 None is started. The operator set the order on 2026-09-12.
 
-**(a) A forward-data test of the turn-of-month mechanism — a new entry, when
-the data exists.** Started 2026-09-14: the operator approved the first pull
-(2026-09-01 → 2026-09-14, $0.0445) and it sits in
-`data/mes_v_0_ohlcv_1m_forward.parquet`, a rolling file kept apart from the
-cache so the forward sample is a property of the file, not a date filter.
-Entries 11 and 12 leave one marginal result on one sample
-of 314 sessions. The only data that can resolve it is days nobody has looked
-at: MES sessions after 2026-08-31, appended monthly with `data/extend.py
---pull` (estimate shown and capped before any spend; a start inside the cache
-or a gap after the last bar is refused). At three forward window sessions the
-file decides nothing yet; the entry, not the data, is the next move. The entry must state its independent sample is days,
-fix the t line and the trigger before any run, state the power honestly (96
-forward window sessions is about two years and 20–25% power against the
-observed +0.12 sd; about 330 is 50%), size from the control population's
-standard deviation, never test T+2 alone, and design its account criteria
-against the $1,500 halt (§3.12). Entry 12's Part B terms are moot and are
-not to be reused as if they were fresh.
+**(a) Entry 13 — the forward-data test of the turn-of-month mechanism — is
+frozen and waiting on data.** Pre-registered 2026-09-14: skeleton at
+`5da0bc5`, operator decisions at `6c65c89`, the diff between them being the
+pre-registration. Its terms, in the entry and repeated here so a fresh
+session does not reopen them: the sample is forward MES days only, from
+`data/mes_v_0_ohlcv_1m_forward.parquet` (the calendar is built over cache
+plus forward so the September 2026 boundary is labelled; only forward
+sessions are scored; 2026-08-31 is excluded as fitted data); **the entry
+runs once, at 96 eligible forward window sessions, about September 2028,
+never earlier**; mechanism and counterparty as entry 11; one contract with
+entry 12's derived stop from the forward control population; **mechanism-
+only** — criteria 1 and 2 (excess above one round turn and Welch t ≥ 2.0;
+window over control in a majority of forward years with ≥ 20 sessions)
+decide, 3–5 are reported, and ACCEPTED licenses no strategy and no `paper`;
+power 17.5% against entry 11's +0.121 sd, recorded beside the trigger;
+prediction positive, 0 to +0.12 sd, criterion 1 failing on power; prior
+about one in five.
+
+**The no-peek rule is part of the entry.** Between now and the trigger the
+only action is the monthly `data/extend.py --pull` (estimate shown and
+capped before each spend, about $0.11 a month; a start inside the cache or a
+gap after the last bar is refused). It prints bar counts, the span and
+session counts and no price. **No one computes, plots or describes a return
+on any forward window session before the trigger** — not the operator, not a
+session, not `/read` on a forward date. The trigger count comes from
+`research/power_check_tom.py --parquet` on the joined calendar, which reads
+timestamps only. The runner (`backtests/run_entry13.py`, to assert the
+forward file's first scored session is after 2026-08-31 and to refuse below
+96) is not written; nothing needs it before 2028 and it is written only on
+request. The first pull (2026-09-01 → 2026-09-14, $0.0445) holds three
+window sessions.
 
 **(b) Entry 3's 60-trade manual gate, via `/read`.** Sixty rule-clean paper
 trades logged through `/read`'s buttons or `journal/pretrade.py`, positive
@@ -1012,7 +1030,10 @@ size, with N times the fees.** The only thing it diversifies is the
    yearly folds, positive total after commission and slippage, at 2 ticks.
    `/submit` takes one from Discord to a verdict in about twenty minutes.
    Nine have tried; none has passed. The commission is settled (§3.2); the
-   cost term still resting on an assumption is slippage (§3.10).
+   cost term still resting on an assumption is slippage (§3.10). **Entry 13
+   does not count here even if ACCEPTED**: it is mechanism-only by its own
+   terms, and a tradeable form on that mechanism is a separate entry sized
+   against the $1,500 halt.
 
 ---
 
