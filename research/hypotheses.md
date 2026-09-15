@@ -6757,10 +6757,122 @@ Unchanged from every prior entry: N accounts running one strategy is one bet
 at N times the size with N times the fees, and a single trailing-drawdown
 breach ends all of them on the same day.
 
-### Verdict
+### Verdict: REJECTED
 
-Not yet run. To be written by the runner before anyone reads a number,
-with the commit hash recorded in a follow-up commit.
+**Rejected on the pre-registered criteria.** The sweep-and-reverse reading of the prior session's high and low, tested against a placebo level and against zero on MES over 2020–2026, and a fixed 1:1 fade rule, did not clear the lines set before the run.
+
+**Date:** 2026-09-15
+**Code:** `strategies/sweep.py`, `backtests/run_entry16.py`, `research/power_check_sweep.py`
+**Reports:** `backtests/results/entry16_report.txt`; `entry16_events.csv` (every real, placebo and continuation event with its bars, depth and reversion); `entry16_fade_slip<1|2>.csv` (standard) and `_nohalt.csv` (comparable); `entry16_folds.csv` (fade arm, 1 tick, standard)
+
+Levels: the previous RTH session's high and low; placebo 0.25 of the prior range inside. Event: cross then close back inside by 14:59, first of either side, one per session; reversion measured over 30 bars from the decision open. Fade arm: stop **4 ticks beyond the sweep extreme**, target the same distance the other way, **1 contract**, flat at 15:55, $0.50 a side, **1 tick a side as the base case** (0.70 points a round turn), 2020-01-01 .. 2026-08-31, nothing selected. Guards: `engine.apply_internal_guards` at 1 contract; halt OFF alongside.
+
+#### Kill criteria — any one failure kills the entry
+
+| # | Criterion | Result | Line | |
+|---|---|---|---|---|
+| 1 | Real-level reversion above placebo-level reversion, Welch t | t = -0.50 | t >= 2.0 | **FAIL** |
+| 2 | Real-level reversion above zero: one-sample t, and years positive | t = +0.14, 3 of 7 years | t >= 2.0 and >= 4 of 7 | **FAIL** |
+| 3 | Fade arm, standard stream, 1 tick: eval_sim pass probability | 0.00% (449 trading days) | >= 25% | **FAIL** |
+| 4 | Fade arm, comparable stream, 1 tick: evaluations blown | 1 | <= 1 | **PASS** |
+| 5 | Rule 13 on the fade arm, standard stream: >= 4 of 7 folds profitable and P&L > 0 at 1 and 2 ticks | 1 tick 2 of 7, $-938; 2 ticks 1 of 7, $-1,290 | >= 4 of 7 and > 0, both | **FAIL** |
+
+**REJECTED.** Failed on: Real-level reversion above placebo-level reversion, Welch t; Real-level reversion above zero: one-sample t, and years positive; Fade arm, standard stream, 1 tick: eval_sim pass probability; Rule 13 on the fade arm, standard stream: >= 4 of 7 folds profitable and P&L > 0 at 1 and 2 ticks.
+
+Rule 6/7 regression check: intact - no trade under the 30s floor, 0 held <= 5s.
+
+#### The mechanism tests: 30-bar reversion after a rejection, in MES points
+
+**Real against placebo:** real n = 715, mean +0.07, sd 13.47, median +0.00; placebo n = 465, mean +0.47, sd 13.73, median -0.50. **Difference -0.41 points, Welch t = -0.50**, one-sided p (real larger) = 0.691.
+
+**Real against zero:** n = 715, mean +0.07 points, sd 13.47, **t = +0.14**, one-sided p = 0.446. Positive in **3 of 7** years.
+
+**To 15:55, reported:** real mean -0.81, placebo mean +0.20, difference -1.01, t = -0.46.
+
+| Year | Real n | Real mean | Real t | Placebo n | Placebo mean | Real positive |
+|---|---|---|---|---|---|---|
+| 2020 | 87 | +3.42 | +3.13 | 53 | +0.02 | yes |
+| 2021 | 105 | -1.18 | -1.62 | 75 | -1.13 | no |
+| 2022 | 115 | +2.42 | +1.69 | 80 | +1.65 | yes |
+| 2023 | 102 | -1.46 | -1.67 | 67 | -0.93 | no |
+| 2024 | 112 | +0.60 | +0.61 | 75 | +0.02 | yes |
+| 2025 | 114 | -2.10 | -1.25 | 62 | +4.08 | no |
+| 2026 | 80 | -1.04 | -0.49 | 53 | -0.40 | no |
+
+**By side, reported and not selected on:**
+
+| Side | Real n | Real mean | Real t | vs placebo diff | vs placebo t |
+|---|---|---|---|---|---|
+| high | 393 | -0.35 | -0.53 | -0.54 | -0.51 |
+| low | 322 | +0.58 | +0.76 | -0.28 | -0.22 |
+
+**By sweep depth tercile, reported and not selected on:**
+
+| Tercile | Depth range (pts) | n | Mean reversion | t |
+|---|---|---|---|---|
+| shallow | 0.25 – 1.50 | 261 | -0.43 | -0.60 |
+| middle | 1.75 – 4.00 | 220 | -0.13 | -0.15 |
+| deep | 4.25 – 84.00 | 234 | +0.81 | +0.77 |
+
+**Continuations** (crossed the real level, never closed back inside by 14:59): 69 (47 high, 22 low); their 09:30-to-15:55 move, signed so that a return inside reads positive, averaged -42.74 points. Sessions with both a real and a placebo event: 311.
+
+#### Fade arm — 1 tick (base case)
+
+| 2020–2026, 1 contract, 1 tick, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 449 | 715 |
+| Trading days | 449 | 715 |
+| Net P&L | $-937.75 | $-2,077.50 |
+| Mean per trade | $-2.09 | $-2.91 |
+| Folds profitable | 2 of 7 | 2 of 7 |
+| Sharpe | -0.75 | -0.93 |
+| Profit factor | 0.886 | 0.854 |
+| Max drawdown | $-1,515.00 | $-2,855.25 |
+| Max daily loss (worst day) | $-133.50 | $-482.25 |
+| Worst day as % of total profit | n/a | n/a |
+| Best day as % of total profit (rule 8) | n/a | n/a |
+| Pass probability | 0.00% | 0.00% |
+| Payout probability ($52,100) | 0.03% | 0.02% |
+| Evaluations blown (read on the comparable basis) | 1 | 1 |
+| Sessions blocked by the trailing halt | 266 | — |
+| Daily-loss flattens | 0 | 0 |
+| Avg trade duration | 23.7 min | 21.7 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 16 trades, mean $-11.94, total $-191.00; stop: 218 trades, mean $-35.67, total $-7,775.50; target: 215 trades, mean $32.69, total $7,028.75. Daily-loss halts: 0.
+Per fold, standard: 2020 $369.25; 2021 $-517.50; 2022 $237.50; 2023 $-740.75; 2024 $-286.25; 2025 $0.00; 2026 $0.00.
+
+#### Fade arm — 2 ticks (sensitivity)
+
+| 2020–2026, 1 contract, 2 ticks, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 335 | 715 |
+| Trading days | 335 | 715 |
+| Net P&L | $-1,290.00 | $-3,865.00 |
+| Mean per trade | $-3.85 | $-5.41 |
+| Folds profitable | 1 of 7 | 1 of 7 |
+| Sharpe | -1.28 | -1.73 |
+| Profit factor | 0.810 | 0.745 |
+| Max drawdown | $-1,586.25 | $-4,294.25 |
+| Max daily loss (worst day) | $-136.00 | $-484.75 |
+| Worst day as % of total profit | n/a | n/a |
+| Best day as % of total profit (rule 8) | n/a | n/a |
+| Pass probability | 0.00% | 0.00% |
+| Payout probability ($52,100) | 0.00% | 0.00% |
+| Evaluations blown (read on the comparable basis) | 2 | 2 |
+| Sessions blocked by the trailing halt | 380 | — |
+| Daily-loss flattens | 0 | 0 |
+| Avg trade duration | 24.7 min | 21.7 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 11 trades, mean $-18.27, total $-201.00; stop: 160 trades, mean $-40.24, total $-6,438.75; target: 164 trades, mean $32.62, total $5,349.75. Daily-loss halts: 0.
+Per fold, standard: 2020 $151.75; 2021 $-780.00; 2022 $-50.00; 2023 $-611.75; 2024 $0.00; 2025 $0.00; 2026 $0.00.
+
+#### Diagnostics
+
+Real events in the scored span: 715; entered 715; skipped by the rules: 0. Stop distance in points: median 5.50, max 95.75; trades whose stop would have breached the daily limit: 2. Entry-bar stop breaches: 37.
+
+In-sample results are never evidence, and this is the out-of-sample answer on seven yearly folds with nothing selected.
 
 ---
 
