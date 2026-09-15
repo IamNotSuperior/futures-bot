@@ -5561,6 +5561,252 @@ power, and licenses no strategy and no `paper` status.
 
 ---
 
+## 14. Monthly option expiry — dealer gamma hedging, intraday on MES — PROPOSED
+
+**Operator decisions, 2026-09-15, before this entry was frozen:** this
+candidate chosen over two others the session drafted (a quarterly-expiry
+arbitrage unwind and an FOMC-day drift, both recorded in the handoff); fade
+rule **k = 0.5, s = 1.0** in control-sd units; **three contracts**; the five
+kill criteria confirmed as drafted; the prediction and prior recorded below.
+**Provenance, as for entry 13:** the session drafted the mechanics and put
+each decision to the operator as a clickable question with the arithmetic
+beside it; the operator chose from stated options rather than typing prose,
+and the entry says so. The operator's stated aim was "backtest strategies
+on the MES chart"; the counterparty and mechanism are the session's
+draft, adopted by the operator's choice, and the entry is judged on the
+same pre-registered terms as any other.
+
+**Date:** 2026-09-15
+**Spec frozen at:** the commit adding this entry with the decisions above
+**Verdict commit:** not yet
+**Code:** not yet written. Expected: `strategies/opex.py` (calendar,
+populations, strategy), `research/power_check_opex.py` (calendar only),
+`backtests/run_entry14.py`.
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES, 1-minute bars, 09:30 to 15:55 ET, 2020-01-01 to
+2026-08-31 (the cache; `walkforward.build_folds()` gives the span).
+
+### Mechanism claimed
+
+Listed equity index options — SPX, SPXW, SPY and the ES options that
+settle to the same index — carry their largest open interest into the
+**monthly expiration on the third Friday**. Option dealers are the natural
+sellers of that inventory and hedge it delta-neutral under risk mandates:
+when they are net **long gamma**, keeping the hedge flat means selling
+futures as the index rises and buying as it falls, which damps intraday
+movement and draws the index toward strikes with heavy open interest
+("pinning"; Ni, Pearson & Poteshman 2005, *Stock price clustering on option
+expiration dates*; Avellaneda & Lipkin 2003). On expiration day the hedging
+flow is at its most concentrated, because gamma is highest for the contracts
+about to expire, and it is executed in the index futures this project trades.
+
+**Who is on the other side:** the dealer rebalancing a delta hedge. The
+dealer's trade is dictated by the option book's gamma and the index level,
+not by any view on price; the risk mandate does not let the hedge wait for a
+better level. The claimed edge is to stand where the dealer's hedge pushes
+against the tape: fading an intraday move on expiry day, back toward where
+the day opened, because the hedge flow leans against that move. The
+constraint is a risk mandate rather than a calendar obligation, which puts
+it in the same class as entries 2 and 11 (a counterparty that must trade)
+and a different class from the breakout family (no counterparty named).
+
+**Stated honestly, before any data.** Dealer gamma is not observed here and
+its sign varies: when dealers are net *short* gamma the same hedging
+amplifies moves instead of damping them, and the literature finds both
+regimes. This entry does not test dealer positioning; it tests whether the
+**average** expiry-day session on MES over 2020–2026 shows the damping the
+long-gamma regime predicts, and whether a fixed fade rule captures any of it
+after costs. A null says either the effect is not there on this slice or the
+regimes cancel; it does not say dealers do not hedge.
+
+### Signal definition
+
+Fixed before the freeze and not changed after a number is seen.
+
+**Expiry days.** The third Friday of each calendar month. When the exchange
+is closed on that Friday (Good Friday), expiration moves to the **preceding
+Thursday**; the calendar takes the last trading session on or before the
+third Friday. Sessions are the cache's sessions with a 09:30 bar;
+`data/cme_calendar.py` and `loader.detect_early_close_dates` supply the
+closures. Quarterly expiries (March, June, September, December) are also the
+futures' own expiry and are **kept, labelled, and reported separately**;
+they are never selected on.
+
+**Eligibility, for expiry and control alike.** A 09:30 bar and a 15:55 bar,
+not a roll day (`loader.detect_roll_dates`), not an early close. Skipped
+expiry days are counted and reported.
+
+**Two controls.** Primary: **every other eligible Friday** — expiry days are
+Fridays, and a Friday effect must not be read as an expiry effect. Secondary,
+reported only: every other eligible session.
+
+**The mechanism population.** For every eligible session: the **session
+range**, the highest high minus the lowest low over the bars labelled 09:30
+through 15:54, in points; and the absolute open-to-15:55 return. The
+statistic is the **log of the range**, so the comparison is proportional
+and the t-test is on something close to symmetric.
+
+**The fade arm (the tradeable form), one rule, no grid.** Let `sd_move` be
+the standard deviation, over the **primary control population**, of the
+09:30-open-to-10:30-open move in points (computed at run time and reported,
+as entry 12's stop was; the control never sees an expiry-day outcome).
+
+- At the open of the bar labelled **10:30 ET** on an expiry day, let `m` be
+  the 10:30 open minus the 09:30 open.
+- If `m ≥ +k × sd_move`: **short**; if `m ≤ −k × sd_move`: **long**;
+  otherwise no trade that day. **k = 0.5.**
+- **Target:** the 09:30 open (the day's open, where the hedge flow pulls).
+- **Stop:** `s × sd_move` beyond the entry fill, checked bar by bar from the
+  bar after entry, stop-first. **s = 1.0.**
+- **Flat at 15:55** (`flatten_1555`) if neither is reached.
+- One trade per expiry day at most. **Size: three contracts, fixed.** Below
+  the 5-contract cap; rule 4's cap is the engine's and nothing here restates
+  it.
+
+**Costs.** `rules.COMMISSION_PER_SIDE`; 1 tick a side as the base case (all
+fills in RTH), 2 ticks as the sensitivity where rule 13 is decided.
+
+**Guards.** `engine.apply_internal_guards` at the chosen size, standard basis
+with the halt-OFF stream alongside; evaluations blown read on the comparable
+stream, as entries 5, 10, 11 and 12.
+
+**Scored span** from `walkforward.build_folds()`, imported, not restated.
+Signals generated over the whole file and sliced.
+
+### Rules compatibility
+
+Entry at 10:30 is before the 16:20 cutoff; the 15:55 exit is before the
+16:30 flatten; early closes never traded; the trade sits inside one calendar
+date; the shortest possible hold is one minute (target on the 10:31 bar),
+far above rule 6's 30-second floor, so rule 7 must read 0.00% and
+`hold_regression` rejects the stream if it does not. Three contracts are
+inside the cap. **Whether the stop sits inside the daily loss limit depends
+on `sd_move`, which is derived at run time:** the worst case of one trade is
+three contracts × (`sd_move` × $5 + costs), which stays under the $400
+internal limit only while `sd_move` is below about 26 points. The entry
+does **not** adjust size or stop to fit: if the derived `sd_move` puts the
+stop outside the limit, the daily loss limit binds first, the run records
+that in the diagnostics and the `loss_limit_flatten` count, and the account
+criteria are read with it in view. The pre-trade check would block such a
+ticket live; the backtest reports what the guard did.
+
+### Power check — to run before any strategy code
+
+**Sample-size floor, fixed now:** at least **8 eligible expiry days in every
+fold year 2020–2025 and at least 5 in 2026** (eight months), else the entry
+stops here and records why. The check reads the calendar and the bar index
+only. It also reports quarterly against non-quarterly counts and what each
+exclusion removed.
+
+**Power arithmetic, stated so the bar is understood.** About 84 expiry
+sessions less exclusions against roughly 330 other Fridays. The standard
+deviation of the log daily range on an index future is on the order of
+0.35–0.45. At 0.40 the standard error of the difference of means is about
+0.048, so a one-sided t of 2.0 needs the expiry-day range to be about
+**10% smaller** than the Friday control's on average. Published pinning and
+gamma-damping effects on the index are in the single digits of percent, so
+**this test has low power against a plausible effect and says so**: a null
+here is weak evidence of absence. The fade arm's 84 trades at most give rule
+13 seven folds of about 12 trades each — a small sample by design, and the
+entry does not pretend otherwise.
+
+### Pre-registered tests
+
+Pooled 2020–2026 at the base case:
+
+1. **Reproduction, first, gating:** the strategy's diagnostics must list
+   exactly the eligible expiry sessions the calendar produces, and the fade
+   arm's entries must occur only on those sessions at the 10:30 bar with `m`
+   beyond the threshold. Anything else stops the entry.
+2. **Range test, primary control:** n, median and mean log-range for expiry
+   days and other Fridays; the difference in means; Welch t and its
+   one-sided p (expiry smaller); the median ratio in percent.
+3. **The same against the secondary control**, reported.
+4. **Per year**, whether the expiry-day median range is below the Friday
+   control's.
+5. **Quarterly versus non-quarterly expiry days**, the same figures.
+   **Reported, never selected on.**
+6. **|open-to-15:55 return|**, expiry versus Friday control, as a second
+   view of damping. Reported.
+7. **Fade arm, both guard bases, at the chosen size, 1 tick:** trades, net
+   P&L, mean per trade, folds profitable, Sharpe, profit factor, max
+   drawdown, exit reasons (target / stop / flatten), `eval_sim` pass and
+   payout probability with the day count beside them, evaluations blown on
+   the comparable stream, sessions blocked by the halt, daily-loss flattens,
+   every rule 11 figure, the `hold_regression` line, and `sd_move` with the
+   threshold and stop in points it produced.
+8. **Everything in 7 at 2 ticks.**
+9. **Diagnostics:** expiry days skipped by reason and year; days with no
+   trade because `|m|` was inside the threshold; Good-Friday shifts applied.
+
+### Kill criteria — decided now
+
+Confirmed by the operator on 2026-09-15 as drafted. Any one failure kills
+the entry. 1 and 2 are the mechanism test; 3 and 4 the account test; 5
+rule 13.
+
+1. **Range damping, primary control:** expiry-day mean log-range below the
+   Friday control's with **Welch t ≤ −2.0** (one-sided), **and** the median
+   expiry-day range at least **5% smaller** than the Friday control median.
+2. **Expiry-day median range below the Friday control's in at least 4 of 7
+   years.**
+3. Fade arm, standard (guarded) stream, 1 tick: `eval_sim` pass probability
+   **≥ 25%**, day count reported beside it.
+4. Fade arm, comparable (halt-OFF) stream, 1 tick: **evaluations blown ≤ 1.**
+5. Rule 13 on the fade arm, standard stream: **profitable in at least 4 of 7
+   folds and P&L > 0 at 1 tick and at 2 ticks.**
+
+No appeal, no second k or s, no second entry time, no quarterly-only
+subset, no other control, no different target. If the quarterly table shows
+the effect lives on four days a year, that is a finding for *What was
+learned* and a different entry with a different mechanism (the futures
+settlement itself), not a re-run of this one.
+
+### Prediction on record
+
+Nothing below has been computed. No range and no expiry-day return has
+been inspected. Chosen by the operator on 2026-09-15 from three stated
+alternatives (damping over 10% with the fade arm positive; no damping with
+the regimes cancelling).
+
+1. **Expiry-day range against the Friday control: smaller, by 0 to 10%,
+   and criterion 1 fails on power** — the damping is real on average but
+   under the roughly 10% the t line needs at this sample.
+2. **Per year (criterion 2): 4 or 5 of 7.**
+3. **The fade arm is near break-even before costs and negative after at 2
+   ticks; criteria 3 and 5 fail; criterion 4 passes** — at three contracts
+   the comparable stream's drawdown is expected to stay inside the firm's
+   $2,000 line on about 84 trades, while the internal halt may still fire
+   once.
+4. **Quarterly days** are predicted to show a *larger* range than the other
+   expiry days, because the futures settlement adds flow the hedge does not
+   damp. Reported, not acted on.
+
+**Prior for survival: low, about one in six.** The counterparty is real and
+the hedging flow is documented; the doubt is whether its average sign over
+seven years is long-gamma and whether a fixed fade rule catches it after
+costs at this sample size.
+
+### Data and cost
+
+The MES cache, on disk and validated in entries 1 to 12. **No purchase.**
+The run is a single pass over about 1,650 sessions plus `eval_sim`;
+minutes.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged from every prior entry: N accounts running one strategy is one bet
+at N times the size with N times the fees, and a single trailing-drawdown
+breach ends all of them on the same day.
+
+### Verdict
+
+Not yet run. To be written by the runner before anyone reads a number,
+with the commit hash recorded in a follow-up commit.
+
+---
+
 ## Template for new entries
 
 ```
