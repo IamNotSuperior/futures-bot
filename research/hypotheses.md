@@ -5262,6 +5262,268 @@ intraday under these rules. That sentence is the whole state of the question.
 
 ---
 
+## 13. Turn-of-month intraday — forward test on MES — PROPOSED
+
+**DRAFT SKELETON, written 2026-09-14. Not frozen. Not a pre-registration
+yet.** Every section marked **[OPERATOR]** is blank by design and is written
+in the operator's own words (rule 12); the mechanics below were drafted by the
+session from entries 11 and 12 and the handoff, and are the draft the chat
+protocol in `docs/HANDOFF.md` §2 describes. The entry is pre-registered only
+when the operator sections are filled, the decisions marked **[DECIDE]** are
+made, and the file is committed as the freeze. Nothing in it may be changed
+after that commit except by dated addendum.
+
+**Date:** 2026-09-14 (draft); freeze date to be written when frozen
+**Spec frozen at:** not yet
+**Verdict commit:** not yet
+**Code:** not yet written. Expected: `strategies/tom.py` unchanged,
+`backtests/run_entry13.py`, `research/power_check_tom.py --parquet`
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES, 1-minute bars, 09:30 to 15:55 ET, **sessions after
+2026-08-31 only**, from `data/mes_v_0_ohlcv_1m_forward.parquet`.
+**Predecessors:** entry 11 (REJECTED, `2bf4fc4`) and entry 12 (REJECTED at
+Part A, `1b304bb`). Entry 12's Part B is moot and its terms are not reused;
+this is the new entry both entries' *Next* sections call for.
+
+### What this entry is, and what the two before it established
+
+Entries 11 and 12 are one marginal result measured twice. On 314 window
+sessions over 2020–2026 the intraday open-to-15:55 turn-of-month excess is
+about +0.12 control standard deviations a day (+4.95 MES points, Welch t
+1.94 against a line of 2.0, one-sided p 0.026), concentrated post hoc on T+2,
+with a 2026 partial year carrying much of it. MNQ on the same days reproduced
+the shape and added no evidence: the two contracts' same-day returns
+correlate 0.927 and MNQ's window effect conditioned on MES is zero. **For a
+calendar effect the independent sample is days, not instruments.** The only
+data that can move the question is sessions nobody has looked at, and those
+arrive at four window days a month.
+
+This entry asks entry 11's question on those days, with the line fixed before
+any of them is inspected, and nothing else. It is not a re-test of the 2020–
+2026 sample, not a T+2 entry, not a re-sizing, and not a second instrument.
+
+**The sample is physically separate.** The forward file holds only bars after
+the cache's last bar (`data/extend.py` refuses a start inside the cache), and
+the runner must assert that the forward file's first session is after
+2026-08-31 before it computes anything. The fitted sample cannot leak in by a
+date filter being wrong, because it is not in the file.
+
+### Mechanism claimed
+
+**[OPERATOR]** Entry 11 states the mechanism (institutional month-boundary
+cash flows; Etula, Rinne, Suominen & Vaittinen 2020) and the counterparty
+(the institution meeting a dated obligation, constrained by the calendar and
+not the price, paying the liquidity provider in impact). Rule 12 wants it in
+the operator's words here, or an explicit "as entry 11, unchanged" written by
+the operator. Either way the honest caveat carries over: most of the published
+effect is close to close and multi-day, and the intraday slice may hold none
+of it.
+
+**Who is on the other side:** **[OPERATOR]**
+
+### Signal definition — drafted from entry 11, line for line, with the forward-data differences marked
+
+Unchanged from entry 11 and entry 12 Part A: the cash trading calendar
+(`tom.trading_days`: sessions with a 09:30 bar less the cash-closed holiday
+sessions, half-days kept in the count and skipped as trade days); the window
+(T-1, T+1, T+2, T+3 at every observed month boundary); long at the 09:30 open,
+flat at the 15:55 open (`flatten_1555`), one trade per session; roll days and
+early closes skipped; the control as the open-to-15:55 return of every
+eligible non-window session in the same span; `rules.COMMISSION_PER_SIDE`, 1
+tick a side as the base case, 2 ticks as the sensitivity; the reproduction
+check; the per-day table reported and never selected on; every rule 11 figure.
+
+**Different, because the data is forward:**
+
+- **The calendar is built over the cache and the forward file concatenated;
+  returns are computed on forward sessions only.** `tom.label_window_days`
+  labels a boundary only when both sides of it are in the data. The forward
+  file's first RTH session is 2026-09-01, so on its own the August/September
+  2026 boundary would go unlabelled and T+1..T+3 of September 2026 would be
+  lost. Building the calendar on the joined series labels them; 2026-08-31,
+  the T-1 of that boundary, is in the fitted sample and is **excluded**. The
+  scored span is 2026-09-01 through the trigger date, the forward file's
+  contents and nothing before.
+- **"Per year"** means each forward calendar year with at least
+  **[DECIDE: 20, the power floor entries 11 and 12 used]** eligible window
+  sessions; a year below that is reported and does not count toward criterion
+  2. 2026 has at most 16 (September to December), so it is reported only.
+- **Size: [DECIDE: one contract.]** Entry 11 fixed four contracts and blew ten
+  evaluations on a stream that netted +$14,369; entry 12 fixed one. One is the
+  minimum and the handoff's §3.12 says any account criterion is designed
+  against the $1,500 internal halt first. See *The account question* below
+  before deciding.
+- **Stop: [DECIDE.]** Either entry 12's rule, `stop_points =
+  round_to_tick(0.366 × sd_control)` with `sd_control` the forward control
+  population's standard deviation computed at run time; or entry 11's fixed
+  15 points. Entry 12's rule prices the forward period's own volatility;
+  entry 11's is one fewer thing derived from the data under test. Neither may
+  be chosen after a forward return is seen.
+- **Guards:** `engine.apply_internal_guards` at the chosen size, standard basis
+  with the halt-OFF stream alongside, evaluations blown read on the comparable
+  stream, exactly as entries 5, 10, 11 and 12.
+
+### The trigger, and the no-peek rule
+
+**The entry runs once, when the forward file holds at least [DECIDE: N]
+eligible window sessions, and not before.** The count is by
+`research/power_check_tom.py --parquet` on the joined calendar, which reads
+bar timestamps and never a price. `backtests/run_entry13.py --run` refuses
+below the trigger, as `run_entry12.py --part B` did at 96.
+
+**Power, computed 2026-09-14 before any forward return exists**, one-sided at
+t = 2.0, control sessions at entry 11's ratio of 4.24 per window session,
+against entry 11's observed +0.121 control standard deviations (the handoff's
+"20–25% at 96" is the same arithmetic rounded up):
+
+| Window sessions | Months of data | t = 2.0 needs (sd) | needs (MES pts at sd 41) | Power vs +0.121 sd | Power vs +0.16 sd |
+|---|---|---|---|---|---|
+| 96 | 24 | 0.227 | 9.3 | 17.5% | 27.8% |
+| 144 | 37 | 0.185 | 7.6 | 24.4% | 39.3% |
+| 192 | 49 | 0.160 | 6.6 | 31.1% | 49.8% |
+| 240 | 61 | 0.144 | 5.9 | 37.7% | 59.1% |
+| 330 | 84 | 0.122 | 5.0 | 49.1% | 73.1% |
+
+**Read plainly: at any trigger under seven years this test is more likely to
+fail than pass even if the effect is exactly as large as entry 11 measured.**
+That is the cost of a t line at 2.0 on a 0.12-sd effect, and it is the
+operator's choice which of a short wait with low power or a long wait with a
+coin flip to pre-register. A lower line is not on offer: the log's standard is
+2.0 and an entry cannot lower it for itself. **[DECIDE: N, with the row above
+copied beside it so the verdict is read with its power in view.]**
+
+**No peeking, stated as a rule of the entry.** Between the freeze and the
+trigger the forward file is extended monthly by `data/extend.py --pull`,
+which prints bar counts, the span and session counts and no price. No return
+on any forward window session is computed, plotted, or described by anyone —
+operator, session, or bot — before the trigger; `/read` on a forward date
+during that period is a violation of this entry. A pull is not a look, and
+must not become one.
+
+### Rules compatibility
+
+As entries 11 and 12: entry at 09:30 before the 16:20 cutoff, exit at 15:55
+before the 16:30 flatten, early closes never traded, the trade inside one
+calendar date, a six-and-a-half-hour hold so rules 6 and 7 are untouched and
+rule 7 must read 0.00%, with `hold_regression` rejecting the stream if it does
+not. Any size at or below five is inside the cap; at one contract a stop near
+0.37 daily standard deviations cannot reach the $400 daily loss limit, so
+`loss_limit_flatten` is expected never to fire on the stop arm and its count
+is reported.
+
+### The account question — read before deciding the criteria
+
+The comparable-stream worst drawdown of the stop arm, at the minimum size, is
+already known on the fitted sample and forward data does not change what
+sizes exist: entry 11's at four contracts was $7,161, which is about $1,790
+at one (P&L is linear in contracts on the comparable stream); entry 12's at
+one MNQ contract was $2,406. **Both exceed the $1,500 internal halt.** A
+guarded-stream account criterion at one contract on this rule has therefore
+failed on 2020–2026 already, and the forward period cannot be expected to be
+gentler than a span containing 2020 and 2022. Entry 12 said this in its
+lessons; this entry has to say what it does about it. **[DECIDE, one of:]**
+
+- **(i) Mechanism-only entry.** Criteria 1 and 2 below decide the verdict.
+  ACCEPTED means the intraday slice of the effect is real on days no one had
+  seen, and **does not license `paper`**: a tradeable form needs its own entry,
+  sized and stopped against the $1,500 line before it is written, and passes
+  rule 13 on its own stream. The account figures are still computed and
+  reported (tests 5 and 6) so that entry has numbers to start from.
+- **(ii) Full entry, as entries 11 and 12.** Criteria 1–5 all decide, with the
+  prediction on record that 3 and 5 fail on the halt at one contract as they
+  did before. ACCEPTED then means a strategy, and the bar is one the fitted
+  sample already failed.
+
+The session's reading, offered and not decided: (i) is the honest shape of
+the question the forward data can answer, and (ii) pre-registers a failure
+the log already holds.
+
+### Pre-registered tests
+
+At the trigger, pooled over the forward span at the base case:
+
+1. **Reproduction, first, gating:** the signal arm's unguarded one-contract
+   zero-cost stream reproduces the eligible forward window sessions and their
+   open-to-15:55 returns session for session; the stop arm's entries are
+   identical to the signal arm's; the runner's assertion that no scored
+   session is on or before 2026-08-31 holds.
+2. **Window versus control, pre-cost, forward span:** n, mean, standard
+   deviation, median, difference, Welch t, one-sided p.
+3. **Per forward year**, and whether the window mean exceeds the control
+   mean, with each year's session count beside it.
+4. **Per window day**, T-1, T+1, T+2, T+3: n, mean, difference, t. **Reported,
+   never selected on.** Whether T+2 carries it again is a finding for *What
+   was learned* and decides nothing.
+5. **Both arms, both guard bases, at the chosen size, 1 tick:** trades, net
+   P&L, mean per trade, folds (forward years) profitable, Sharpe, profit
+   factor, max drawdown, exit reasons, `eval_sim` pass and payout probability
+   with the day count beside them, evaluations blown on the comparable
+   stream, sessions blocked by the halt, daily-loss flattens, every rule 11
+   figure, and the `hold_regression` line.
+6. **Everything in 5 at 2 ticks.**
+7. **Diagnostics:** the stop in points and the control standard deviation it
+   came from (if entry 12's rule is chosen); skipped window days by year;
+   entry-bar stop breaches; the forward file's first and last session.
+
+### Kill criteria — [OPERATOR, drafted lines below]
+
+Draft, in the log's standard form; the operator confirms, tightens or
+replaces them in their own words before the freeze. Under option (i) only 1
+and 2 decide; under (ii) any one failure of 1–5 kills the entry.
+
+1. Pooled forward window excess over control, pre-cost, **greater than one
+   round turn per contract at the base case** (0.70 MES points, computed from
+   the cost model) **and Welch t ≥ 2.0.**
+2. Window mean beats control mean in **a majority of the counting forward
+   years** (those at or above the per-year floor).
+3. Stop arm, standard (guarded) stream, 1 tick: `eval_sim` pass probability
+   **≥ 25%**, day count reported beside it.
+4. Stop arm, comparable (halt-OFF) stream, 1 tick: **evaluations blown ≤ 1.**
+5. Rule 13 on the stop arm, standard stream: **profitable in a majority of
+   forward years and P&L > 0 at 1 tick and at 2 ticks.**
+
+No appeal, no second trigger, no second size, no second stop rule, no
+T+2-only window, no second instrument, no extension of the span after the
+trigger to "add a few more months", no re-run at a later trigger if this one
+fails. A failed forward test is a rejected entry; the next look at this
+mechanism would need days after *its* trigger date and a new entry.
+
+### Prediction on record — [OPERATOR]
+
+Nothing is to be computed on any forward window session before this is
+written. The operator states, in their own words: the predicted sign and
+size of the forward excess in control standard deviations; the probability
+of passing criterion 1 given the power row chosen; whether the per-day table
+is expected to reproduce the T+2 concentration; and, under option (ii), how
+the account criteria are expected to land. **Prior for survival:** **[OPERATOR]**
+
+### Data and cost
+
+`data/mes_v_0_ohlcv_1m_forward.parquet`, started 2026-09-14 with 2026-09-01
+→ 2026-09-14 (12,180 bars, $0.0445), holding the September 2026 window's
+T+1..T+3 and no other window session. Extended monthly by `data/extend.py
+--pull`, estimate shown and capped before each spend, about **$0.11 a
+month**: roughly $2.60 to a 96-session trigger, $9 to 330. The cache is never
+written. The runner is a single pass over a few hundred sessions plus
+`eval_sim`; minutes.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged from every prior entry: N accounts running one strategy is one bet
+at N times the size with N times the fees, and a single trailing-drawdown
+breach ends all of them on the same day.
+
+### Verdict
+
+Not yet run. Not to be run before the trigger. To be filled in by the runner,
+with the commit hash recorded in a follow-up commit. If ACCEPTED under option
+(i), the first line of the verdict states that the finding is about the
+mechanism on the intraday slice and licenses no strategy and no `paper`
+status.
+
+---
+
 ## Template for new entries
 
 ```
