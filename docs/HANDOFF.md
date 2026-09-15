@@ -16,7 +16,7 @@ why). Read those three first; this is the delta.
 
 **Branch** `master`, tracking `origin/master` at
 <https://github.com/IamNotSuperior/futures-bot> (private). **Nothing unpushed.**
-**1,198 tests pass**, 2 skipped (a symlink test the OS refuses, and one that
+**1,222 tests pass**, 2 skipped (a symlink test the OS refuses, and one that
 needs an orphaned generated module on disk, of which there is none) —
 
 ```powershell
@@ -99,6 +99,14 @@ recreate** — do not delete them casually.
   2019-05-05 to 2026-08-31.
 - `data/mnq_v_0_ohlcv_1m_2019-05_2026-08.parquet` — 44.6 MB, same span. Pulled
   for entry 7 at **$9.4256**.
+- `data/mes_v_0_ohlcv_1m_forward.parquet` — the rolling **forward** MES file,
+  sessions after 2026-08-31 only, which no verdict has seen. Started
+  2026-09-14 with 2026-09-01 → 2026-09-14 (12,180 bars, 0.20 MB, **$0.0445**);
+  holds the September turn-of-month window (T+1..T+3, 1–3 Sep) and nothing
+  more. `data/extend.py --pull` appends the next slice (§4a, §7); the
+  2019–2026-08 cache is never written. `mes_v_0_ohlcv_1m_2026-09_2026-09.parquet`
+  is that first pull as `fetch.py` wrote it, already merged, kept only as the
+  raw copy.
 - `backtests/results/*` — 126 files: scan CSVs, walk-forward fold tables, trade
   streams, reports, charts, 26 `entry10_*` files and 24 `entry11_*`/`entry12_*`
   files (session-return populations, both arms at both cost levels on both
@@ -119,8 +127,9 @@ recreate** — do not delete them casually.
 trade has ever been logged, by CLI or by `/read`. `journal/decisions.jsonl`
 (desk ticket button presses) does not exist either. Both appear on first use.
 
-**Databento spend is about $21.43.** `data/fetch.py` estimates first and refuses
-above `--max-cost`, default $10.
+**Databento spend is about $21.47.** `data/fetch.py` estimates first and refuses
+above `--max-cost`, default $10; `data/extend.py` does the same for the forward
+file, default $15, and a forward month costs about $0.11.
 
 ---
 
@@ -518,12 +527,16 @@ sharing a server. **It stays; do not rewrite history for it.**
 None is started. The operator set the order on 2026-09-12.
 
 **(a) A forward-data test of the turn-of-month mechanism — a new entry, when
-the data exists.** The Databento cost estimate for MES bars from 2026-09-01
-was offered on 2026-09-14 and declined for now; it spends nothing and is the
-first move when the operator wants this started. Entries 11 and 12 leave one marginal result on one sample
+the data exists.** Started 2026-09-14: the operator approved the first pull
+(2026-09-01 → 2026-09-14, $0.0445) and it sits in
+`data/mes_v_0_ohlcv_1m_forward.parquet`, a rolling file kept apart from the
+cache so the forward sample is a property of the file, not a date filter.
+Entries 11 and 12 leave one marginal result on one sample
 of 314 sessions. The only data that can resolve it is days nobody has looked
-at: MES sessions after 2026-08-31, pulled with `data/extend.py` (estimate
-shown before any spend). The entry must state its independent sample is days,
+at: MES sessions after 2026-08-31, appended monthly with `data/extend.py
+--pull` (estimate shown and capped before any spend; a start inside the cache
+or a gap after the last bar is refused). At three forward window sessions the
+file decides nothing yet; the entry, not the data, is the next move. The entry must state its independent sample is days,
 fix the t line and the trigger before any run, state the power honestly (96
 forward window sessions is about two years and 20–25% power against the
 observed +0.12 sd; about 330 is 50%), size from the control population's
@@ -1028,7 +1041,7 @@ token. The Discord user id in commit `9dc95c2`'s history is a non-secret that
 stays (§3.11).
 
 ```powershell
-venv\Scripts\python.exe -m pytest tests\ -q                     # 1,111 pass, 2 skipped, ~2 min
+venv\Scripts\python.exe -m pytest tests\ -q                     # 1,222 pass, 2 skipped, ~2 min
 venv\Scripts\python.exe strategies\registry.py                  # where everything stands
 venv\Scripts\python.exe journal\review.py                       # entry 3 gate + desk decisions
 
@@ -1054,6 +1067,9 @@ venv\Scripts\python.exe backtests\reprice.py backtests\results\<stream>.csv [--o
 venv\Scripts\python.exe backtests\eval_sim.py backtests\results\<stream>.csv
 
 venv\Scripts\python.exe data\fetch.py --estimate --symbol MNQ.v.0 --start 2019-05-01 --end 2026-09-01
+venv\Scripts\python.exe data\extend.py --estimate                 # forward MES: next slice's cost, free; default span = day after last bar on disk -> Databento's available end
+venv\Scripts\python.exe data\extend.py --pull [--max-cost 1]      # append it to data\mes_v_0_ohlcv_1m_forward.parquet; ask before running
+venv\Scripts\python.exe data\extend.py --merge-file <parquet>     # fold a fetch.py pull into the forward file, no API call
 ```
 
 Every runner takes `--commission` (default `rules.COMMISSION_PER_SIDE`,
