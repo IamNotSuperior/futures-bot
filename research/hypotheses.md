@@ -6048,6 +6048,249 @@ not, at this size and with this rule, show up in the account.
 
 ---
 
+## 15. Quarterly futures expiry — index-arbitrage unwind at the settlement open, MES — PROPOSED
+
+**Operator decisions, 2026-09-15, before this entry was frozen:** this
+candidate, the second of the three the session put to the operator that
+day (entry 14 was the first), pre-registered after entry 14's verdict; fade
+rule **k = 1.0, s = 1.0** in control-sd units, chosen for the bracket
+geometry entry 14's Next section demands; **one contract**, chosen for the
+trail; the five kill criteria confirmed as drafted; the prediction and
+prior recorded below, where the operator chose the **optimistic**
+alternative after reading the bias note that follows. **Provenance, as for
+entries 13 and 14:** the session drafted the mechanics and put each
+decision to the operator as a clickable question with the arithmetic
+beside it; the operator chose from stated options rather than typing
+prose, and the entry says so.
+
+**Date:** 2026-09-15
+**Spec frozen at:** the commit adding this entry with the decisions above
+**Verdict commit:** not yet
+**Code:** not yet written. Expected: `strategies/quarterly.py` (reusing
+entry 14's expiry calendar in `strategies/opex.py`),
+`research/power_check_quarterly.py`, `backtests/run_entry15.py`.
+**Note:** an entry cannot contain its own commit hash. The verdict commit is
+recorded in a one-line follow-up commit, never by amending.
+**Instrument:** MES, 1-minute bars, 09:30 to 15:55 ET, 2020-01-01 to
+2026-08-31.
+**Predecessor:** entry 14 (REJECTED, `f860939`), whose Next section says a
+quarterly-only entry needs its own mechanism. This is that mechanism, and
+it is not the option hedge.
+
+### This entry's prior is informed by a post-hoc finding, and says so
+
+Entry 14 reported, and did not select on, that the 26 quarterly expiry
+days had a larger median session range (48.38 points) than the 54 monthly
+ones (41.62), while both sat below the Friday control's 50.50. That table
+was seen before this entry was written. It motivates nothing here directly
+— this entry tests the opening half-hour and its reversal, not the session
+range — but a prior formed after seeing a related table is biased upward,
+and entry 10 recorded the same situation. The lines below are therefore
+set no lower than they would have been without that table. The session's
+draft asked that the prediction on record be at least as pessimistic as
+entry 14's; the operator, shown that request and three alternatives, chose
+the optimistic one. That is the operator's call to make and it is recorded
+here so the verdict, whichever way it falls, is read against a prior the
+operator knew was formed after a related table had been seen. The lines
+did not move.
+
+### Mechanism claimed
+
+E-mini and Micro E-mini S&P 500 futures expire on the third Friday of
+March, June, September and December, **cash-settled to the Special Opening
+Quotation**: the index value computed from each constituent's opening
+print on that Friday. Index arbitrageurs who carry a long-futures /
+short-basket (or the reverse) position into expiry unwind the basket **in
+the opening auction**, because only an execution at the opening print
+matches the price the futures leg settles at. Those basket orders are
+market-on-open, sized by the position and not by the price, and they
+arrive in one auction. Stoll and Whaley (1987, 1991) documented the
+resulting expiration-day volume and price-reversal effects, and their
+migration from the close to the open when the SOQ replaced closing
+settlement.
+
+**Who is on the other side:** the index arbitrageur unwinding at
+settlement. The constraint is the settlement mechanism itself: an
+arbitrage position is closed at the SOQ or it stops being an arbitrage, so
+the basket is executed at the open whatever the open is. The liquidity
+provider who takes the other side of that auction imbalance is paid in the
+price impact, and the impact reverts once the imbalance has cleared. The
+claimed edge is to stand where that provider stands: after the opening
+half-hour on a quarterly expiry day, fade the opening move back toward
+where the session opened.
+
+**Stated honestly, before any data.** The continuous series this project
+trades (`MES.v.0`) rolls on volume about a week before expiry, so on expiry
+Friday it holds the *next* contract, not the settling one. The claim is not
+about the settling contract's price, which is fixed by the SOQ; it is that
+the cash-market auction pressure moves the index and therefore the next
+contract, and that the move reverts. Basket unwinds can net across
+arbitrageurs, and post-2000 changes (ETF arbitrage, smaller open-interest
+carried to expiry) may have shrunk the effect below what Stoll and Whaley
+measured. Twenty-six days cannot distinguish a small effect from none, and
+this entry does not claim otherwise.
+
+### Signal definition
+
+**Quarterly expiry days.** Entry 14's calendar (`opex.expiry_days`,
+`session_calendar`): the last cash trading day on or before the third
+Friday of March, June, September and December. Eligibility as entry 14:
+09:30 and 15:55 bars, not a roll day, not an early close. Monthly expiry
+days (the other eight months) are **excluded from both populations**: they
+carry entry 14's documented option-hedge effect and are neither the
+treatment nor a clean control.
+
+**Control.** Every other eligible Friday, excluding all expiry days —
+entry 14's primary control population, 251 sessions.
+
+**The mechanism population.** For every eligible session: the **opening
+move** `o = open(10:00) − open(09:30)` in points; the **afternoon move**
+`a = open(15:55) − open(10:00)`; and the **reversal indicator**
+`r = 1` if `a` has the opposite sign to `o` (or `o` is zero), else `0`.
+Bars are labelled by opening minute, as throughout the log.
+
+**The fade arm.** Let `sd_open` be the standard deviation of `o` over the
+control population, computed at run time and reported.
+
+- At the open of the bar labelled **10:00 ET** on a quarterly expiry day:
+  if `o ≥ +k × sd_open`, **short**; if `o ≤ −k × sd_open`, **long**;
+  otherwise no trade. **k = 1.0.**
+- **Target:** the 09:30 open. **Stop:** `s × sd_open` beyond the entry
+  fill, stop-first inside a bar. **s = 1.0.**
+- **Flat at 15:55** if neither is reached. One trade per expiry day at
+  most. **Size: one contract, fixed.** Inside the cap; rule 4's cap is the
+  engine's and nothing here restates it.
+
+**The bracket's midpoint, named before the run, as entry 14's Next
+requires.** With `k = 1.0` and `s = 1.0` the target is at least one
+`sd_open` away and the stop exactly one, so the bracket is at worst
+symmetric and the flatten population's band midpoint is at or above zero;
+with `k = 0.5` the bracket is 1:2 and the flatten mean is negative by
+construction, which is what entry 14 found.
+
+**Costs, guards, scored span:** as entry 14. `rules.COMMISSION_PER_SIDE`,
+1 tick a side base case, 2 ticks sensitivity; `engine.apply_internal_guards`
+at the chosen size, halt-OFF stream alongside; span from
+`walkforward.build_folds()`.
+
+### Rules compatibility
+
+Entry at 10:00 is before the 16:20 cutoff; the 15:55 exit is before the
+16:30 flatten; early closes never traded; the shortest possible hold is one
+minute, so rules 6 and 7 are untouched and `hold_regression` rejects any
+stream that says otherwise. At one contract the worst case of one trade is
+`sd_open` × $5 plus costs, which reaches the $400 daily limit only if
+`sd_open` exceeds about 79 points — several times any plausible value — so
+`loss_limit_flatten` is expected never to fire and its count is reported.
+The entry states the realised arithmetic in the verdict and does not
+adjust size or stop to fit.
+
+### Power — stated first, because it decides what this entry can say
+
+**Sample-size floor, fixed now:** at least **3 eligible quarterly expiry
+days in every fold year 2020–2025 and at least 1 in 2026**, else the entry
+stops. Entry 14's power check already counted 4, 4, 4, 4, 4, 4 and 2, so
+the floor is expected to clear; it is re-run on the calendar only before
+any strategy code.
+
+**Power arithmetic.** 26 quarterly days against 251 Fridays. The standard
+deviation of the absolute opening move is on the order of 8–12 points, so
+the standard error of a difference of mean |o| is about 2 points and a
+one-sided t of 2.0 needs the expiry-day mean |o| to be roughly **4 points
+(about 30%) larger** than the control's. For the reversal share, 26 days
+give a standard error of about 10 percentage points on their own, so a
+two-proportion z of 1.64 needs the expiry-day reversal share to exceed the
+control's by roughly **17 points**. The fade arm has at most 26 trades in
+seven years, three or four a fold. **This entry can detect a large effect
+and nothing else.** It is written because the counterparty is as
+well-constrained as any in this log and the calendar is fixed, and a
+rejection here will read as "not large", not "absent".
+
+### Pre-registered tests
+
+1. **Reproduction, first, gating:** the strategy's diagnostics list exactly
+   the eligible quarterly expiry days the calendar produces, entries only
+   on those days at the 10:00 bar with `|o|` beyond the threshold.
+2. **Opening impact:** mean and median `|o|`, expiry against control; Welch
+   t, one-sided p for expiry larger.
+3. **Reversal:** the share of sessions with `r = 1`, expiry against control;
+   the difference in points and a two-proportion z.
+4. **Per year**, whether the expiry-day mean `|o|` exceeds the control's.
+5. **Conditional reversal, reported:** mean `a` given the sign of `o`, on
+   expiry days and on control days, as the size of the reversion in points.
+6. **Fade arm, both guard bases, at the chosen size, 1 tick and 2 ticks:**
+   every figure entries 11 to 14 report, the `hold_regression` line, and
+   `sd_open` with the threshold and stop it produced.
+7. **Diagnostics:** expiry days skipped by reason and year; days with no
+   trade; entry-bar breaches; Thursday expiries.
+
+### Kill criteria — decided now
+
+Confirmed by the operator on 2026-09-15 as drafted. Any one failure kills
+the entry. 1 and 2 are the mechanism test; 3 and 4 the account test; 5
+rule 13.
+
+1. **Opening impact:** expiry-day mean `|o|` above the control's with
+   **Welch t ≥ 2.0** (one-sided).
+2. **Reversal:** expiry-day reversal share above the control's by **at
+   least 15 percentage points**, with two-proportion **z ≥ 1.64**.
+3. Fade arm, standard (guarded) stream, 1 tick: `eval_sim` pass probability
+   **≥ 25%**, day count reported beside it.
+4. Fade arm, comparable (halt-OFF) stream, 1 tick: **evaluations blown ≤ 1.**
+5. Rule 13 on the fade arm, standard stream: **profitable in at least 4 of 7
+   folds and P&L > 0 at 1 tick and at 2 ticks.**
+
+No appeal, no second k or s, no second decision bar, no adding the monthly
+days back, no other control, no different target. A verdict that fails on
+criteria 1 and 2 with the point estimates in the predicted direction is a
+finding about power, recorded as such, and is not licence to re-run the
+entry with a longer sample later under this number: more days need a new
+entry.
+
+### Prediction on record
+
+Nothing below has been computed. No opening move on a quarterly expiry
+day has been inspected. Chosen by the operator on 2026-09-15 from three
+stated alternatives (impact 0–20% and reversal 0–10 points, both failing
+on power, prior under one in ten; no effect at all, prior under one in
+twenty); the operator chose the optimistic one, and the bias note above
+records that the choice was made knowingly.
+
+1. **Opening impact: expiry-day mean `|o|` more than 30% above the
+   control's, and criterion 1 passes** — the settlement auction's impact
+   is large enough to show on 26 days.
+2. **Reversal share: above the control's by more than 15 points, and
+   criterion 2 passes.**
+3. **Fade arm:** not separately predicted by the operator; the session
+   records, for the reader, that with k = 1.0 the arm takes perhaps 8 to 12
+   trades in seven years, too few for rule 13's fold test to pass even if
+   every trade wins, so criteria 3 and 5 are expected to fail on sample
+   size whatever the mechanism does, and criterion 4 to pass at one
+   contract.
+
+**Prior for survival: about one in five** — the operator's choice. For the
+entry as a whole the session notes that survival requires all five
+criteria, and 3 and 5 are near-unpassable at this trade count; the
+operator's one-in-five is best read as the prior that the two mechanism
+criteria pass.
+
+### Data and cost
+
+The MES cache. **No purchase.** Minutes.
+
+### Longer-term intent: copying trades across multiple funded accounts
+
+Unchanged from every prior entry: N accounts running one strategy is one bet
+at N times the size with N times the fees, and a single trailing-drawdown
+breach ends all of them on the same day.
+
+### Verdict
+
+Not yet run. To be written by the runner before anyone reads a number,
+with the commit hash recorded in a follow-up commit.
+
+---
+
 ## Template for new entries
 
 ```
