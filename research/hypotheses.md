@@ -6313,10 +6313,109 @@ Unchanged from every prior entry: N accounts running one strategy is one bet
 at N times the size with N times the fees, and a single trailing-drawdown
 breach ends all of them on the same day.
 
-### Verdict
+### Verdict: REJECTED
 
-Not yet run. To be written by the runner before anyone reads a number,
-with the commit hash recorded in a follow-up commit.
+**Rejected on the pre-registered criteria.** The settlement-open unwind, read on MES's opening move and its reversal and a fixed fade rule over 2020–2026, did not clear the lines set before the run. With 26 days the entry could detect a large effect and nothing else; that was stated before the run.
+
+**Date:** 2026-09-15
+**Code:** `strategies/quarterly.py`, `backtests/run_entry15.py`, `research/power_check_quarterly.py`
+**Reports:** `backtests/results/entry15_report.txt`; `entry15_moves.csv` (every eligible session with its label, opening move, afternoon move and reversal flag); `entry15_fade_slip<1|2>.csv` (standard) and `_nohalt.csv` (comparable); `entry15_folds.csv` (fade arm, 1 tick, standard)
+
+Quarterly expiry days by the cash calendar, monthly expiry days excluded from both populations, control every other eligible Friday. Fade arm: **k = 1, s = 1** in units of `sd_open`, entry at the 10:00 open, target the day's open, flat at 15:55, **1 contract**, $0.50 a side, **1 tick a side as the base case** (0.70 points a round turn), 2020-01-01 .. 2026-08-31, nothing selected. Guards: `engine.apply_internal_guards` at 1 contract; halt OFF alongside.
+
+**sd_open = 15.35 points** (Friday control, 09:30-to-10:00 move, derived at run time) -> threshold 15.35 points, stop 15.35 points. Worst case of one trade: $77 plus costs against the $400 daily limit.
+
+#### Kill criteria — any one failure kills the entry
+
+| # | Criterion | Result | Line | |
+|---|---|---|---|---|
+| 1 | Opening impact: expiry-day mean |09:30-to-10:00 move| against the Friday control, Welch t | t = +0.84 | t >= 2.0 | **FAIL** |
+| 2 | Reversal share, expiry minus control, and its two-proportion z | -0.7 points, z = -0.07 | >= +15 points and z >= 1.64 | **FAIL** |
+| 3 | Fade arm, standard stream, 1 tick: eval_sim pass probability | 100.00% (6 trading days) | >= 25% | **PASS** |
+| 4 | Fade arm, comparable stream, 1 tick: evaluations blown | 0 | <= 1 | **PASS** |
+| 5 | Rule 13 on the fade arm, standard stream: >= 4 of 7 folds profitable and P&L > 0 at 1 and 2 ticks | 1 tick 3 of 7, $263; 2 ticks 3 of 7, $248 | >= 4 of 7 and > 0, both | **FAIL** |
+
+**REJECTED.** Failed on: Opening impact: expiry-day mean |09:30-to-10:00 move| against the Friday control, Welch t; Reversal share, expiry minus control, and its two-proportion z; Rule 13 on the fade arm, standard stream: >= 4 of 7 folds profitable and P&L > 0 at 1 and 2 ticks.
+
+Rule 6/7 regression check: intact - no trade under the 30s floor, 0 held <= 5s.
+
+#### The mechanism tests: opening impact and reversal, quarterly expiry days against the Friday control
+
+**Opening impact, |09:30-to-10:00 move| in points:** expiry n = 26, mean 13.46, median 10.75; control n = 251, mean 11.65, median 9.00. **Difference +1.82 points (+15.6%), Welch t = +0.84**, one-sided p (expiry larger) = 0.205.
+
+**Reversal share:** expiry 11 of 26 (42.3%), control 108 of 251 (43.0%). **Difference -0.7 points, z = -0.07.**
+
+**Conditional reversion, reported:** expiry days after an up open (n = 7) the afternoon moved +19.82 points on average, after a down open (n = 19) -10.38; control days +4.50 and -1.37.
+
+| Year | Expiry n | Expiry mean |o| | Control n | Control mean |o| | Expiry above |
+|---|---|---|---|---|---|
+| 2020 | 4 | 18.44 | 36 | 8.96 | yes |
+| 2021 | 4 | 10.19 | 37 | 9.52 | yes |
+| 2022 | 4 | 15.56 | 39 | 16.54 | no |
+| 2023 | 4 | 8.31 | 38 | 8.54 | no |
+| 2024 | 4 | 5.06 | 38 | 9.73 | no |
+| 2025 | 4 | 12.88 | 38 | 13.64 | no |
+| 2026 | 2 | 34.12 | 25 | 15.62 | yes |
+
+Expiry-day mean |o| above the control's in **3 of 7** years (reported; not a criterion).
+
+#### Fade arm — 1 tick (base case)
+
+| 2020–2026, 1 contract, 1 tick, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 6 | 6 |
+| Trading days | 6 | 6 |
+| Net P&L | $263.01 | $263.01 |
+| Mean per trade | $43.83 | $43.83 |
+| Folds profitable | 3 of 7 | 3 of 7 |
+| Sharpe | 5.62 | 5.62 |
+| Profit factor | 2.281 | 2.281 |
+| Max drawdown | $-205.24 | $-205.24 |
+| Max daily loss (worst day) | $-80.25 | $-80.25 |
+| Worst day as % of total profit | -30.5% | -30.5% |
+| Best day as % of total profit (rule 8) | 62.4% | 62.4% |
+| Pass probability | 100.00% | 100.00% |
+| Payout probability ($52,100) | 100.00% | 100.00% |
+| Evaluations blown (read on the comparable basis) | 0 | 0 |
+| Sessions blocked by the trailing halt | 0 | — |
+| Daily-loss flattens | 0 | 0 |
+| Avg trade duration | 152.3 min | 152.3 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 1 trades, mean $-44.75, total $-44.75; stop: 2 trades, mean $-80.25, total $-160.49; target: 3 trades, mean $156.08, total $468.25. Daily-loss halts: 0.
+Per fold, standard: 2020 $164.00; 2021 $0.00; 2022 $144.00; 2023 $-80.25; 2024 $0.00; 2025 $-44.75; 2026 $80.00.
+
+#### Fade arm — 2 ticks (sensitivity)
+
+| 2020–2026, 1 contract, 2 ticks, $0.50 | Halt ON (standard) | Halt OFF (comparable) |
+|---|---|---|
+| Trades | 6 | 6 |
+| Trading days | 6 | 6 |
+| Net P&L | $248.01 | $248.01 |
+| Mean per trade | $41.33 | $41.33 |
+| Folds profitable | 3 of 7 | 3 of 7 |
+| Sharpe | 5.30 | 5.30 |
+| Profit factor | 2.166 | 2.166 |
+| Max drawdown | $-212.74 | $-212.74 |
+| Max daily loss (worst day) | $-82.75 | $-82.75 |
+| Worst day as % of total profit | -33.4% | -33.4% |
+| Best day as % of total profit (rule 8) | 65.1% | 65.1% |
+| Pass probability | 100.00% | 100.00% |
+| Payout probability ($52,100) | 100.00% | 100.00% |
+| Evaluations blown (read on the comparable basis) | 0 | 0 |
+| Sessions blocked by the trailing halt | 0 | — |
+| Daily-loss flattens | 0 | 0 |
+| Avg trade duration | 152.3 min | 152.3 min |
+| Profit from <=5s holds | 0.00% | 0.00% |
+
+Exits, standard stream: flatten_1555: 1 trades, mean $-47.25, total $-47.25; stop: 2 trades, mean $-82.75, total $-165.49; target: 3 trades, mean $153.58, total $460.75. Daily-loss halts: 0.
+Per fold, standard: 2020 $161.50; 2021 $0.00; 2022 $141.50; 2023 $-82.75; 2024 $0.00; 2025 $-47.25; 2026 $75.00.
+
+#### Diagnostics
+
+Quarterly expiry days skipped in the scored span: 0. Expiry days with no trade (|o| inside the threshold): 20. Entry-bar stop breaches: 0. Thursday expiries: 2026-06-18.
+
+In-sample results are never evidence, and this is the out-of-sample answer on seven yearly folds with nothing selected.
 
 ---
 
