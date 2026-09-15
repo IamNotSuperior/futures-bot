@@ -197,6 +197,13 @@ indicator-crossover content; that family is closed and those rules have no
 counterparty. First video through the protocol (2026-09-13, a TradingLab
 supply-and-demand retest rule): no counterparty, breakout-continuation
 family, discretionary rules a machine cannot apply — no entry, by design.
+Second (2026-09-14, The Moving Average, "Fibonacci Retracement explained in
+under 5 minutes"): pullback-continuation entry in the 0.5–0.618 zone on a
+discretionary reversal signal, RSI divergence as confirmation, subjective
+targets; its only stated mechanism is "psychological levels" and ratios
+"seen in nature" — no counterparty, indicator content, closed family; no
+entry, by design. Both videos so far were rejected at the first question,
+so the modal pre-fill stays deferred.
 Nothing in the repository reads a video; the plugin's `~/.config/watch/.env`
 and the session's shell PATH are the only state, and a fresh desktop-app
 launch is needed for its shells to see the winget PATH entries.
