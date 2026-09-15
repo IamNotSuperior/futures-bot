@@ -5762,6 +5762,19 @@ before the freeze of this section. The letter of "before any strategy
 code" is bent the same way and the purpose kept, and it is recorded rather
 than implied.
 
+### Reproduction, 2026-09-15 — run before the result
+
+`backtests/run_entry14.py --reproduce`, watched in the live view. **Passed on
+the first run:** the strategy's diagnostics list exactly the 80 eligible
+expiry days the calendar produces, 45 of them carry an entry, every entry is
+at the 10:30 bar with the morning move beyond the threshold, and every
+skipped day's move is inside it. The control-derived figures, which read no
+expiry-day outcome: **`sd_move` = 22.47 points**, so the threshold is 11.23
+points and the stop 22.47 points; at three contracts one trade's worst case
+is about $337 plus costs, inside the $400 daily limit, so the daily loss
+limit is not expected to bind before the stop. The strategy class and the
+runner were committed before the run below, so the verdict's code is fixed.
+
 ### Pre-registered tests
 
 Pooled 2020–2026 at the base case:

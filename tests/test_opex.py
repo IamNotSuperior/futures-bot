@@ -12,8 +12,11 @@ from datetime import date, time
 import pandas as pd
 import pytest
 
+from base import validate_signals
+from engine import MES, CostModel, build_trades, price_trades
 from opex import (
-    CONTROL_FRIDAY, CONTROL_OTHER, EXPIRY, expiry_days, is_quarterly,
+    CONTROL_FRIDAY, CONTROL_OTHER, EXIT_FLATTEN, EXIT_STOP, EXIT_TARGET, EXPIRY,
+    SKIP_INSIDE_THRESHOLD, OpexFade, OpexParams, expiry_days, is_quarterly,
     session_calendar, session_ranges, third_friday,
 )
 
@@ -174,3 +177,146 @@ class TestSessionRanges:
         day = session_bars("2026-03-27", high=104.0, low=100.0)
         pop = session_ranges(day, roll_dates=set(), early_close_dates=set())
         assert pop["log_range"].iloc[0] == pytest.approx(math.log(4.0))
+
+
+# ---------------------------------------------------------------------------
+# The fade arm
+# ---------------------------------------------------------------------------
+
+
+def expiry_session(day: str = "2026-03-20", open_: float = 100.0, at_1030: float = 110.0,
+                   after: float | None = None, high_pad: float = 0.5, low_pad: float = 0.5) -> pd.DataFrame:
+    """An expiry-day session: flat at ``open_`` until 10:29, ``at_1030`` from
+    10:30 on, then ``after`` (default: stays at ``at_1030``). High/low hug the
+    open by the pads so nothing is touched unless a test moves them."""
+    bars = session_bars(day, open_=open_, high=open_ + high_pad, low=open_ - low_pad)
+    later = bars.index.time >= time(10, 30)
+    bars.loc[later, ["open", "close"]] = at_1030
+    bars.loc[later, "high"] = at_1030 + high_pad
+    bars.loc[later, "low"] = at_1030 - low_pad
+    if after is not None:
+        tail = bars.index.time >= time(10, 31)
+        bars.loc[tail, ["open", "close"]] = after
+        bars.loc[tail, "high"] = after + high_pad
+        bars.loc[tail, "low"] = after - low_pad
+    return bars
+
+
+def signals_for(bars, sd_move=10.0, k=0.5, s=1.0):
+    strat = OpexFade(OpexParams(sd_move=sd_move, k=k, s=s))
+    return strat, strat.generate_signals(bars)
+
+
+class TestOpexParams:
+    def test_thresholds_in_points_follow_sd_move(self):
+        p = OpexParams(sd_move=12.0, k=0.5, s=1.0)
+        assert p.threshold_points == 6.0
+        assert p.stop_points == 12.0
+
+    def test_rejects_nonpositive_inputs(self):
+        with pytest.raises(ValueError):
+            OpexParams(sd_move=0.0)
+        with pytest.raises(ValueError):
+            OpexParams(sd_move=10.0, k=0.0)
+
+
+class TestFadeEntries:
+    def test_morning_rally_beyond_threshold_is_a_short_at_1030_targeting_the_open(self):
+        bars = expiry_session(open_=100.0, at_1030=110.0)   # m = +10 >= 0.5 * 10
+        strat, sig = signals_for(bars, sd_move=10.0)
+        ts = pd.Timestamp("2026-03-20 10:30", tz=ET)
+        assert bool(sig.loc[ts, "entry_short"]) is True
+        assert bool(sig.loc[ts, "entry_long"]) is False
+        assert sig.loc[ts, "entry_price"] == 110.0
+        assert sig.loc[ts, "target_price"] == 100.0
+        assert sig.loc[ts, "stop_price"] == 120.0
+        d = strat.diagnostics.loc[date(2026, 3, 20)]
+        assert bool(d["entered"]) is True and d["direction"] == "short"
+        assert d["morning_move"] == 10.0
+
+    def test_morning_drop_beyond_threshold_is_a_long(self):
+        bars = expiry_session(open_=100.0, at_1030=94.0)   # m = -6 <= -5
+        strat, sig = signals_for(bars, sd_move=10.0)
+        ts = pd.Timestamp("2026-03-20 10:30", tz=ET)
+        assert bool(sig.loc[ts, "entry_long"]) is True
+        assert sig.loc[ts, "target_price"] == 100.0
+        assert sig.loc[ts, "stop_price"] == 84.0
+
+    def test_move_inside_the_threshold_is_no_trade(self):
+        bars = expiry_session(open_=100.0, at_1030=103.0)   # |m| = 3 < 5
+        strat, sig = signals_for(bars, sd_move=10.0)
+        assert not sig["entry_long"].any() and not sig["entry_short"].any()
+        d = strat.diagnostics.loc[date(2026, 3, 20)]
+        assert bool(d["entered"]) is False
+        assert d["skipped_reason"] == SKIP_INSIDE_THRESHOLD
+
+    def test_only_expiry_days_trade(self):
+        bars = pd.concat([expiry_session("2026-03-20", at_1030=110.0),
+                          expiry_session("2026-03-27", at_1030=110.0)])   # Friday, not expiry
+        strat, sig = signals_for(bars, sd_move=10.0)
+        assert sig["entry_short"].sum() == 1
+        assert list(strat.diagnostics.index) == [date(2026, 3, 20)]
+
+    def test_one_trade_per_day_and_signals_validate(self):
+        bars = expiry_session(open_=100.0, at_1030=110.0)
+        _, sig = signals_for(bars, sd_move=10.0)
+        validate_signals(sig)
+        assert (sig["entry_short"] | sig["entry_long"]).sum() == 1
+
+
+class TestFadeExits:
+    def test_target_hit_exits_at_the_target_price(self):
+        # short at 110, target 100: price falls to 99.5 from 10:31 so the low touches 100
+        bars = expiry_session(open_=100.0, at_1030=110.0, after=100.4, low_pad=0.5)
+        strat, sig = signals_for(bars, sd_move=10.0)
+        hit = sig[sig["exit_short"]]
+        assert len(hit) == 1
+        assert hit.index[0] == pd.Timestamp("2026-03-20 10:31", tz=ET)
+        assert hit["exit_price"].iloc[0] == 100.0
+        assert hit["exit_reason"].iloc[0] == EXIT_TARGET
+        assert strat.diagnostics.loc[date(2026, 3, 20), "exit_reason"] == EXIT_TARGET
+
+    def test_stop_hit_exits_at_the_stop_price(self):
+        # short at 110, stop 120: price rises to 120.5 from 10:31
+        bars = expiry_session(open_=100.0, at_1030=110.0, after=120.2)
+        strat, sig = signals_for(bars, sd_move=10.0)
+        hit = sig[sig["exit_short"]]
+        assert hit["exit_price"].iloc[0] == 120.0
+        assert hit["exit_reason"].iloc[0] == EXIT_STOP
+
+    def test_stop_and_target_in_one_bar_is_stop_first(self):
+        bars = expiry_session(open_=100.0, at_1030=110.0)
+        ts = pd.Timestamp("2026-03-20 10:31", tz=ET)
+        bars.loc[ts, "high"] = 125.0   # through the stop at 120
+        bars.loc[ts, "low"] = 95.0     # and through the target at 100
+        strat, sig = signals_for(bars, sd_move=10.0)
+        hit = sig[sig["exit_short"]]
+        assert hit.index[0] == ts
+        assert hit["exit_reason"].iloc[0] == EXIT_STOP
+
+    def test_neither_hit_flattens_at_1555_open(self):
+        bars = expiry_session(open_=100.0, at_1030=110.0)   # stays at 110
+        strat, sig = signals_for(bars, sd_move=10.0)
+        hit = sig[sig["exit_short"]]
+        assert hit.index[0] == pd.Timestamp("2026-03-20 15:55", tz=ET)
+        assert hit["exit_price"].iloc[0] == 110.0
+        assert hit["exit_reason"].iloc[0] == EXIT_FLATTEN
+
+    def test_entry_bar_breach_is_counted_not_acted_on(self):
+        bars = expiry_session(open_=100.0, at_1030=110.0)
+        ts = pd.Timestamp("2026-03-20 10:30", tz=ET)
+        bars.loc[ts, "high"] = 121.0   # the entry bar itself is through the stop
+        strat, sig = signals_for(bars, sd_move=10.0)
+        assert bool(strat.diagnostics.loc[date(2026, 3, 20), "entry_bar_breach"]) is True
+        assert not sig.loc[ts, "exit_short"]
+
+    def test_engine_prices_the_short_correctly(self):
+        bars = expiry_session(open_=100.0, at_1030=110.0, after=100.4)
+        _, sig = signals_for(bars, sd_move=10.0)
+        trades = price_trades(build_trades(sig, bars), MES, CostModel(slippage_ticks=0.0), 3)
+        assert len(trades) == 1
+        t = trades.iloc[0]
+        assert t["direction"] == "short"
+        assert t["gross_points"] == pytest.approx(10.0)
+        assert t["gross_pnl"] == pytest.approx(10.0 * MES.point_value * 3)
+        assert t["duration_seconds"] == 60.0
