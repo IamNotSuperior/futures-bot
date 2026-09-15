@@ -6064,8 +6064,8 @@ beside it; the operator chose from stated options rather than typing
 prose, and the entry says so.
 
 **Date:** 2026-09-15
-**Spec frozen at:** the commit adding this entry with the decisions above
-**Verdict commit:** not yet
+**Spec frozen at:** `bef80c4` (implementation `07a0a17`)
+**Verdict commit:** `a5fc1d3`
 **Code:** not yet written. Expected: `strategies/quarterly.py` (reusing
 entry 14's expiry calendar in `strategies/opex.py`),
 `research/power_check_quarterly.py`, `backtests/run_entry15.py`.
@@ -6416,6 +6416,74 @@ Per fold, standard: 2020 $161.50; 2021 $0.00; 2022 $141.50; 2023 $-82.75; 2024 $
 Quarterly expiry days skipped in the scored span: 0. Expiry days with no trade (|o| inside the threshold): 20. Entry-bar stop breaches: 0. Thursday expiries: 2026-06-18.
 
 In-sample results are never evidence, and this is the out-of-sample answer on seven yearly folds with nothing selected.
+
+### What was learned
+
+**The impact half is a point estimate in the predicted direction and
+nothing more.** Expiry-day mean |09:30-to-10:00 move| 13.46 points against
+11.65 on other Fridays, +15.6%, Welch t +0.84, one-sided p 0.21; above the
+control in 3 of 7 years. The entry said 26 days could detect a large effect
+and nothing else, and a 16% effect is not large. This is the power finding
+the entry pre-announced, and it is all the impact test can say.
+
+**The reversal half is absent, not underpowered.** 11 of 26 expiry days
+reversed against 108 of 251 control days: 42.3% against 43.0%, z −0.07.
+That is not a small effect drowned in noise; the point estimate sits on the
+control. The conditional table, reported and not selected on, points the
+other way on the seven up-open days (+19.82 points of afternoon
+*continuation*), on a sample too small to mean anything. The mechanism's
+second premise — that the settlement auction's impact reverts once the
+imbalance clears — has no support here.
+
+**The optimistic prediction was wrong on both criteria**, and the entry's
+bias note said why it might be: the prior was formed after seeing entry
+14's quarterly range table, and the operator chose the optimistic
+alternative knowing that. The lines did not move and the verdict is read
+against that choice. Recorded without adjustment.
+
+**Six trades cannot be scored, and two account criteria "passed" on them.**
+The fade arm took 6 trades in seven years at k = 1.0 (20 expiry days sat
+inside the threshold), netted +$263 after costs with 3 targets, 2 stops and
+1 flatten, and `eval_sim` read **100% pass probability on 6 trading
+days** — a figure that is arithmetic on an empty room, which is why the
+reproduction section said criteria 3 and 5 were decided on sample size
+before the run. Criterion 3 was predicted to *fail* on that ground and
+passed instead: the simulator resamples what it is given, and six mostly
+positive days resample to a pass. **A pass probability on fewer than a
+fold's worth of trading days is not a measurement**, and any future entry
+with a trade count this small should pre-register the account criteria as
+reported-only, as entry 13 did for its mechanism-only shape.
+
+**The symmetric bracket did what it was chosen for.** With k = s = 1.0,
+targets earned $468 and stops cost $160 on the standard stream; the one
+flatten lost $45. Compared with entry 14's 1:2 bracket, the geometry no
+longer sinks the arm — but six trades say nothing about whether it floats.
+
+**Rule 7 read 0.00% and rule 6 was never near**; every quarterly day was
+eligible; the Juneteenth Thursday was labelled correctly on its first run,
+because entry 14 had already paid for that lesson.
+
+### Next
+
+**Do not re-run this entry at a different k, s, decision bar, target,
+control or with the monthly days added back**, and do not re-test the
+reversal claim on the same 26 days under a different statistic: the
+reversal share is on the control, and a statistic that finds a reversal
+here would be finding the seven up-open days.
+
+**The impact half could only be resolved by days that do not exist yet:**
+four a year. At +16% the effect, if real, needs on the order of 150 expiry
+days for t = 2.0 at this spread — about forty years. That is not a
+research programme; it is a reason to stop.
+
+**What the two expiry entries together establish.** Monthly option expiry
+damps the session range by about a tenth (entry 14), the quarterly
+settlement open is not measurably larger than other Fridays' (this entry),
+and neither reverts in a way a fixed fade rule captures after costs. The
+calendar families this project has now tested — turn-of-month, monthly
+expiry, quarterly expiry — each show the sign the mechanism predicts and
+none clears a pre-registered line. The counterparties were real; the
+edges, at these sizes and under these rules, were not.
 
 ---
 

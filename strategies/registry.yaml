@@ -127,5 +127,14 @@ strategies:
     the Friday control at the median, 6 of 7 years below, Welch t -1.25 against -2.0. Fade
     arm (k 0.5, s 1.0, 3 contracts): comparable stream 45 trades, -$2,380, 3 of 7 folds, two
     evaluations blown; the $1,500 halt ended the guarded stream after 19 trades in 2022.'
+- name: quarterly_fade
+  class_path: quarterly:QuarterlyFade
+  hypothesis_entry: 15
+  status: rejected
+  verdict_commit: a5fc1d3
+  walkforward_verdict: 'REJECTED on the pre-registered criteria. Opening impact +15.6% on
+    26 quarterly expiry days, Welch t +0.84 against 2.0; reversal share 42.3% against the
+    control''s 43.0%, z -0.07. Fade arm (k 1.0, s 1.0, one contract): 6 trades, +$263, 3 of
+    7 folds; the 100% pass probability on six trading days is not a measurement.'
 shadow:
 - orb2

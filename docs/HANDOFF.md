@@ -30,7 +30,7 @@ own generated test (§5). **Working tree is clean.**
 
 ### The research
 
-**Fourteen hypothesis entries. Twelve rejected. Entry 3 is open with zero
+**Fifteen hypothesis entries. Thirteen rejected. Entry 3 is open with zero
 trades logged. Entry 13 is frozen and waits on forward data until about
 September 2028.** No strategy has ever reached `paper`.
 
@@ -50,6 +50,7 @@ September 2028.** No strategy has ever reached `paper`.
 | 12 | `tom_intraday_mnq` — entry 11 replicated on MNQ at one contract | REJECTED at Part A (verdict `1b304bb`); Part B (forward MES) never run |
 | 13 | Turn-of-month forward test on MES, mechanism-only, no registry record yet | **PROPOSED — frozen at `6c65c89`; runs once at 96 forward window sessions (~Sep 2028); no runner written** |
 | 14 | `opex_fade` — monthly option expiry, dealer gamma hedging; range damping test plus a 10:30 fade arm at 3 contracts | REJECTED (verdict `f860939`) — damping present (−10.1% median, 6 of 7 years) but t −1.25 against −2.0; fade arm −$2,380, two evaluations blown |
+| 15 | `quarterly_fade` — quarterly futures expiry, index-arbitrage unwind at the settlement open; opening impact and reversal tests plus a 10:00 fade at one contract | REJECTED (verdict `a5fc1d3`) — impact +15.6% at t +0.84; reversal share 42.3% against 43.0%, absent; 6 trades, +$263 |
 
 **The breakout family — entries 1, 4, 5, 6, 7, 8, 9 and 10 — is closed on entry
 and on exit.** Eight entries tested breakout continuation across two sessions,
@@ -93,8 +94,27 @@ arm (k 0.5, s 1.0, an 11-point target against a 22-point stop) lost $2,380
 on 45 trades with the flatten-sign geometry the log has now seen five
 times, and blew two evaluations at three contracts because the trail, not
 the daily limit, bound. The entry's Next section forbids re-tuning any of
-it. The two candidates not chosen are still available as ideas; neither is
-pre-registered.
+it.
+
+**Entry 15 followed the same day** — the second of the three candidates,
+the quarterly settlement-open unwind, pre-registered after entry 14's
+verdict with a prior the entry itself flags as formed after a related
+table had been seen; the operator chose the optimistic prediction knowing
+that. Frozen `bef80c4`, implementation `07a0a17`, verdict `a5fc1d3`.
+**Result:** opening impact +15.6% on 26 days at t +0.84, a point estimate
+and nothing more; the reversal share 42.3% against the control's 43.0%,
+absent rather than underpowered; the fade arm's 6 trades netted +$263 and
+`eval_sim` read 100% on six trading days, which the entry records as not a
+measurement. **What the calendar family now establishes:** turn-of-month,
+monthly expiry and quarterly expiry each show the sign their mechanism
+predicts and none clears a pre-registered line; the counterparties were
+real and the edges, at these sizes under these rules, were not. The third
+candidate (FOMC-day drift) was graded weak on counterparty and is not
+pre-registered. **Twelve trades between entries 14 and 15 confirmed a rule
+for small samples:** a pass probability on fewer than a fold's worth of
+trading days is arithmetic, not evidence; an entry whose tradeable form
+will take a handful of trades should pre-register its account criteria as
+reported-only.
 
 **Entry 2 died on its mechanism test, and still does.** At the corrected
 commission it passes two of its three criteria (4 of 7 folds profitable; median
@@ -482,7 +502,7 @@ registry against the log and is how a real drift bug was caught once.
 **The evidence pipeline** is unchanged and is the product: entry with
 mechanism, counterparty and kill criteria → committed → build → walk-forward →
 verdict frozen before anyone sees numbers → hash recorded in a follow-up.
-Twelve of fourteen entries died in it; one is open and one waits on data. `backtests/reprice.py` re-prices any saved stream
+Thirteen of fifteen entries died in it; one is open and one waits on data. `backtests/reprice.py` re-prices any saved stream
 between two commissions exactly, recovering each trade's size from the
 commission it carried; `backtests/eval_sim.py` reports the $52,100 payout
 probability alongside the pass probability.
@@ -606,8 +626,9 @@ operator ruled, relayed by that session: keep both sources, neither
 swapped.** The gateway client (`data/projectx.py`, `data/roll.py`, additive
 changes to `data/loader.py`, `data/validate.py` and `requirements.txt`, its
 tests, and `docs/superpowers/specs/2026-09-15-projectx-bar-source-design.md`)
-lands as a **second read-only source**; `walkforward.py` and `runners.py`
-stay on the Databento cache, and the sentence above this one stands. The
+landed as a **second read-only source** at `7ef7918` (eight files; nothing
+reads it yet); `walkforward.py` and `runners.py` stay on the Databento
+cache, and the sentence above this one stands. The
 client was first named `topstepx.py`, one letter from this session's
 `data/topstep.py` (the CSV cross-check), and was renamed to the gateway's
 name to remove that hazard; the other note carries a table telling the two
@@ -1209,6 +1230,8 @@ venv\Scripts\python.exe backtests\run_entry12.py --part A --reproduce --live   #
 venv\Scripts\python.exe data\topstep.py --compare --symbol MES              # TopstepX-vs-Databento agreement report for the viewer's data panel (§3.14)
 venv\Scripts\python.exe research\power_check_opex.py                      # entry 14 calendar-only power check
 venv\Scripts\python.exe backtests\run_entry14.py --reproduce [--live]      # entry 14 reproduction; then --run, about a minute
+venv\Scripts\python.exe research\power_check_quarterly.py                 # entry 15 calendar-only power check
+venv\Scripts\python.exe backtests\run_entry15.py --reproduce [--live]      # entry 15 reproduction; then --run, about a minute
 ```
 
 Every runner takes `--commission` (default `rules.COMMISSION_PER_SIDE`,

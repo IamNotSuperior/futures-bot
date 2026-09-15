@@ -178,6 +178,13 @@ RUNNERS: dict[str, Runner] = {
                         note="entry 14, monthly option expiry fade at 10:30, k 0.5 / s 1.0 "
                              "of the control sd, 3 contracts, 1 tick/side (base case), "
                              "trailing halt ON"),
+    # Entry 15. Read-only for the same reason as entry 14: the threshold and
+    # stop are derived at run time from the Friday control's opening-move sd
+    # (15.35 points at the verdict). Six trades in seven years.
+    "quarterly_fade": Runner(1, 1, None, "entry15_folds.csv", "entry15_fade_slip1.csv",
+                             note="entry 15, quarterly expiry fade at 10:00, k 1.0 / s 1.0 "
+                                  "of the control sd, one contract, 1 tick/side (base case), "
+                                  "trailing halt ON; six trades"),
 }
 
 
