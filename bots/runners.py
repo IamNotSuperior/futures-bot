@@ -185,6 +185,14 @@ RUNNERS: dict[str, Runner] = {
                              note="entry 15, quarterly expiry fade at 10:00, k 1.0 / s 1.0 "
                                   "of the control sd, one contract, 1 tick/side (base case), "
                                   "trailing halt ON; six trades"),
+    # Entry 16. Read-only: the strategy has no parameters beyond the stop
+    # buffer, but its events depend on the prior session's levels over the
+    # whole file, and the saved files are the verdict's guarded stream, which
+    # the halt ended after 449 of 715 trades.
+    "sweep_fade": Runner(1, 1, None, "entry16_folds.csv", "entry16_fade_slip1.csv",
+                         note="entry 16, fade of a prior-session high/low sweep from the bar "
+                              "after the rejection, stop 4 ticks beyond the extreme, 1:1 target, "
+                              "one contract, 1 tick/side (base case), trailing halt ON"),
 }
 
 

@@ -30,7 +30,7 @@ own generated test (§5). **Working tree is clean.**
 
 ### The research
 
-**Fifteen hypothesis entries. Thirteen rejected. Entry 3 is open with zero
+**Sixteen hypothesis entries. Fourteen rejected. Entry 3 is open with zero
 trades logged. Entry 13 is frozen and waits on forward data until about
 September 2028.** No strategy has ever reached `paper`.
 
@@ -51,6 +51,7 @@ September 2028.** No strategy has ever reached `paper`.
 | 13 | Turn-of-month forward test on MES, mechanism-only, no registry record yet | **PROPOSED — frozen at `6c65c89`; runs once at 96 forward window sessions (~Sep 2028); no runner written** |
 | 14 | `opex_fade` — monthly option expiry, dealer gamma hedging; range damping test plus a 10:30 fade arm at 3 contracts | REJECTED (verdict `f860939`) — damping present (−10.1% median, 6 of 7 years) but t −1.25 against −2.0; fade arm −$2,380, two evaluations blown |
 | 15 | `quarterly_fade` — quarterly futures expiry, index-arbitrage unwind at the settlement open; opening impact and reversal tests plus a 10:00 fade at one contract | REJECTED (verdict `a5fc1d3`) — impact +15.6% at t +0.84; reversal share 42.3% against 43.0%, absent; 6 trades, +$263 |
+| 16 | `sweep_fade` — liquidity sweep of the prior session's high or low, resting stops as the counterparty, placebo level as the control; 1:1 fade at one contract | REJECTED (verdict `f45e7f3`) — real reversion +0.07 pts on 715 events, placebo +0.47 on 465; the cleanest null in the log, with power; 715 trades, −$2,078, the round turns |
 
 **The breakout family — entries 1, 4, 5, 6, 7, 8, 9 and 10 — is closed on entry
 and on exit.** Eight entries tested breakout continuation across two sessions,
@@ -115,6 +116,29 @@ for small samples:** a pass probability on fewer than a fold's worth of
 trading days is arithmetic, not evidence; an entry whose tradeable form
 will take a handful of trades should pre-register its account criteria as
 reported-only.
+
+**Entry 16 closed the same day and is the first entry with real power.**
+The operator asked about "liquidity" and "fair value gaps"; the fair value
+gap was declined under rule 12 (no counterparty), and the liquidity sweep
+was written with the resting stop order as the counterparty and a
+**placebo level** — the same event geometry a quarter of the prior range
+inside the real level, where no stops have reason to rest — as the
+control. Frozen `6b97841`, implementation `8ce246a`, verdict `f45e7f3`;
+prediction delegated to the session and recorded as the session's.
+**Result:** 715 real sweeps of the previous RTH session's high or low
+reverted +0.07 points over the next thirty minutes against +0.47 after 465
+placebo sweeps; real below placebo at t −0.50, real against zero t 0.14,
+positive in 3 of 7 years, no side or depth tercile any different. With a
+standard error near 0.8 points a two-point level effect is excluded. The
+1:1 fade arm hit 49.7% and lost the round turns: −$2,078 on 715 trades.
+The session's own prediction, that a failed move gives some back
+regardless of stops, was wrong. **Two things a fresh session should carry
+forward:** any claim about a price level takes a placebo level with the
+same geometry as its control, or it is not an entry; and the smart-money
+"liquidity" reading has now had the fairest test bars allow on its
+most-cited level and found nothing, so a different level needs to say
+why it would differ before it is written. The only stronger test is
+order-book data, which is entry 1's purchase.
 
 **Entry 2 died on its mechanism test, and still does.** At the corrected
 commission it passes two of its three criteria (4 of 7 folds profitable; median
@@ -502,7 +526,7 @@ registry against the log and is how a real drift bug was caught once.
 **The evidence pipeline** is unchanged and is the product: entry with
 mechanism, counterparty and kill criteria → committed → build → walk-forward →
 verdict frozen before anyone sees numbers → hash recorded in a follow-up.
-Thirteen of fifteen entries died in it; one is open and one waits on data. `backtests/reprice.py` re-prices any saved stream
+Fourteen of sixteen entries died in it; one is open and one waits on data. `backtests/reprice.py` re-prices any saved stream
 between two commissions exactly, recovering each trade's size from the
 commission it carried; `backtests/eval_sim.py` reports the $52,100 payout
 probability alongside the pass probability.
@@ -1232,6 +1256,8 @@ venv\Scripts\python.exe research\power_check_opex.py                      # entr
 venv\Scripts\python.exe backtests\run_entry14.py --reproduce [--live]      # entry 14 reproduction; then --run, about a minute
 venv\Scripts\python.exe research\power_check_quarterly.py                 # entry 15 calendar-only power check
 venv\Scripts\python.exe backtests\run_entry15.py --reproduce [--live]      # entry 15 reproduction; then --run, about a minute
+venv\Scripts\python.exe research\power_check_sweep.py                     # entry 16 event counts (prices for crosses, never the reversion)
+venv\Scripts\python.exe backtests\run_entry16.py --reproduce [--live]      # entry 16 reproduction; then --run, a few minutes
 ```
 
 Every runner takes `--commission` (default `rules.COMMISSION_PER_SIDE`,

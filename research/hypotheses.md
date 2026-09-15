@@ -6505,8 +6505,8 @@ with the arithmetic beside it; the operator chose from stated options, or
 delegated, and the entry says which.
 
 **Date:** 2026-09-15
-**Spec frozen at:** the commit adding this entry with the decisions above
-**Verdict commit:** not yet
+**Spec frozen at:** `6b97841` (implementation `8ce246a`)
+**Verdict commit:** `f45e7f3`
 **Code:** not yet written. Expected: `strategies/sweep.py`,
 `research/power_check_sweep.py`, `backtests/run_entry16.py`.
 **Note:** an entry cannot contain its own commit hash. The verdict commit is
@@ -6873,6 +6873,94 @@ Per fold, standard: 2020 $151.75; 2021 $-780.00; 2022 $-50.00; 2023 $-611.75; 20
 Real events in the scored span: 715; entered 715; skipped by the rules: 0. Stop distance in points: median 5.50, max 95.75; trades whose stop would have breached the daily limit: 2. Entry-bar stop breaches: 37.
 
 In-sample results are never evidence, and this is the out-of-sample answer on seven yearly folds with nothing selected.
+
+### What was learned
+
+**This is the cleanest null in the log, and the first with the power to
+mean it.** After a sweep of the prior session's high or low and a close
+back inside, the next thirty minutes moved back into the range by **+0.07
+points on average** over 715 events (t 0.14, positive in 3 of 7 years).
+After the same event at a placebo level a quarter of the range inside, the
+move was **+0.47 points** over 465 events. The real level sat *below* the
+placebo (difference −0.41, t −0.50). The standard error of the difference
+is about 0.8 points, so a two-point level-specific effect is excluded at
+about three standard errors and a one-point one at about 1.7. Entries 11
+to 15 could not have said that; this one can. The stop cluster at the
+prior extreme adds nothing measurable, and the cross-and-reject itself
+reverts nothing on average at this horizon.
+
+**The placebo did its job, and it is the control for any level claim from
+now on.** It matched the treatment on everything — same session, same
+event geometry, same horizon, same eligibility — except the one thing the
+mechanism named, and the treatment did not exceed it. A control of "other
+sessions" would have compared a conditioned population against an
+unconditioned one and read the conditioning as the effect. Any future
+entry about a price level (overnight extremes, round numbers, VWAP, the
+opening range) inherits this design: a placebo level with the same
+geometry, or no entry.
+
+**The session's prediction was wrong on the criterion it said would do the
+work.** Delegated the prediction, the session forecast reversion above
+zero at t > 2.0 in 5 of 7 years, on the reasoning that a move that has
+just failed gives some back regardless of stops. It does not, not at
+thirty minutes on MES. Recorded against the session's calibration, and
+recorded as the reason the log asks for a prediction before the run: the
+plausible story had a number attached, and the number was wrong.
+
+**The fade arm is the cost of trading written out 715 times.** 215 targets
+against 218 stops on a 1:1 bracket is a 49.7% hit rate, which is what a
+symmetric bracket on a driftless series produces; the comparable stream's
+−$2,078 is within a few hundred dollars of 715 round turns at $3.50. The
+trailing halt ended the guarded stream after 449 trades with 266 sessions
+blocked. At two ticks the hit rate stays the same and the loss doubles.
+Entry 14's lesson about bracket geometry was applied and the bracket did
+not sink the arm; nothing did, because there was nothing to float.
+
+**Per-year and tercile tables are noise at the size this sample makes
+visible.** 2020 read +3.42 (t 3.13) on 87 events and 2025 read −2.10; the
+placebo read +4.08 in 2025. With about a hundred events a year the yearly
+standard error is around 1.3 points, and the seven yearly means scatter
+as that predicts. The deepest sweep tercile read +0.81 (t 0.77), in the
+predicted direction and insignificant; a depth filter chosen on it would
+be the garden of forking paths, and the entry's Next section forbids it.
+
+**Continuations are what they were in the breakout family.** The 69
+sessions that crossed the level and never closed back inside by 14:59
+moved a further 42.7 points on average by 15:55. That is selection on the
+outcome — they are the trend days by definition — and it is not knowable
+at the cross bar, which is exactly what entries 1, 4, 5, 8 and 9 found
+when they tried to trade it.
+
+**Thirty-seven entries were made on a decision bar that had already
+traded through the stop**, counted as entry-bar breaches and not acted on
+as the specification required; 37 of 715 is the price of filling at the
+next open rather than at the touch, reported so the number is not
+mistaken for a filter later.
+
+**Rule 7 read 0.00% and rule 6 was never near**, with an average hold of
+about 24 minutes; two of 715 stops would have exceeded the daily limit at
+one contract and are reported, as the entry said they would be.
+
+### Next
+
+**Do not re-run this entry with a depth filter, a different horizon, a
+different buffer, a different placebo offset, or a different decision
+rule.** Each is a change chosen after the tables above.
+
+**A different level is a different entry, and this null lowers its prior.**
+The overnight high and low, the opening range, round numbers and VWAP are
+each a separate claim, and each would need the placebo design; but the
+reading that a visible level attracts stops whose execution reverts has
+now had the fairest test bars allow on the most-cited level and found
+nothing, and the cost arithmetic of a 1:1 bracket at one tick a side is
+the same for every level. A future level entry should say why its level
+would differ from the prior session's extreme before it is written.
+
+**The only route to a stronger test is the one entry 1 named:** order-book
+data showing where stops rest and when they execute, which is a purchase,
+not a backtest. Without it, "liquidity" in the smart-money vocabulary is
+a story about the order book told from the chart, and the chart has now
+been asked directly.
 
 ---
 

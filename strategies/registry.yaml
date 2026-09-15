@@ -136,5 +136,16 @@ strategies:
     26 quarterly expiry days, Welch t +0.84 against 2.0; reversal share 42.3% against the
     control''s 43.0%, z -0.07. Fade arm (k 1.0, s 1.0, one contract): 6 trades, +$263, 3 of
     7 folds; the 100% pass probability on six trading days is not a measurement.'
+- name: sweep_fade
+  class_path: sweep:SweepFade
+  hypothesis_entry: 16
+  status: rejected
+  verdict_commit: f45e7f3
+  walkforward_verdict: 'REJECTED on the pre-registered criteria. 30-bar reversion after a
+    sweep of the prior session''s high or low: +0.07 points on 715 real events (t 0.14, 3
+    of 7 years positive) against +0.47 on 465 placebo-level events (real minus placebo -0.41,
+    t -0.50). Fade arm (stop one point beyond the extreme, 1:1 target, one contract): 715
+    trades, 215 targets against 218 stops, comparable stream -$2,078, the cost of the round
+    turns.'
 shadow:
 - orb2
