@@ -204,9 +204,20 @@ class OpexParams:
 
 
 class OpexFade(Strategy):
-    """Fade the morning move on an expiry day, back toward the day's open."""
+    """Fade the morning move on an expiry day, back toward the day's open.
+
+    Entry 15 subclasses this with a different decision bar and a different
+    set of trade days; the two hooks below are the whole seam, and entry
+    14's behaviour is unchanged (its tests pin it).
+    """
 
     name = "opex_fade"
+    #: The bar whose open is the decision price and the entry fill.
+    decision_bar = DECISION_BAR
+
+    def _trade_days(self, cal: pd.DataFrame) -> pd.DataFrame:
+        """The calendar rows this strategy may trade on."""
+        return cal[cal["label"] == EXPIRY]
 
     def __init__(self, params: OpexParams,
                  roll_dates: Collection[date_type] = (),
@@ -223,13 +234,13 @@ class OpexFade(Strategy):
         out["exit_reason"] = pd.Series(pd.NA, index=bars.index, dtype="string")
 
         cal = session_calendar(bars, self.roll_dates, self.early_close_dates)
-        expiries = cal[cal["label"] == EXPIRY]
+        expiries = self._trade_days(cal)
         by_day = {ts.date(): g for ts, g in bars.groupby(bars.index.normalize())}
 
         diag: list[dict] = []
         for _, row in expiries.iterrows():
             day = row["date"]
-            record = {"date": day, "label": EXPIRY, "quarterly": bool(row["quarterly"]),
+            record = {"date": day, "label": row["label"], "quarterly": bool(row["quarterly"]),
                       "entered": False, "skipped_reason": row["skipped_reason"],
                       "direction": None, "morning_move": np.nan, "entry_price": np.nan,
                       "stop_price": np.nan, "target_price": np.nan,
@@ -249,7 +260,7 @@ class OpexFade(Strategy):
         p = self.params
         times = session.index.time
         open_rows = session[times == OPEN_BAR]
-        entry_rows = session[times == DECISION_BAR]
+        entry_rows = session[times == self.decision_bar]
         flatten_rows = session[times == FLATTEN_BAR]
         if open_rows.empty or entry_rows.empty or flatten_rows.empty:
             record["skipped_reason"] = SKIP_MISSING

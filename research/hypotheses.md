@@ -6206,6 +6206,35 @@ and nothing else.** It is written because the counterparty is as
 well-constrained as any in this log and the calendar is fixed, and a
 rejection here will read as "not large", not "absent".
 
+### Power check result, 2026-09-15 — run before the result
+
+`research/power_check_quarterly.py`, calendar only. Eligible quarterly
+expiry days per fold year: **4, 4, 4, 4, 4, 4, 2 — 26 pooled**, none
+skipped; Friday control 36, 37, 39, 38, 38, 38, 25 — **251 pooled**; 54
+monthly expiry days labelled out of both populations. One quarterly expiry
+on a Thursday, 2026-06-18 (Juneteenth). **Every fold year clears its floor;
+the power check passed.** The arithmetic above stands: a large effect or
+nothing. As for entries 11 and 14, the calendar and population code
+(`strategies/quarterly.py`, which reuses entry 14's calendar) and the
+strategy class were written test-first in one pass before the check ran;
+the check reads the bar index only, and no opening move on any quarterly
+day was computed before this section was written.
+
+### Reproduction, 2026-09-15 — run before the result
+
+`backtests/run_entry15.py --reproduce`, watched in the live view. **Passed
+on the first run:** 26 eligible quarterly expiry days reproduced day for
+day, **6 of them carrying an entry**, every entry at the 10:00 bar with
+the opening move beyond the threshold, every skipped day's move inside it.
+The control-derived figure, which reads no expiry-day outcome: **`sd_open`
+= 15.35 points**, so the threshold and the stop are both 15.35 points; at
+one contract the worst case of a trade is about $77 plus costs, far inside
+the daily limit. Six trades in seven years is what k = 1.0 produces, as the
+prediction section said it would, and it is far below what rule 13's fold
+test can pass; criteria 3 and 5 are therefore decided on sample size
+before the run, and the entry's verdict rests on criteria 1 and 2. The
+strategy and runner are committed before the run below.
+
 ### Pre-registered tests
 
 1. **Reproduction, first, gating:** the strategy's diagnostics list exactly
