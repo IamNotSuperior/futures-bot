@@ -1104,7 +1104,9 @@ Every runner takes `--commission` (default `rules.COMMISSION_PER_SIDE`,
 $0.50); pass `1.25` to reproduce a pre-2026-09-11 verdict. Long runs go in the
 background.
 
-Journal, in the order they are used:
+Journal, in the order they are used (the one-page desk version, with the
+gate, the per-trade order and what does not count, is `docs/PAPER_TRADING.md`;
+verified end to end against a scratch journal on 2026-09-15):
 
 ```powershell
 venv\Scripts\python.exe journal\pretrade.py --instrument MES --direction long --entry 6800 --stop 6795 --contracts 1 --thesis "..."
