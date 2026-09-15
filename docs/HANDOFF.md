@@ -383,8 +383,15 @@ note: `docs/superpowers/specs/2026-09-15-live-backtest-view-design.md`. Two
 things it caught on its first real run: Starlette's JSON response refuses
 NaN (the halted fold years carry NaN Sharpe), and a re-run under the same
 name truncates the file, so the page resets on the run's start time.
-Replaying finished runs from `backtests/results/` and entry 1's fold loop
-are named as out of scope.
+**Saved verdicts replay in the same page** (later the same day): the picker's
+second group lists every registry name; selecting one shows the registry
+status, the runner note, the file names and their date in place of stages,
+then the same equity replay and fold table read from `backtests/results/`.
+The file mapping is `runners.RUNNERS` (the verdict's own arm and cost
+level, per entry) plus the generated runner's fixed naming; the viewer
+imports that table and calls no runner function, by test. A name whose
+files are not on disk is listed as unavailable rather than hidden. Entry 1's
+fold loop remains out of scope.
 
 **Hookify rules**, in `.claude/hookify.*.local.md`, tracked in git and read
 live on every tool call — no restart:

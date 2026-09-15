@@ -136,3 +136,134 @@ class TestReadOnly:
         import liveview
 
         assert liveview.DEFAULT_PORT == 8790
+
+    def test_module_never_calls_a_runner_function(self):
+        """It may read runners' table of saved files; it may not run anything."""
+        import liveview
+
+        source = inspect.getsource(liveview)
+        for forbidden in ("runners.run", "run_walkforward", "run_backtest", "run_evalsim"):
+            assert forbidden not in source, forbidden
+
+
+# --- saved verdicts ------------------------------------------------------------
+
+
+def _stream(n: int, start: float = 10.0) -> pd.DataFrame:
+    t = pd.date_range("2020-01-02 10:00", periods=n, freq="1D", tz="America/New_York")
+    return pd.DataFrame({"exit_time": t + pd.Timedelta(hours=1),
+                         "net_pnl": [start, -5.0, 20.0, -2.5, 7.0][:n]})
+
+
+class FakeRegistry:
+    def __init__(self, records):
+        self._records = records
+
+    def names(self):
+        return list(self._records)
+
+    def get(self, name):
+        return self._records[name]
+
+
+@pytest.fixture
+def saved(tmp_path):
+    """A synthetic results directory, runner table and registry."""
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    import liveview
+    from runners import Runner
+
+    results = tmp_path / "results"
+    results.mkdir()
+    _stream(4).to_csv(results / "tom_x_stop_slip1.csv", index=False)
+    _stream(5).to_csv(results / "tom_x_stop_slip1_nohalt.csv", index=False)
+    pd.DataFrame({"test_year": [2020, 2021], "test_net_pnl": [5.0, float("nan")]}).to_csv(
+        results / "tom_x_folds.csv", index=False)
+    _stream(3).to_csv(results / "gen_x_trades.csv", index=False)
+    pd.DataFrame({"test_year": [2020], "test_net_pnl": [1.0]}).to_csv(
+        results / "gen_x_folds.csv", index=False)
+    _stream(2).to_csv(results / "nofolds_stream.csv", index=False)
+
+    table = {
+        "tom_x": Runner(1, 4, None, "tom_x_folds.csv", "tom_x_stop_slip1.csv",
+                        note="entry 11 stop arm, 1 tick, halt ON"),
+        "nofolds": Runner(1, 4, None, None, "nofolds_stream.csv", note="no fold table"),
+        "absent": Runner(1, 1, None, "absent_folds.csv", "absent_stream.csv", note="regenerable"),
+    }
+    rec = lambda n, e, s: SimpleNamespace(name=n, hypothesis_entry=e, status=s,  # noqa: E731
+                                          verdict_commit="abc1234", class_path=None)
+    registry = FakeRegistry({
+        "tom_x": rec("tom_x", 11, "rejected"),
+        "gen_x": rec("gen_x", 9, "rejected"),
+        "nofolds": rec("nofolds", 5, "rejected"),
+        "absent": rec("absent", 2, "rejected"),
+        "manual": rec("manual", 3, "proposed"),
+    })
+    app = liveview.build_app(tmp_path / "live", results=results, table=table,
+                             registry_loader=lambda: registry)
+    return TestClient(app)
+
+
+class TestSaved:
+    def test_lists_every_registry_name_with_status_and_files(self, saved):
+        rows = {r["name"]: r for r in saved.get("/saved").json()}
+        assert rows["tom_x"]["entry"] == 11
+        assert rows["tom_x"]["status"] == "rejected"
+        assert rows["tom_x"]["note"] == "entry 11 stop arm, 1 tick, halt ON"
+        assert rows["tom_x"]["trades_file"] == "tom_x_stop_slip1.csv"
+        assert rows["tom_x"]["folds_file"] == "tom_x_folds.csv"
+        assert rows["tom_x"]["has_comparable"] is True
+        assert rows["tom_x"]["available"] is True
+        assert rows["tom_x"]["produced"]
+
+    def test_generated_strategies_follow_the_fixed_naming(self, saved):
+        rows = {r["name"]: r for r in saved.get("/saved").json()}
+        assert rows["gen_x"]["trades_file"] == "gen_x_trades.csv"
+        assert rows["gen_x"]["folds_file"] == "gen_x_folds.csv"
+        assert rows["gen_x"]["has_comparable"] is False
+        assert rows["gen_x"]["available"] is True
+
+    def test_missing_files_are_listed_as_unavailable_not_hidden(self, saved):
+        rows = {r["name"]: r for r in saved.get("/saved").json()}
+        assert rows["absent"]["available"] is False
+        assert rows["absent"]["produced"] is None
+        assert rows["manual"]["available"] is False
+        assert rows["manual"]["trades_file"] is None
+
+    def test_trades_are_cumulative_and_the_comparable_sibling_is_served(self, saved):
+        std = saved.get("/saved/tom_x/trades").json()
+        assert [p["cum_pnl"] for p in std] == [10.0, 5.0, 25.0, 22.5]
+        cmp_ = saved.get("/saved/tom_x/trades", params={"basis": "comparable"}).json()
+        assert len(cmp_) == 5
+        assert saved.get("/saved/gen_x/trades", params={"basis": "comparable"}).json() == []
+
+    def test_folds_with_nan_render_as_null(self, saved):
+        assert saved.get("/saved/tom_x/folds").json() == [
+            {"test_year": 2020, "test_net_pnl": 5.0}, {"test_year": 2021, "test_net_pnl": None}]
+
+    def test_no_fold_table_is_empty_not_an_error(self, saved):
+        assert saved.get("/saved/nofolds/folds").json() == []
+        assert len(saved.get("/saved/nofolds/trades").json()) == 2
+
+    def test_absent_files_read_as_empty(self, saved):
+        assert saved.get("/saved/absent/trades").json() == []
+        assert saved.get("/saved/absent/folds").json() == []
+
+    @pytest.mark.parametrize("bad", ["nope", "../tom_x", "TOM_X", "tom_x_stop_slip1.csv"])
+    def test_unknown_names_are_404(self, saved, bad):
+        assert saved.get(f"/saved/{bad}/trades").status_code == 404
+        assert saved.get(f"/saved/{bad}/folds").status_code == 404
+
+    def test_bad_basis_is_404(self, saved):
+        assert saved.get("/saved/tom_x/trades", params={"basis": "../x"}).status_code == 404
+        assert saved.get("/saved/tom_x/trades", params={"basis": "other"}).status_code == 404
+
+    def test_page_offers_the_saved_group(self, saved):
+        assert "saved verdicts" in saved.get("/").text.lower()
+
+    def test_everything_is_still_get_only(self, saved):
+        for path in ("/saved", "/saved/tom_x/trades", "/saved/tom_x/folds"):
+            assert saved.post(path).status_code == 405

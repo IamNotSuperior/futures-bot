@@ -224,12 +224,12 @@ def list_runs(directory: Path = LIVE_DIR) -> list[dict]:
     return runs
 
 
-def read_trades(name: str, basis: str = "standard", directory: Path = LIVE_DIR) -> list[dict]:
-    """Cumulative net P&L in exit order, one point per trade."""
-    path = _resolve(f"{_validate(name)}_{_validate(basis)}", directory, "_trades.csv")
-    if not path.exists():
-        return []
-    frame = pd.read_csv(path)
+def frame_points(frame: pd.DataFrame) -> list[dict]:
+    """Cumulative net P&L in exit order, one JSON-safe point per trade.
+
+    Shared by the live reader and the viewer's saved-verdict reader so an
+    equity curve means the same thing wherever it came from.
+    """
     if frame.empty:
         return []
     if "exit_time" in frame.columns:
@@ -247,9 +247,21 @@ def read_trades(name: str, basis: str = "standard", directory: Path = LIVE_DIR) 
     ]
 
 
+def frame_rows(frame: pd.DataFrame) -> list[dict]:
+    """A table as JSON-safe records: numpy unwrapped, NaN to None."""
+    return [{k: _plain(v) for k, v in r.items()} for r in frame.to_dict(orient="records")]
+
+
+def read_trades(name: str, basis: str = "standard", directory: Path = LIVE_DIR) -> list[dict]:
+    """Cumulative net P&L in exit order, one point per trade."""
+    path = _resolve(f"{_validate(name)}_{_validate(basis)}", directory, "_trades.csv")
+    if not path.exists():
+        return []
+    return frame_points(pd.read_csv(path))
+
+
 def read_folds(name: str, directory: Path = LIVE_DIR) -> list[dict]:
     path = _resolve(f"{_validate(name)}_folds", directory, ".csv")
     if not path.exists():
         return []
-    frame = pd.read_csv(path)
-    return [{k: _plain(v) for k, v in r.items()} for r in frame.to_dict(orient="records")]
+    return frame_rows(pd.read_csv(path))

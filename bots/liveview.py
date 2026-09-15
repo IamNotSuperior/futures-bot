@@ -27,22 +27,116 @@ for _folder in ("backtests",):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from datetime import datetime  # noqa: E402
+
+import pandas as pd  # noqa: E402
 from fastapi import FastAPI, HTTPException, Query  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse  # noqa: E402
 
 import live  # noqa: E402
+import runners  # noqa: E402  (its table of saved files only; nothing here runs)
 
 DEFAULT_HOST = "127.0.0.1"
 #: The desk feed binds 8787; this stays clear of it.
 DEFAULT_PORT = 8790
 
+SAVED_BASES = ("standard", "comparable")
 
-def build_app(directory: Path | None = None) -> FastAPI:
+
+def _sibling(results: Path, filename: str | None) -> str | None:
+    """The halt-OFF stream saved beside a guarded one, when there is one."""
+    if not filename or not filename.endswith(".csv"):
+        return None
+    candidate = filename[:-4] + "_nohalt.csv"
+    return candidate if (results / candidate).exists() else None
+
+
+def saved_catalogue(results: Path, table: dict, registry) -> list[dict]:
+    """Every registry name with the saved files its verdict quotes.
+
+    Names in ``runners.RUNNERS`` use that table's files and note; anything
+    else follows the generated runner's fixed naming. A name whose files are
+    missing is listed as unavailable rather than hidden, so a regenerable
+    result reads as "not on disk" instead of "never existed".
+    """
+    rows: list[dict] = []
+    for name in registry.names():
+        record = registry.get(name)
+        if name in table:
+            runner = table[name]
+            trades, folds, note = runner.oos_csv, runner.walkforward_csv, runner.note
+        else:
+            trades = f"{name}_trades.csv" if (results / f"{name}_trades.csv").exists() else None
+            folds = f"{name}_folds.csv" if (results / f"{name}_folds.csv").exists() else None
+            note = "generated strategy; the verdict's guarded stream at the base case" if trades else ""
+        path = results / trades if trades else None
+        available = bool(path is not None and path.exists())
+        produced = (datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="minutes")
+                    if available else None)
+        rows.append({
+            "name": name,
+            "entry": record.hypothesis_entry,
+            "status": record.status,
+            "note": note or "",
+            "trades_file": trades,
+            "folds_file": folds if (folds and (results / folds).exists()) else None,
+            "has_comparable": _sibling(results, trades) is not None,
+            "available": available,
+            "produced": produced,
+        })
+    return rows
+
+
+def _read_results_csv(results: Path, filename: str | None) -> pd.DataFrame | None:
+    """A CSV from the results directory and nowhere else."""
+    if not filename:
+        return None
+    results = results.resolve()
+    path = (results / filename).resolve()
+    if path.parent != results or not path.exists():
+        return None
+    return pd.read_csv(path)
+
+
+def build_app(directory: Path | None = None, results: Path | None = None,
+              table: dict | None = None, registry_loader=None) -> FastAPI:
     app = FastAPI(title="live backtest view", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.directory = Path(directory) if directory is not None else live.LIVE_DIR
+    app.state.results = Path(results) if results is not None else runners.RESULTS
+    app.state.table = table if table is not None else runners.RUNNERS
+    app.state.registry_loader = registry_loader if registry_loader is not None else runners.registry
 
     def _dir() -> Path:
         return app.state.directory
+
+    def _catalogue() -> dict[str, dict]:
+        rows = saved_catalogue(app.state.results, app.state.table, app.state.registry_loader())
+        return {r["name"]: r for r in rows}
+
+    def _saved(name: str) -> dict:
+        entry = _catalogue().get(name)
+        if entry is None:
+            raise HTTPException(status_code=404)
+        return entry
+
+    @app.get("/saved")
+    def saved() -> list[dict]:
+        return list(_catalogue().values())
+
+    @app.get("/saved/{name}/trades")
+    def saved_trades(name: str, basis: str = "standard") -> JSONResponse:
+        entry = _saved(name)
+        if basis not in SAVED_BASES:
+            raise HTTPException(status_code=404)
+        filename = entry["trades_file"] if basis == "standard" else _sibling(app.state.results, entry["trades_file"])
+        frame = _read_results_csv(app.state.results, filename)
+        return JSONResponse([] if frame is None else live.frame_points(frame))
+
+    @app.get("/saved/{name}/folds")
+    def saved_folds(name: str) -> JSONResponse:
+        entry = _saved(name)
+        frame = _read_results_csv(app.state.results, entry["folds_file"])
+        return JSONResponse([] if frame is None else live.frame_rows(frame))
 
     @app.get("/", response_class=HTMLResponse)
     def page() -> str:
@@ -149,7 +243,7 @@ PAGE = r"""<!doctype html>
 <header>
   <h1>Live backtest view</h1>
   <select id="runs" aria-label="run"></select>
-  <span class="note">read-only &middot; follows <code>backtests/results/live/</code> &middot; polls once a second</span>
+  <span class="note">read-only &middot; live runs from <code>backtests/results/live/</code>, saved verdicts from <code>backtests/results/</code> &middot; polls once a second</span>
 </header>
 <main>
   <section id="banner">
@@ -179,7 +273,8 @@ PAGE = r"""<!doctype html>
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const state = { run: null, cursor: 0, events: [], basis: "standard", have: {}, drawn: null, anim: null };
+  const state = { run: null, saved: null, cursor: 0, events: [], basis: "standard", have: {}, drawn: null, anim: null, started: null };
+  const base = () => state.saved ? "/saved/" + state.run : "/runs/" + state.run;
 
   function fmtMoney(x) { const s = (x < 0 ? "-" : "") + "$" + Math.abs(x).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); return s; }
   function secs(a, b) { const d = (new Date(b) - new Date(a)) / 1000; return isFinite(d) ? d : 0; }
@@ -187,39 +282,85 @@ PAGE = r"""<!doctype html>
 
   async function getJSON(url) { const r = await fetch(url, {cache: "no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); }
 
+  let savedRows = [];
+
   async function refreshRuns() {
-    let runs;
-    try { runs = await getJSON("/runs"); } catch (e) { return; }  // server away; try again next tick
+    let runs, saved;
+    try { [runs, saved] = await Promise.all([getJSON("/runs"), getJSON("/saved")]); }
+    catch (e) { return; }  // server away; try again next tick
+    savedRows = saved;
     const sel = $("runs");
-    const current = state.run;
+    const current = sel.value;
     sel.innerHTML = "";
-    if (!runs.length) { const o = document.createElement("option"); o.textContent = "(no live runs yet)"; sel.appendChild(o); return; }
+    const live = document.createElement("optgroup"); live.label = "live runs";
+    if (!runs.length) { const o = document.createElement("option"); o.disabled = true; o.textContent = "(no live runs yet)"; live.appendChild(o); }
     for (const r of runs) {
       const o = document.createElement("option");
       o.value = r.name; o.textContent = r.name + " · " + r.status + " · " + r.runner;
-      sel.appendChild(o);
+      live.appendChild(o);
     }
-    if (!current || !runs.some(r => r.name === current)) {
+    sel.appendChild(live);
+    const group = document.createElement("optgroup"); group.label = "saved verdicts";
+    for (const s of saved) {
+      const o = document.createElement("option");
+      o.value = "saved:" + s.name;
+      o.textContent = s.name + " · entry " + s.entry + " · " + s.status + (s.available ? "" : " · not on disk");
+      o.disabled = !s.available;
+      group.appendChild(o);
+    }
+    sel.appendChild(group);
+    const values = Array.from(sel.options).filter(o => !o.disabled).map(o => o.value);
+    if (!current || !values.includes(current)) {
       const running = runs.find(r => r.status === "running");
-      selectRun((running || runs[0]).name);
+      const first = running ? running.name : runs.length ? runs[0].name
+                  : values.find(v => v.startsWith("saved:"));
+      if (first) selectRun(first);
     } else {
       sel.value = current;
     }
   }
 
-  function selectRun(name) {
+  function selectRun(value) {
     if (state.anim) cancelAnimationFrame(state.anim);
+    const isSaved = value.startsWith("saved:");
+    const name = isSaved ? value.slice(6) : value;
     state.run = name; state.cursor = 0; state.events = []; state.have = {}; state.drawn = null; state.started = null;
-    $("runs").value = name;
+    state.saved = isSaved ? (savedRows.find(s => s.name === name) || {name}) : null;
+    $("runs").value = value;
     $("stages").innerHTML = "";
     $("equity").innerHTML = "";
     $("eqsum").textContent = "";
     $("folds").innerHTML = "<tbody><tr><td class='empty'>No fold table yet.</td></tr></tbody>";
-    poll();
+    if (isSaved) renderSaved(); else poll();
+  }
+
+  function renderSaved() {
+    const s = state.saved;
+    const st = $("status");
+    st.className = "pill";
+    st.textContent = (s.status || "saved").toUpperCase();
+    st.classList.add(/accepted|paper|live/.test(s.status) ? "good" : /rejected/.test(s.status) ? "bad" : "warn");
+    $("runner").textContent = "entry " + s.entry + (s.note ? " · " + s.note : "");
+    $("started").textContent = s.produced ? "saved result, produced " + s.produced : "saved result";
+    const list = $("stages");
+    list.innerHTML = "";
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "No stages: this is a finished verdict read from " + (s.trades_file || "no stream") +
+      (s.folds_file ? " and " + s.folds_file : " (no fold table saved)") + ". Nothing is running.";
+    list.appendChild(li);
+    state.have = { standard: !!s.available, comparable: !!s.has_comparable };
+    for (const b of ["standard", "comparable"]) {
+      $("b-" + b).disabled = !state.have[b];
+      $("b-" + b).style.opacity = state.have[b] ? 1 : .5;
+    }
+    if (!state.have[state.basis]) { state.basis = "standard"; $("b-standard").classList.add("on"); $("b-comparable").classList.remove("on"); }
+    loadTrades();
+    loadFolds();
   }
 
   async function poll() {
-    if (!state.run) return;
+    if (!state.run || state.saved) return;
     let out;
     try { out = await getJSON("/runs/" + state.run + "/events?after=" + state.cursor); }
     catch (e) { return; }
@@ -283,7 +424,7 @@ PAGE = r"""<!doctype html>
 
   async function loadTrades() {
     let pts;
-    try { pts = await getJSON("/runs/" + state.run + "/trades?basis=" + state.basis); } catch (e) { return; }
+    try { pts = await getJSON(base() + "/trades?basis=" + state.basis); } catch (e) { return; }
     draw(pts);
   }
 
@@ -337,7 +478,7 @@ PAGE = r"""<!doctype html>
 
   async function loadFolds() {
     let rows;
-    try { rows = await getJSON("/runs/" + state.run + "/folds"); } catch (e) { return; }
+    try { rows = await getJSON(base() + "/folds"); } catch (e) { return; }
     const table = $("folds");
     if (!rows.length) return;
     const cols = Object.keys(rows[0]);
@@ -367,7 +508,7 @@ PAGE = r"""<!doctype html>
   refreshRuns();
   setInterval(refreshRuns, 5000);
   setInterval(poll, 1000);
-  setInterval(() => { if (state.events.length && state.events[state.events.length - 1].event === "stage") render(); }, 1000);
+  setInterval(() => { if (!state.saved && state.events.length && state.events[state.events.length - 1].event === "stage") render(); }, 1000);
 })();
 </script>
 </body>

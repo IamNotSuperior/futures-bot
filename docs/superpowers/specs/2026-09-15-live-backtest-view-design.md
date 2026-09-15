@@ -136,6 +136,18 @@ in the desktop app's browser pane. The handoff's §7 gets the command line.
 ## Out of scope, named
 
 - Entry 1's hour-long fold loop in `backtests/walkforward.py`.
-- Replaying finished runs from `backtests/results/<name>_trades.csv`
-  (nearly free once the viewer exists; seeds a results dashboard).
 - Any control that starts, stops or parameterises a run.
+
+## Addendum, 2026-09-15 — saved verdicts
+
+Built the same day, after the live view landed. The page's picker gains a
+"saved verdicts" group listing every registry name; three `GET` routes under
+`/saved` serve the catalogue, the verdict's stream (and its `_nohalt`
+sibling as the comparable basis) and its fold table. The name-to-file
+mapping is `runners.RUNNERS`, the table the bot's `/walkforward` and
+`/evalsim` already read, plus the generated runner's fixed naming, so the
+page shows the arm and cost level each verdict quotes and nothing else. The
+viewer imports that table and calls no runner function, by test. Names whose
+files are absent are listed as unavailable. `live.frame_points` and
+`live.frame_rows` are the shared readers behind both the live and saved
+paths.

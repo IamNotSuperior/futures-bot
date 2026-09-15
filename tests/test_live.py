@@ -245,6 +245,15 @@ class TestReaders:
         assert live.read_trades("nothing", basis="standard", directory=tmp_path) == []
         assert live.read_folds("nothing", directory=tmp_path) == []
 
+    def test_frame_points_is_the_shared_cumulative_reader(self):
+        pts = live.frame_points(trades_frame(3))
+        assert [p["cum_pnl"] for p in pts] == [10.0, 5.0, 25.0]
+        assert live.frame_points(pd.DataFrame({"net_pnl": []})) == []
+
+    def test_frame_rows_is_the_shared_json_safe_reader(self):
+        rows = live.frame_rows(pd.DataFrame({"a": [1, float("nan")], "b": [True, False]}))
+        assert rows == [{"a": 1.0, "b": True}, {"a": None, "b": False}]
+
     def test_default_directory_is_under_results(self):
         assert live.LIVE_DIR.parent.name == "results"
         assert live.LIVE_DIR.name == "live"
